@@ -1,0 +1,51 @@
+﻿  Source.cpp
+c:\program files (x86)\windows kits\8.1\include\shared\minwindef.h(130): warning C4005: 'APIENTRY': macro redefinition
+  c:\users\imper\documents\visual studio 2015\projects\city builder\dependencies\glfw\glfw3.h(104): note: see previous definition of 'APIENTRY'
+c:\users\imper\documents\visual studio 2015\projects\city builder\city builder\source.cpp(158): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
+c:\users\imper\documents\visual studio 2015\projects\city builder\city builder\source.cpp(167): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
+c:\users\imper\documents\visual studio 2015\projects\city builder\city builder\source.cpp(344): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+c:\users\imper\documents\visual studio 2015\projects\city builder\city builder\source.cpp(345): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+c:\users\imper\documents\visual studio 2015\projects\city builder\city builder\source.cpp(347): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+c:\users\imper\documents\visual studio 2015\projects\city builder\city builder\source.cpp(348): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+c:\users\imper\documents\visual studio 2015\projects\city builder\city builder\source.cpp(350): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+c:\users\imper\documents\visual studio 2015\projects\city builder\city builder\source.cpp(351): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+c:\users\imper\documents\visual studio 2015\projects\city builder\city builder\source.cpp(356): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+c:\users\imper\documents\visual studio 2015\projects\city builder\city builder\source.cpp(357): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+c:\users\imper\documents\visual studio 2015\projects\city builder\city builder\source.cpp(362): warning C4244: '=': conversion from 'long' to 'float', possible loss of data
+c:\users\imper\documents\visual studio 2015\projects\city builder\city builder\source.cpp(363): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+c:\users\imper\documents\visual studio 2015\projects\city builder\city builder\source.cpp(364): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+c:\users\imper\documents\visual studio 2015\projects\city builder\city builder\source.cpp(409): warning C4244: 'argument': conversion from 'time_t' to 'unsigned int', possible loss of data
+Source.obj : error LNK2019: unresolved external symbol __imp__glewInit@0 referenced in function "void __cdecl startwindow(void)" (?startwindow@@YAXXZ)
+Source.obj : error LNK2019: unresolved external symbol _glfwInit referenced in function "void __cdecl startwindow(void)" (?startwindow@@YAXXZ)
+Source.obj : error LNK2019: unresolved external symbol _glfwTerminate referenced in function "void __cdecl startwindow(void)" (?startwindow@@YAXXZ)
+Source.obj : error LNK2019: unresolved external symbol _glfwWindowHint referenced in function "void __cdecl startwindow(void)" (?startwindow@@YAXXZ)
+Source.obj : error LNK2019: unresolved external symbol _glfwCreateWindow referenced in function "void __cdecl startwindow(void)" (?startwindow@@YAXXZ)
+Source.obj : error LNK2019: unresolved external symbol _glfwWindowShouldClose referenced in function "void __cdecl startwindow(void)" (?startwindow@@YAXXZ)
+Source.obj : error LNK2019: unresolved external symbol _glfwPollEvents referenced in function "void __cdecl startwindow(void)" (?startwindow@@YAXXZ)
+Source.obj : error LNK2019: unresolved external symbol _glfwMakeContextCurrent referenced in function "void __cdecl startwindow(void)" (?startwindow@@YAXXZ)
+Source.obj : error LNK2019: unresolved external symbol _glfwSwapBuffers referenced in function "void __cdecl startwindow(void)" (?startwindow@@YAXXZ)
+Source.obj : error LNK2019: unresolved external symbol _glfwSwapInterval referenced in function "void __cdecl startwindow(void)" (?startwindow@@YAXXZ)
+Source.obj : error LNK2001: unresolved external symbol __imp____glewBindBuffer
+Source.obj : error LNK2001: unresolved external symbol __imp____glewBufferData
+Source.obj : error LNK2001: unresolved external symbol __imp____glewGenBuffers
+Source.obj : error LNK2001: unresolved external symbol __imp____glewAttachShader
+Source.obj : error LNK2001: unresolved external symbol __imp____glewCompileShader
+Source.obj : error LNK2001: unresolved external symbol __imp____glewCreateProgram
+Source.obj : error LNK2001: unresolved external symbol __imp____glewCreateShader
+Source.obj : error LNK2001: unresolved external symbol __imp____glewDeleteProgram
+Source.obj : error LNK2001: unresolved external symbol __imp____glewDeleteShader
+Source.obj : error LNK2001: unresolved external symbol __imp____glewEnableVertexAttribArray
+Source.obj : error LNK2001: unresolved external symbol __imp____glewGetShaderInfoLog
+Source.obj : error LNK2001: unresolved external symbol __imp____glewGetShaderiv
+Source.obj : error LNK2001: unresolved external symbol __imp____glewGetUniformLocation
+Source.obj : error LNK2001: unresolved external symbol __imp____glewLinkProgram
+Source.obj : error LNK2001: unresolved external symbol __imp____glewShaderSource
+Source.obj : error LNK2001: unresolved external symbol __imp____glewUniform4f
+Source.obj : error LNK2001: unresolved external symbol __imp____glewUseProgram
+Source.obj : error LNK2001: unresolved external symbol __imp____glewValidateProgram
+Source.obj : error LNK2001: unresolved external symbol __imp____glewVertexAttribPointer
+Source.obj : error LNK2001: unresolved external symbol __imp____glewBindVertexArray
+Source.obj : error LNK2001: unresolved external symbol __imp____glewGenVertexArrays
+C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\Linker\glew32.lib : warning LNK4272: library machine type 'x64' conflicts with target machine type 'X86'
+C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\Linker\glfw3.lib : warning LNK4272: library machine type 'x64' conflicts with target machine type 'X86'
+C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\Debug\City Builder.exe : fatal error LNK1120: 31 unresolved externals
