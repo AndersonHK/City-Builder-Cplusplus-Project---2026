@@ -34,6 +34,11 @@ Primary design goals:
 - Rendering should read only committed world state, never mutable simulation buffers.
 - `fast_forward` is allowed to let simulation outrun presentation; if disabled, simulation may wait for the renderer to catch up.
 
+## Performance checkpoint
+- After the architecture refactor to chunked tile simulation, separate renderer ownership, and `x64 Release`, observed simulation throughput improved from roughly `900` updates/sec to roughly `1800` updates/sec on the user's machine.
+- That is a meaningful gain, but it also shows the original prototype held up better than expected for novice-era code.
+- Observed CPU utilization was still high, around the `80%` range, which suggests the simulation is not purely memory-starved and likely still has meaningful CPU-side optimization headroom.
+
 ## Guardrails
 - Do not drift into object-heavy "simulate everything literally" design just because modern hardware allows more brute force.
 - Do not let graphics ambition erase the clarity and scalability of the tile-statistical core.
