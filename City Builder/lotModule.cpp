@@ -1,10 +1,15 @@
-#pragma once
-#include "lotModule.h"
+#include "LotModule.h"
 
-lotModule::lotModule(int sizeX, int sizeY, int setAirPollutionEmit, int setLandValueEmit)
-{
-	x = sizeX;
-	y = sizeY;
-	airPollutionEmit = setAirPollutionEmit;
-	landValueEmit = setLandValueEmit;
+LotModule::LotModule()
+    : width(1),
+      height(1),
+      airPollutionEmit(0),
+      landValueEmit(0) {
+}
+
+LotModule::LotModule(int widthInTiles, int heightInTiles, int airPollutionOutput, int landValueOutput)
+    : width(widthInTiles),
+      height(heightInTiles),
+      airPollutionEmit(airPollutionOutput),
+      landValueEmit(landValueOutput) {
 }
