@@ -1,0 +1,66 @@
+#include "Lot.h"
+
+Lot::Lot()
+    : renderOriginX_(0),
+      renderOriginY_(0),
+      footprintWidth_(1),
+      footprintHeight_(1),
+      airPollutionEmit_(0),
+      landValueEmit_(0) {
+}
+
+Lot::Lot(int clickedTileX, int clickedTileY, const LotDefinition& definition, int mapWidth)
+    : renderOriginX_(clickedTileX + definition.renderOriginOffsetX),
+      renderOriginY_(clickedTileY + definition.renderOriginOffsetY),
+      footprintWidth_(definition.footprintWidth),
+      footprintHeight_(definition.footprintHeight),
+      airPollutionEmit_(0),
+      landValueEmit_(0) {
+    std::size_t offsetIndex = 0;
+    for (; offsetIndex < definition.occupiedOffsets.size(); ++offsetIndex) {
+        const Int2& occupiedOffset = definition.occupiedOffsets[offsetIndex];
+        const int tileX = clickedTileX + occupiedOffset.x;
+        const int tileY = clickedTileY + occupiedOffset.y;
+        occupiedTileIndices_.push_back((tileY * mapWidth) + tileX);
+    }
+
+    for (offsetIndex = 0; offsetIndex < definition.modules.size(); ++offsetIndex) {
+        const LotModule* module = definition.modules[offsetIndex];
+        if (module == 0) {
+            continue;
+        }
+
+        airPollutionEmit_ += module->airPollutionEmit;
+        landValueEmit_ += module->landValueEmit;
+    }
+}
+
+void Lot::applyEffects(std::vector<Tile>& tiles) const {
+    if (occupiedTileIndices_.empty()) {
+        return;
+    }
+
+    const int tileCount = static_cast<int>(occupiedTileIndices_.size());
+    const int pollutionPerTile = airPollutionEmit_ / tileCount;
+    const int landValuePerTile = landValueEmit_ / tileCount;
+
+    std::size_t tileIndex = 0;
+    for (; tileIndex < occupiedTileIndices_.size(); ++tileIndex) {
+        Tile& tile = tiles[occupiedTileIndices_[tileIndex]];
+        tile.airPollution += pollutionPerTile;
+        tile.landValue += landValuePerTile;
+    }
+}
+
+const std::vector<int>& Lot::occupiedTileIndices() const {
+    return occupiedTileIndices_;
+}
+
+LotRenderInstance Lot::buildRenderInstance() const {
+    LotRenderInstance renderInstance;
+    renderInstance.originX = renderOriginX_;
+    renderInstance.originY = renderOriginY_;
+    renderInstance.width = footprintWidth_;
+    renderInstance.height = footprintHeight_;
+    return renderInstance;
+}
