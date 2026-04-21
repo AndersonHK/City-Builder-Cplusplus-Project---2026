@@ -25,12 +25,20 @@ struct LotRenderInstance {
     int originY;
     int width;
     int height;
+    float renderHeight;
+    float colorR;
+    float colorG;
+    float colorB;
 
     LotRenderInstance()
         : originX(0),
           originY(0),
           width(1),
-          height(1) {
+          height(1),
+          renderHeight(0.5f),
+          colorR(0.4f),
+          colorG(0.4f),
+          colorB(0.4f) {
     }
 };
 
@@ -67,4 +75,8 @@ private:
     int footprintHeight_;
     int airPollutionEmit_;
     int landValueEmit_;
+    float renderHeight_;
+    float colorR_;
+    float colorG_;
+    float colorB_;
 };

@@ -1,6 +1,6 @@
 # Codex long-term working memory
 
-Snapshot: 2026-04-08
+Snapshot: 2026-04-21
 
 ## Project identity
 This project is a modern heir to SC2000 and SC4 built around tile-based statistical simulation rather than full real-time object truth.
@@ -34,10 +34,50 @@ Primary design goals:
 - Rendering should read only committed world state, never mutable simulation buffers.
 - `fast_forward` is allowed to let simulation outrun presentation; if disabled, simulation may wait for the renderer to catch up.
 
+## Next renderer doctrine
+- The next renderer milestone should move from CPU-built screen-space quads toward world-space camera projection and chunked instance rendering.
+- The shortest path is:
+  - add a real camera with view/projection matrices
+  - keep camera motion constrained at first rather than free-fly
+  - render chunk-local instance buffers instead of rebuilding visible tile quad vertices every frame
+  - rebuild chunk render data only when a chunk is dirty
+  - frustum-cull chunks before drawing
+- The renderer should transition to proper 3D in stages:
+  - world-space projected tiles/lots first
+  - instanced simple prisms/boxes next
+  - richer terrain/building meshes later
+- Do not jump directly to final art or complex meshes before chunked instance rendering exists, because zoomed-out performance will remain dominated by CPU-side geometry generation otherwise.
+
 ## Performance checkpoint
 - After the architecture refactor to chunked tile simulation, separate renderer ownership, and `x64 Release`, observed simulation throughput improved from roughly `900` updates/sec to roughly `1800` updates/sec on the user's machine.
 - That is a meaningful gain, but it also shows the original prototype held up better than expected for novice-era code.
 - Observed CPU utilization was still high, around the `80%` range, which suggests the simulation is not purely memory-starved and likely still has meaningful CPU-side optimization headroom.
+
+## Next optimization doctrine
+- Before deeper optimization, add per-pass timing for:
+  - neighbor pass
+  - local pass
+  - lot effects
+  - command apply
+  - publish/snapshot path
+  - renderer frame time
+- The current lowest-hanging simulation fruit is likely control-flow overhead rather than pure arithmetic:
+  - mutex-heavy chunk dispatch
+  - `std::function` overhead in the worker hot path
+  - copying published lot render data every frame
+  - the write-buffer fallback spin/sleep path
+- Keep the tile-object model for now, but a future hot/cold field split is on the table if profiling shows the current tile layout leaving performance behind.
+- AVX2 is worth considering as an experiment, but it should use intrinsics rather than inline assembly on MSVC x64.
+- SIMD work should follow profiling and probably target row-wise contiguous updates first, not blind hand-vectorization of everything.
+
+## Compile/doctrine notes
+- Current release settings already include the important baseline optimization path.
+- If further CPU-side tuning is needed, `x64 Release` is the place to consider targeted flags such as AVX2 support, but only once the project is comfortable treating that instruction set as part of the machine baseline.
+- Prefer structural wins first:
+  - cheaper chunk scheduling
+  - cheaper published snapshot handling
+  - chunked renderer updates
+  - only then SIMD experiments
 
 ## Guardrails
 - Do not drift into object-heavy "simulate everything literally" design just because modern hardware allows more brute force.

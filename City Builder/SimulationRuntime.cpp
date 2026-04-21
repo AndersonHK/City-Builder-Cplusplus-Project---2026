@@ -6,11 +6,18 @@
 #include <iostream>
 #include <random>
 
+namespace {
+long long DurationMicros(const std::chrono::steady_clock::time_point& startTime, const std::chrono::steady_clock::time_point& endTime) {
+    return std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime).count();
+}
+}
+
 SimulationRuntime::SimulationRuntime(const RuntimeOptions& runtimeOptions)
     : simulationReadBufferIndex_(0),
       simulationWriteBufferIndex_(1),
       publishedBufferIndex_(0),
       publishedGeneration_(0),
+      lotsRevision_(0),
       smokeStackModule_(1, 1, 10000, -1000),
       parkModule_(2, 2, -4000, 10000),
       keepRunning_(false),
@@ -19,7 +26,16 @@ SimulationRuntime::SimulationRuntime(const RuntimeOptions& runtimeOptions)
       chunkTaskReady_(false),
       stopWorkerThreads_(false),
       chunkTaskGeneration_(0),
-      updatesPerSecond_(0) {
+      currentWorkerTask_(WorkerTaskType::None),
+      currentReadTiles_(0),
+      currentWriteTiles_(0),
+      updatesPerSecond_(0),
+      neighborPassMicros_(0),
+      commandPassMicros_(0),
+      lotEffectsMicros_(0),
+      localPassMicros_(0),
+      publishMicros_(0),
+      writeBufferWaitMicros_(0) {
     runtimeOptions_ = runtimeOptions;
 
     const unsigned int hardwareThreads = std::thread::hardware_concurrency();
@@ -47,9 +63,14 @@ SimulationRuntime::SimulationRuntime(const RuntimeOptions& runtimeOptions)
     parkDefinition_.modules.push_back(&parkModule_);
 
     tileBuffers_.resize(3);
+    const std::size_t totalTileCount = static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight);
+    const std::size_t chunkCount = chunkLayout_.size();
     int bufferIndex = 0;
     for (; bufferIndex < 3; ++bufferIndex) {
-        tileBuffers_[bufferIndex].tiles.resize(static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight));
+        tileBuffers_[bufferIndex].tiles.resize(totalTileCount);
+        tileBuffers_[bufferIndex].chunkRevisions.assign(chunkCount, 1);
+        tileBuffers_[bufferIndex].publishedLots.clear();
+        tileBuffers_[bufferIndex].lotRenderRevision = 0;
         bufferUseCounts_[bufferIndex].store(0);
     }
 
@@ -88,6 +109,12 @@ void SimulationRuntime::stop() {
     {
         std::lock_guard<std::mutex> renderLock(renderMutex_);
         renderCv_.notify_all();
+    }
+
+    {
+        std::lock_guard<std::mutex> workerLock(workerMutex_);
+        workerCv_.notify_all();
+        workerFinishedCv_.notify_all();
     }
 
     if (simulationThread_.joinable()) {
@@ -161,10 +188,12 @@ PublishedWorldSnapshot SimulationRuntime::acquirePublishedSnapshot() {
     std::lock_guard<std::mutex> publishedLock(publishedMutex_);
     snapshot.bufferIndex = publishedBufferIndex_;
     snapshot.tiles = &tileBuffers_[publishedBufferIndex_].tiles;
+    snapshot.lots = &tileBuffers_[publishedBufferIndex_].publishedLots;
+    snapshot.chunkRevisions = &tileBuffers_[publishedBufferIndex_].chunkRevisions;
     snapshot.width = kMapWidth;
     snapshot.height = kMapHeight;
-    snapshot.lots = publishedLots_;
     snapshot.generation = publishedGeneration_;
+    snapshot.lotRevision = tileBuffers_[publishedBufferIndex_].lotRenderRevision;
 
     if (snapshot.bufferIndex >= 0) {
         bufferUseCounts_[snapshot.bufferIndex].fetch_add(1);
@@ -205,6 +234,21 @@ const ChunkConfig& SimulationRuntime::chunkConfig() const {
     return chunkConfig_;
 }
 
+const std::vector<ChunkRect>& SimulationRuntime::chunkLayout() const {
+    return chunkLayout_;
+}
+
+RuntimeTimingSnapshot SimulationRuntime::timingSnapshot() const {
+    RuntimeTimingSnapshot snapshot;
+    snapshot.neighborPassMicros = neighborPassMicros_.load();
+    snapshot.commandPassMicros = commandPassMicros_.load();
+    snapshot.lotEffectsMicros = lotEffectsMicros_.load();
+    snapshot.localPassMicros = localPassMicros_.load();
+    snapshot.publishMicros = publishMicros_.load();
+    snapshot.writeBufferWaitMicros = writeBufferWaitMicros_.load();
+    return snapshot;
+}
+
 void SimulationRuntime::initializeWorld() {
     std::mt19937 randomEngine(static_cast<unsigned int>(std::time(0)));
     std::uniform_int_distribution<int> baseDistribution(0, 327670);
@@ -225,8 +269,14 @@ void SimulationRuntime::initializeWorld() {
     tileBuffers_[1].tiles = bootstrapBuffer;
     tileBuffers_[2].tiles = bootstrapBuffer;
 
+    int bufferIndex = 0;
+    for (; bufferIndex < 3; ++bufferIndex) {
+        tileBuffers_[bufferIndex].chunkRevisions.assign(chunkLayout_.size(), 1);
+        tileBuffers_[bufferIndex].publishedLots.clear();
+        tileBuffers_[bufferIndex].lotRenderRevision = 0;
+    }
+
     std::lock_guard<std::mutex> publishedLock(publishedMutex_);
-    publishedLots_.clear();
     publishedBufferIndex_ = simulationReadBufferIndex_;
     publishedGeneration_ = 0;
 }
@@ -236,14 +286,27 @@ void SimulationRuntime::simulationLoop() {
     std::chrono::steady_clock::time_point secondWindowStart = std::chrono::steady_clock::now();
 
     while (keepRunning_.load()) {
-        const std::vector<Tile>& readTiles = tileBuffers_[simulationReadBufferIndex_].tiles;
-        std::vector<Tile>& writeTiles = tileBuffers_[simulationWriteBufferIndex_].tiles;
+        copyChunkRevisionsForWriteBuffer();
 
-        runNeighborPass(readTiles, writeTiles);
-        applyQueuedCommands(writeTiles);
-        applyLotEffects(writeTiles);
-        runLocalTilePass(writeTiles);
+        const std::chrono::steady_clock::time_point neighborStart = std::chrono::steady_clock::now();
+        runNeighborPass(tileBuffers_[simulationReadBufferIndex_].tiles, tileBuffers_[simulationWriteBufferIndex_].tiles);
+        neighborPassMicros_.store(DurationMicros(neighborStart, std::chrono::steady_clock::now()));
+
+        const std::chrono::steady_clock::time_point commandStart = std::chrono::steady_clock::now();
+        applyQueuedCommands(tileBuffers_[simulationWriteBufferIndex_]);
+        commandPassMicros_.store(DurationMicros(commandStart, std::chrono::steady_clock::now()));
+
+        const std::chrono::steady_clock::time_point lotEffectsStart = std::chrono::steady_clock::now();
+        applyLotEffects(tileBuffers_[simulationWriteBufferIndex_].tiles);
+        lotEffectsMicros_.store(DurationMicros(lotEffectsStart, std::chrono::steady_clock::now()));
+
+        const std::chrono::steady_clock::time_point localStart = std::chrono::steady_clock::now();
+        runLocalTilePass(tileBuffers_[simulationWriteBufferIndex_].tiles);
+        localPassMicros_.store(DurationMicros(localStart, std::chrono::steady_clock::now()));
+
+        const std::chrono::steady_clock::time_point publishStart = std::chrono::steady_clock::now();
         publishCompletedBuffer();
+        publishMicros_.store(DurationMicros(publishStart, std::chrono::steady_clock::now()));
 
         ++updatesThisSecond;
         const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
@@ -281,6 +344,7 @@ void SimulationRuntime::stopWorkers() {
     }
 
     workerCv_.notify_all();
+    workerFinishedCv_.notify_all();
 
     std::size_t workerIndex = 0;
     for (; workerIndex < workerThreads_.size(); ++workerIndex) {
@@ -292,6 +356,7 @@ void SimulationRuntime::stopWorkers() {
     workerThreads_.clear();
     stopWorkerThreads_ = false;
     chunkTaskReady_ = false;
+    currentWorkerTask_ = WorkerTaskType::None;
 }
 
 void SimulationRuntime::workerMain() {
@@ -311,59 +376,41 @@ void SimulationRuntime::workerMain() {
             observedGeneration = chunkTaskGeneration_;
         }
 
-        for (;;) {
-            std::function<void(const ChunkRect&)> chunkTask;
-            ChunkRect chunkRect;
-
-            {
-                std::lock_guard<std::mutex> workerLock(workerMutex_);
-                if (nextChunkIndex_ >= chunkLayout_.size()) {
-                    if (workersRemaining_ > 0) {
-                        --workersRemaining_;
-                        if (workersRemaining_ == 0) {
-                            chunkTaskReady_ = false;
-                            workerFinishedCv_.notify_one();
-                        }
-                    }
-
-                    break;
-                }
-
-                chunkRect = chunkLayout_[nextChunkIndex_];
-                ++nextChunkIndex_;
-                chunkTask = currentChunkTask_;
-            }
-
-            if (chunkTask) {
-                chunkTask(chunkRect);
-            }
-        }
+        runPendingChunkTasks();
+        completeChunkTaskParticipant();
     }
 }
 
-void SimulationRuntime::parallelForEachChunk(const std::function<void(const ChunkRect&)>& chunkTask) {
+void SimulationRuntime::parallelForEachChunk(WorkerTaskType workerTask, const std::vector<Tile>* readTiles, std::vector<Tile>* writeTiles) {
     if (chunkLayout_.empty()) {
         return;
     }
 
     if (workerThreads_.empty()) {
-        std::size_t chunkIndex = 0;
-        for (; chunkIndex < chunkLayout_.size(); ++chunkIndex) {
-            chunkTask(chunkLayout_[chunkIndex]);
-        }
+        currentWorkerTask_ = workerTask;
+        currentReadTiles_ = readTiles;
+        currentWriteTiles_ = writeTiles;
+        nextChunkIndex_.store(0);
+        runPendingChunkTasks();
+        currentWorkerTask_ = WorkerTaskType::None;
         return;
     }
 
     {
         std::lock_guard<std::mutex> workerLock(workerMutex_);
-        currentChunkTask_ = chunkTask;
-        nextChunkIndex_ = 0;
-        workersRemaining_ = workerThreads_.size();
+        currentWorkerTask_ = workerTask;
+        currentReadTiles_ = readTiles;
+        currentWriteTiles_ = writeTiles;
+        nextChunkIndex_.store(0);
+        workersRemaining_.store(workerThreads_.size() + 1u);
         chunkTaskReady_ = true;
         ++chunkTaskGeneration_;
     }
 
     workerCv_.notify_all();
+
+    runPendingChunkTasks();
+    completeChunkTaskParticipant();
 
     std::unique_lock<std::mutex> workerLock(workerMutex_);
     workerFinishedCv_.wait(workerLock, [this]() {
@@ -371,53 +418,125 @@ void SimulationRuntime::parallelForEachChunk(const std::function<void(const Chun
     });
 }
 
-void SimulationRuntime::runNeighborPass(const std::vector<Tile>& readTiles, std::vector<Tile>& writeTiles) {
-    // Chunk sizing is derived from the Tile working set so this hot pass stays inside a declared cache budget.
-    parallelForEachChunk([this, &readTiles, &writeTiles](const ChunkRect& chunkRect) {
-        int tileY = chunkRect.startY;
-        for (; tileY < chunkRect.startY + chunkRect.height; ++tileY) {
-            int tileX = chunkRect.startX;
-            for (; tileX < chunkRect.startX + chunkRect.width; ++tileX) {
-                const int currentIndex = tileIndex(tileX, tileY);
-                const Tile& sourceTile = readTiles[currentIndex];
-
-                int airPollutionDelta = 0;
-                int landValueDelta = 0;
-
-                if (tileX < kMapWidth - 1) {
-                    const Tile& neighborTile = readTiles[tileIndex(tileX + 1, tileY)];
-                    airPollutionDelta += (neighborTile.airPollution - sourceTile.airPollution) / kPollutionSpreadRate;
-                    landValueDelta += (neighborTile.landValue - sourceTile.landValue) / kPollutionSpreadRate;
-                }
-
-                if (tileX > 0) {
-                    const Tile& neighborTile = readTiles[tileIndex(tileX - 1, tileY)];
-                    airPollutionDelta += (neighborTile.airPollution - sourceTile.airPollution) / kPollutionSpreadRate;
-                    landValueDelta += (neighborTile.landValue - sourceTile.landValue) / kPollutionSpreadRate;
-                }
-
-                if (tileY < kMapHeight - 1) {
-                    const Tile& neighborTile = readTiles[tileIndex(tileX, tileY + 1)];
-                    airPollutionDelta += (neighborTile.airPollution - sourceTile.airPollution) / kPollutionSpreadRate;
-                    landValueDelta += (neighborTile.landValue - sourceTile.landValue) / kPollutionSpreadRate;
-                }
-
-                if (tileY > 0) {
-                    const Tile& neighborTile = readTiles[tileIndex(tileX, tileY - 1)];
-                    airPollutionDelta += (neighborTile.airPollution - sourceTile.airPollution) / kPollutionSpreadRate;
-                    landValueDelta += (neighborTile.landValue - sourceTile.landValue) / kPollutionSpreadRate;
-                }
-
-                Tile nextTile = sourceTile;
-                nextTile.airPollution = sourceTile.airPollution + airPollutionDelta;
-                nextTile.landValue = sourceTile.landValue + landValueDelta;
-                writeTiles[currentIndex] = nextTile;
-            }
+void SimulationRuntime::runPendingChunkTasks() {
+    for (;;) {
+        const std::size_t chunkIndex = nextChunkIndex_.fetch_add(1);
+        if (chunkIndex >= chunkLayout_.size()) {
+            break;
         }
-    });
+
+        executeChunkTask(chunkLayout_[chunkIndex]);
+    }
 }
 
-void SimulationRuntime::applyQueuedCommands(std::vector<Tile>& writeTiles) {
+void SimulationRuntime::completeChunkTaskParticipant() {
+    if (workersRemaining_.fetch_sub(1) == 1u) {
+        std::lock_guard<std::mutex> workerLock(workerMutex_);
+        chunkTaskReady_ = false;
+        currentWorkerTask_ = WorkerTaskType::None;
+        currentReadTiles_ = 0;
+        currentWriteTiles_ = 0;
+        workerFinishedCv_.notify_one();
+    }
+}
+
+void SimulationRuntime::executeChunkTask(const ChunkRect& chunkRect) {
+    switch (currentWorkerTask_) {
+        case WorkerTaskType::NeighborPass:
+            runNeighborChunk(chunkRect);
+            break;
+
+        case WorkerTaskType::LocalPass:
+            runLocalChunk(chunkRect);
+            break;
+
+        case WorkerTaskType::None:
+            break;
+    }
+}
+
+void SimulationRuntime::runNeighborChunk(const ChunkRect& chunkRect) {
+    if (currentReadTiles_ == 0 || currentWriteTiles_ == 0) {
+        return;
+    }
+
+    const std::vector<Tile>& readTiles = *currentReadTiles_;
+    std::vector<Tile>& writeTiles = *currentWriteTiles_;
+
+    int tileY = chunkRect.startY;
+    for (; tileY < chunkRect.startY + chunkRect.height; ++tileY) {
+        int tileX = chunkRect.startX;
+        for (; tileX < chunkRect.startX + chunkRect.width; ++tileX) {
+            const int currentIndex = tileIndex(tileX, tileY);
+            const Tile& sourceTile = readTiles[currentIndex];
+
+            int airPollutionDelta = 0;
+            int landValueDelta = 0;
+
+            if (tileX < kMapWidth - 1) {
+                const Tile& neighborTile = readTiles[tileIndex(tileX + 1, tileY)];
+                airPollutionDelta += (neighborTile.airPollution - sourceTile.airPollution) / kPollutionSpreadRate;
+                landValueDelta += (neighborTile.landValue - sourceTile.landValue) / kPollutionSpreadRate;
+            }
+
+            if (tileX > 0) {
+                const Tile& neighborTile = readTiles[tileIndex(tileX - 1, tileY)];
+                airPollutionDelta += (neighborTile.airPollution - sourceTile.airPollution) / kPollutionSpreadRate;
+                landValueDelta += (neighborTile.landValue - sourceTile.landValue) / kPollutionSpreadRate;
+            }
+
+            if (tileY < kMapHeight - 1) {
+                const Tile& neighborTile = readTiles[tileIndex(tileX, tileY + 1)];
+                airPollutionDelta += (neighborTile.airPollution - sourceTile.airPollution) / kPollutionSpreadRate;
+                landValueDelta += (neighborTile.landValue - sourceTile.landValue) / kPollutionSpreadRate;
+            }
+
+            if (tileY > 0) {
+                const Tile& neighborTile = readTiles[tileIndex(tileX, tileY - 1)];
+                airPollutionDelta += (neighborTile.airPollution - sourceTile.airPollution) / kPollutionSpreadRate;
+                landValueDelta += (neighborTile.landValue - sourceTile.landValue) / kPollutionSpreadRate;
+            }
+
+            Tile nextTile = sourceTile;
+            nextTile.airPollution = sourceTile.airPollution + airPollutionDelta;
+            nextTile.landValue = sourceTile.landValue + landValueDelta;
+            writeTiles[currentIndex] = nextTile;
+        }
+    }
+}
+
+void SimulationRuntime::runLocalChunk(const ChunkRect& chunkRect) {
+    if (currentWriteTiles_ == 0) {
+        return;
+    }
+
+    std::vector<Tile>& writeTiles = *currentWriteTiles_;
+
+    int tileY = chunkRect.startY;
+    for (; tileY < chunkRect.startY + chunkRect.height; ++tileY) {
+        int tileX = chunkRect.startX;
+        for (; tileX < chunkRect.startX + chunkRect.width; ++tileX) {
+            Tile& tile = writeTiles[tileIndex(tileX, tileY)];
+            if (tile.airPollution < 1) {
+                tile.airPollution = 1;
+            }
+
+            tile.landValue -= tile.airPollution + 1;
+            if (tile.landValue < 1) {
+                tile.landValue = 0;
+            }
+
+            tile.airPollution -= 1;
+        }
+    }
+}
+
+void SimulationRuntime::runNeighborPass(const std::vector<Tile>& readTiles, std::vector<Tile>& writeTiles) {
+    // Chunk sizing is derived from the Tile working set so this hot pass stays inside a declared cache budget.
+    parallelForEachChunk(WorkerTaskType::NeighborPass, &readTiles, &writeTiles);
+}
+
+void SimulationRuntime::applyQueuedCommands(TileBuffer& writeBuffer) {
     std::deque<PlayerCommand> queuedCommands;
     {
         std::lock_guard<std::mutex> commandLock(commandMutex_);
@@ -434,15 +553,15 @@ void SimulationRuntime::applyQueuedCommands(std::vector<Tile>& writeTiles) {
 
         switch (playerCommand.type) {
             case PlayerCommandType::PaintPollution:
-                writeTiles[tileIndex(playerCommand.tileX, playerCommand.tileY)].airPollution = playerCommand.amount;
+                writeBuffer.tiles[tileIndex(playerCommand.tileX, playerCommand.tileY)].airPollution = playerCommand.amount;
                 break;
 
             case PlayerCommandType::PlaceSmokestack:
-                tryPlaceLot(smokeStackDefinition_, playerCommand.tileX, playerCommand.tileY, writeTiles);
+                tryPlaceLot(smokeStackDefinition_, playerCommand.tileX, playerCommand.tileY, writeBuffer);
                 break;
 
             case PlayerCommandType::PlacePark:
-                tryPlaceLot(parkDefinition_, playerCommand.tileX, playerCommand.tileY, writeTiles);
+                tryPlaceLot(parkDefinition_, playerCommand.tileX, playerCommand.tileY, writeBuffer);
                 break;
         }
     }
@@ -456,48 +575,41 @@ void SimulationRuntime::applyLotEffects(std::vector<Tile>& writeTiles) {
 }
 
 void SimulationRuntime::runLocalTilePass(std::vector<Tile>& writeTiles) {
-    parallelForEachChunk([this, &writeTiles](const ChunkRect& chunkRect) {
-        int tileY = chunkRect.startY;
-        for (; tileY < chunkRect.startY + chunkRect.height; ++tileY) {
-            int tileX = chunkRect.startX;
-            for (; tileX < chunkRect.startX + chunkRect.width; ++tileX) {
-                Tile& tile = writeTiles[tileIndex(tileX, tileY)];
-                if (tile.airPollution < 1) {
-                    tile.airPollution = 1;
-                }
-
-                tile.landValue -= tile.airPollution + 1;
-                if (tile.landValue < 1) {
-                    tile.landValue = 0;
-                }
-
-                tile.airPollution -= 1;
-            }
-        }
-    });
+    parallelForEachChunk(WorkerTaskType::LocalPass, 0, &writeTiles);
 }
 
 void SimulationRuntime::publishCompletedBuffer() {
     const int completedBufferIndex = simulationWriteBufferIndex_;
+    TileBuffer& completedBuffer = tileBuffers_[completedBufferIndex];
+    refreshPublishedLotSnapshot(completedBuffer);
 
     {
         std::lock_guard<std::mutex> publishedLock(publishedMutex_);
         publishedBufferIndex_ = completedBufferIndex;
         ++publishedGeneration_;
-
-        publishedLots_.clear();
-        publishedLots_.reserve(lots_.size());
-        std::size_t lotIndex = 0;
-        for (; lotIndex < lots_.size(); ++lotIndex) {
-            publishedLots_.push_back(lots_[lotIndex].buildRenderInstance());
-        }
     }
 
     simulationReadBufferIndex_ = completedBufferIndex;
     simulationWriteBufferIndex_ = chooseNextWriteBuffer();
 }
 
-int SimulationRuntime::chooseNextWriteBuffer() const {
+int SimulationRuntime::chooseNextWriteBuffer() {
+    const int immediateBufferIndex = findAvailableWriteBuffer();
+    if (immediateBufferIndex >= 0) {
+        writeBufferWaitMicros_.store(0);
+        return immediateBufferIndex;
+    }
+
+    const std::chrono::steady_clock::time_point waitStart = std::chrono::steady_clock::now();
+    std::unique_lock<std::mutex> renderLock(renderMutex_);
+    renderCv_.wait(renderLock, [this]() {
+        return !keepRunning_.load() || findAvailableWriteBuffer() >= 0;
+    });
+    writeBufferWaitMicros_.store(DurationMicros(waitStart, std::chrono::steady_clock::now()));
+    return findAvailableWriteBuffer();
+}
+
+int SimulationRuntime::findAvailableWriteBuffer() const {
     int bufferIndex = 0;
     for (; bufferIndex < 3; ++bufferIndex) {
         if (bufferIndex == simulationReadBufferIndex_) {
@@ -509,24 +621,50 @@ int SimulationRuntime::chooseNextWriteBuffer() const {
         }
     }
 
-    // Triple buffering should normally leave one safe write buffer free, but this keeps the ownership rule explicit.
-    for (;;) {
-        bufferIndex = 0;
-        for (; bufferIndex < 3; ++bufferIndex) {
-            if (bufferIndex == simulationReadBufferIndex_) {
-                continue;
-            }
-
-            if (bufferUseCounts_[bufferIndex].load() == 0) {
-                return bufferIndex;
-            }
-        }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
+    return -1;
 }
 
-bool SimulationRuntime::tryPlaceLot(const LotDefinition& lotDefinition, int clickedTileX, int clickedTileY, std::vector<Tile>& writeTiles) {
+void SimulationRuntime::refreshPublishedLotSnapshot(TileBuffer& completedBuffer) {
+    if (completedBuffer.lotRenderRevision == lotsRevision_) {
+        return;
+    }
+
+    completedBuffer.publishedLots.clear();
+    completedBuffer.publishedLots.reserve(lots_.size());
+
+    std::size_t lotIndex = 0;
+    for (; lotIndex < lots_.size(); ++lotIndex) {
+        completedBuffer.publishedLots.push_back(lots_[lotIndex].buildRenderInstance());
+    }
+
+    completedBuffer.lotRenderRevision = lotsRevision_;
+}
+
+void SimulationRuntime::copyChunkRevisionsForWriteBuffer() {
+    tileBuffers_[simulationWriteBufferIndex_].chunkRevisions = tileBuffers_[simulationReadBufferIndex_].chunkRevisions;
+}
+
+void SimulationRuntime::markChunkDirtyByTile(std::vector<std::uint64_t>& chunkRevisions, int tileX, int tileY) {
+    const int chunkIndex = chunkIndexForTile(tileX, tileY);
+    if (chunkIndex < 0 || chunkIndex >= static_cast<int>(chunkRevisions.size())) {
+        return;
+    }
+
+    ++chunkRevisions[static_cast<std::size_t>(chunkIndex)];
+}
+
+int SimulationRuntime::chunkIndexForTile(int tileX, int tileY) const {
+    if (!isTileInsideMap(tileX, tileY)) {
+        return -1;
+    }
+
+    const int chunkColumnCount = kMapWidth / chunkConfig_.chunkWidth;
+    const int chunkX = tileX / chunkConfig_.chunkWidth;
+    const int chunkY = tileY / chunkConfig_.chunkHeight;
+    return (chunkY * chunkColumnCount) + chunkX;
+}
+
+bool SimulationRuntime::tryPlaceLot(const LotDefinition& lotDefinition, int clickedTileX, int clickedTileY, TileBuffer& writeBuffer) {
     std::size_t offsetIndex = 0;
     for (; offsetIndex < lotDefinition.occupiedOffsets.size(); ++offsetIndex) {
         const Int2& occupiedOffset = lotDefinition.occupiedOffsets[offsetIndex];
@@ -536,7 +674,7 @@ bool SimulationRuntime::tryPlaceLot(const LotDefinition& lotDefinition, int clic
             return false;
         }
 
-        if (!writeTiles[tileIndex(tileX, tileY)].isVacant) {
+        if (!writeBuffer.tiles[tileIndex(tileX, tileY)].isVacant) {
             return false;
         }
     }
@@ -547,9 +685,15 @@ bool SimulationRuntime::tryPlaceLot(const LotDefinition& lotDefinition, int clic
     const std::vector<int>& occupiedTileIndices = placedLot.occupiedTileIndices();
     std::size_t occupiedTileIndex = 0;
     for (; occupiedTileIndex < occupiedTileIndices.size(); ++occupiedTileIndex) {
-        writeTiles[occupiedTileIndices[occupiedTileIndex]].isVacant = false;
+        const int tileLinearIndex = occupiedTileIndices[occupiedTileIndex];
+        writeBuffer.tiles[tileLinearIndex].isVacant = false;
+
+        const int tileY = tileLinearIndex / kMapWidth;
+        const int tileX = tileLinearIndex - (tileY * kMapWidth);
+        markChunkDirtyByTile(writeBuffer.chunkRevisions, tileX, tileY);
     }
 
+    ++lotsRevision_;
     return true;
 }
 

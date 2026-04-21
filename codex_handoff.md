@@ -1,6 +1,6 @@
 # Codex handoff memory
 
-Snapshot: 2026-04-08
+Snapshot: 2026-04-21
 Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 
 ## Recommended next-chat posture
@@ -21,7 +21,18 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 - verify and tune chunk sizing behavior on the actual machine
 - continue cleaning up project/build assumptions around local dependency paths
 - keep pushing severe correctness bugs out of the runtime before growing feature scope
-- expand from test lots and debug heatmap visuals into richer data-driven simulation content
+- begin the next renderer phase:
+  - real camera projection
+  - chunked instance rendering
+  - dirty chunk rebuilds
+  - chunk frustum culling
+- profile the simulation passes before more speculative optimization work
+- look for low-hanging simulation wins in:
+  - mutex-heavy chunk dispatch
+  - published snapshot copying
+  - write-buffer wait behavior
+  - master-thread/control-flow overhead
+- treat AVX2 as an experiment path to revisit after profiling, using intrinsics rather than inline assembly on MSVC x64
 
 ## Guardrails
 - Keep `x64 Release` as the practical target.

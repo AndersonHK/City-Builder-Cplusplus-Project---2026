@@ -1,6 +1,6 @@
 # Codex repository map and implementation memory
 
-Snapshot: 2026-04-08
+Snapshot: 2026-04-21
 Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 
 ## Top-level layout that matters now
@@ -18,6 +18,7 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - GLFW window/context ownership
   - OpenGL draw loop
   - shader loading and render-facing callbacks
+  - current weakness: still CPU-builds visible tile geometry each frame instead of consuming chunk-local instance data
 - `City Builder/AppController.h`
 - `City Builder/AppController.cpp`
   - input/tool mode logic
@@ -56,3 +57,8 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 - Keep the tile-object model for now.
 - Use contiguous storage and chunk-based passes to improve cache behavior without jumping to full structure-of-arrays immediately.
 - Add comments only where they preserve future reasoning about cache sizing, swap rules, command timing, and render/sim ownership.
+- The next renderer seam should be:
+  - camera/view/projection math
+  - per-chunk render data
+  - instance buffers
+  - dirty chunk rebuild rules

@@ -48,6 +48,14 @@ void AppController::onLeftMouseButtonPressed() {
     }
 }
 
+void AppController::onLeftMouseButtonHeld() {
+    if (viewState_.activeTool != ActiveTool::PollutionBrush) {
+        return;
+    }
+
+    onLeftMouseButtonPressed();
+}
+
 void AppController::onKeyPressed(int key, int action) {
     if (action != kKeyActionPress && action != kKeyActionRepeat) {
         return;
@@ -57,19 +65,19 @@ void AppController::onKeyPressed(int key, int action) {
 
     switch (key) {
         case kKeyRight:
-            viewState_.cameraX = std::min(viewState_.cameraX + cameraStep, simulationRuntime_.mapWidth() - viewState_.visibleTiles);
+            panCamera(-cameraStep, -cameraStep);
             return;
 
         case kKeyLeft:
-            viewState_.cameraX = std::max(0, viewState_.cameraX - cameraStep);
+            panCamera(cameraStep, cameraStep);
             return;
 
         case kKeyDown:
-            viewState_.cameraY = std::max(0, viewState_.cameraY - cameraStep);
+            panCamera(cameraStep, -cameraStep);
             return;
 
         case kKeyUp:
-            viewState_.cameraY = std::min(viewState_.cameraY + cameraStep, simulationRuntime_.mapHeight() - viewState_.visibleTiles);
+            panCamera(-cameraStep, cameraStep);
             return;
 
         case kKeyQ:
@@ -105,10 +113,35 @@ void AppController::onScroll(double yOffset) {
         viewState_.cameraY += viewState_.visibleTiles / 2;
     }
 
-    viewState_.cameraX = std::max(0, std::min(viewState_.cameraX, simulationRuntime_.mapWidth() - viewState_.visibleTiles));
-    viewState_.cameraY = std::max(0, std::min(viewState_.cameraY, simulationRuntime_.mapHeight() - viewState_.visibleTiles));
+    clampCameraToMap();
 
     std::cout << "Zoom tiles visible: " << viewState_.visibleTiles << " camera at " << viewState_.cameraX << ", " << viewState_.cameraY << std::endl;
+}
+
+void AppController::setFramebufferSize(int framebufferWidth, int framebufferHeight) {
+    viewState_.framebufferWidth = std::max(1, framebufferWidth);
+    viewState_.framebufferHeight = std::max(1, framebufferHeight);
+}
+
+void AppController::setHoveredTile(int tileX, int tileY, bool isValid) {
+    viewState_.hasHoveredTile = isValid;
+    if (!isValid) {
+        return;
+    }
+
+    viewState_.hoveredTileX = std::max(0, std::min(tileX, simulationRuntime_.mapWidth() - 1));
+    viewState_.hoveredTileY = std::max(0, std::min(tileY, simulationRuntime_.mapHeight() - 1));
+}
+
+void AppController::clampCameraToMap() {
+    viewState_.cameraX = std::max(0, std::min(viewState_.cameraX, simulationRuntime_.mapWidth() - viewState_.visibleTiles));
+    viewState_.cameraY = std::max(0, std::min(viewState_.cameraY, simulationRuntime_.mapHeight() - viewState_.visibleTiles));
+}
+
+void AppController::panCamera(int deltaX, int deltaY) {
+    viewState_.cameraX += deltaX;
+    viewState_.cameraY += deltaY;
+    clampCameraToMap();
 }
 
 ViewState AppController::viewState() const {
@@ -116,13 +149,21 @@ ViewState AppController::viewState() const {
 }
 
 int AppController::hoveredTileX() const {
-    const double normalizedX = viewState_.mouseX / static_cast<double>(kWindowWidth);
+    if (viewState_.hasHoveredTile) {
+        return viewState_.hoveredTileX;
+    }
+
+    const double normalizedX = viewState_.mouseX / static_cast<double>(std::max(1, viewState_.framebufferWidth));
     const int tileX = viewState_.cameraX + static_cast<int>(normalizedX * viewState_.visibleTiles);
     return std::max(0, std::min(tileX, simulationRuntime_.mapWidth() - 1));
 }
 
 int AppController::hoveredTileY() const {
-    const double normalizedY = (static_cast<double>(kWindowHeight) - viewState_.mouseY) / static_cast<double>(kWindowHeight);
+    if (viewState_.hasHoveredTile) {
+        return viewState_.hoveredTileY;
+    }
+
+    const double normalizedY = (static_cast<double>(std::max(1, viewState_.framebufferHeight)) - viewState_.mouseY) / static_cast<double>(std::max(1, viewState_.framebufferHeight));
     const int tileY = viewState_.cameraY + static_cast<int>(normalizedY * viewState_.visibleTiles);
     return std::max(0, std::min(tileY, simulationRuntime_.mapHeight() - 1));
 }

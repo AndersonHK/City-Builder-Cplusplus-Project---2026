@@ -5,7 +5,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
-#include <functional>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -63,17 +62,40 @@ struct TileQueryResult {
 struct PublishedWorldSnapshot {
     int bufferIndex;
     const std::vector<Tile>* tiles;
+    const std::vector<LotRenderInstance>* lots;
+    const std::vector<std::uint64_t>* chunkRevisions;
     int width;
     int height;
-    std::vector<LotRenderInstance> lots;
     std::uint64_t generation;
+    std::uint64_t lotRevision;
 
     PublishedWorldSnapshot()
         : bufferIndex(-1),
           tiles(0),
+          lots(0),
+          chunkRevisions(0),
           width(0),
           height(0),
-          generation(0) {
+          generation(0),
+          lotRevision(0) {
+    }
+};
+
+struct RuntimeTimingSnapshot {
+    long long neighborPassMicros;
+    long long commandPassMicros;
+    long long lotEffectsMicros;
+    long long localPassMicros;
+    long long publishMicros;
+    long long writeBufferWaitMicros;
+
+    RuntimeTimingSnapshot()
+        : neighborPassMicros(0),
+          commandPassMicros(0),
+          lotEffectsMicros(0),
+          localPassMicros(0),
+          publishMicros(0),
+          writeBufferWaitMicros(0) {
     }
 };
 
@@ -98,10 +120,25 @@ public:
     int mapHeight() const;
     int updatesPerSecond() const;
     const ChunkConfig& chunkConfig() const;
+    const std::vector<ChunkRect>& chunkLayout() const;
+    RuntimeTimingSnapshot timingSnapshot() const;
 
 private:
     struct TileBuffer {
         std::vector<Tile> tiles;
+        std::vector<LotRenderInstance> publishedLots;
+        std::vector<std::uint64_t> chunkRevisions;
+        std::uint64_t lotRenderRevision;
+
+        TileBuffer()
+            : lotRenderRevision(0) {
+        }
+    };
+
+    enum class WorkerTaskType {
+        None,
+        NeighborPass,
+        LocalPass
     };
 
     void initializeWorld();
@@ -109,16 +146,26 @@ private:
     void startWorkers();
     void stopWorkers();
     void workerMain();
-    void parallelForEachChunk(const std::function<void(const ChunkRect&)>& chunkTask);
+    void parallelForEachChunk(WorkerTaskType workerTask, const std::vector<Tile>* readTiles, std::vector<Tile>* writeTiles);
+    void runPendingChunkTasks();
+    void completeChunkTaskParticipant();
+    void executeChunkTask(const ChunkRect& chunkRect);
+    void runNeighborChunk(const ChunkRect& chunkRect);
+    void runLocalChunk(const ChunkRect& chunkRect);
 
     void runNeighborPass(const std::vector<Tile>& readTiles, std::vector<Tile>& writeTiles);
-    void applyQueuedCommands(std::vector<Tile>& writeTiles);
+    void applyQueuedCommands(TileBuffer& writeBuffer);
     void applyLotEffects(std::vector<Tile>& writeTiles);
     void runLocalTilePass(std::vector<Tile>& writeTiles);
     void publishCompletedBuffer();
-    int chooseNextWriteBuffer() const;
+    int chooseNextWriteBuffer();
+    int findAvailableWriteBuffer() const;
+    void refreshPublishedLotSnapshot(TileBuffer& completedBuffer);
+    void copyChunkRevisionsForWriteBuffer();
+    void markChunkDirtyByTile(std::vector<std::uint64_t>& chunkRevisions, int tileX, int tileY);
+    int chunkIndexForTile(int tileX, int tileY) const;
 
-    bool tryPlaceLot(const LotDefinition& lotDefinition, int clickedTileX, int clickedTileY, std::vector<Tile>& writeTiles);
+    bool tryPlaceLot(const LotDefinition& lotDefinition, int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
     bool isTileInsideMap(int tileX, int tileY) const;
     int tileIndex(int tileX, int tileY) const;
 
@@ -136,7 +183,6 @@ private:
 
     mutable std::mutex publishedMutex_;
     int publishedBufferIndex_;
-    std::vector<LotRenderInstance> publishedLots_;
     std::uint64_t publishedGeneration_;
 
     std::atomic<int> bufferUseCounts_[3];
@@ -145,6 +191,7 @@ private:
     mutable std::mutex renderMutex_;
 
     std::vector<Lot> lots_;
+    std::uint64_t lotsRevision_;
 
     std::deque<PlayerCommand> pendingCommands_;
     mutable std::mutex commandMutex_;
@@ -161,13 +208,21 @@ private:
     std::mutex workerMutex_;
     std::condition_variable workerCv_;
     std::condition_variable workerFinishedCv_;
-    std::function<void(const ChunkRect&)> currentChunkTask_;
     std::vector<ChunkRect> chunkLayout_;
-    std::size_t nextChunkIndex_;
-    std::size_t workersRemaining_;
+    std::atomic<std::size_t> nextChunkIndex_;
+    std::atomic<std::size_t> workersRemaining_;
     bool chunkTaskReady_;
     bool stopWorkerThreads_;
     std::uint64_t chunkTaskGeneration_;
+    WorkerTaskType currentWorkerTask_;
+    const std::vector<Tile>* currentReadTiles_;
+    std::vector<Tile>* currentWriteTiles_;
 
     std::atomic<int> updatesPerSecond_;
+    std::atomic<long long> neighborPassMicros_;
+    std::atomic<long long> commandPassMicros_;
+    std::atomic<long long> lotEffectsMicros_;
+    std::atomic<long long> localPassMicros_;
+    std::atomic<long long> publishMicros_;
+    std::atomic<long long> writeBufferWaitMicros_;
 };
