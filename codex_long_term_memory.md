@@ -32,52 +32,53 @@ Primary design goals:
   - one simulation read buffer
   - one simulation write buffer
 - Rendering should read only committed world state, never mutable simulation buffers.
+- The published renderer contract now includes:
+  - tile buffer pointer
+  - lot render snapshot pointer
+  - per-chunk render revision pointer
+  - published generation
+  - lot revision
 - `fast_forward` is allowed to let simulation outrun presentation; if disabled, simulation may wait for the renderer to catch up.
 
-## Next renderer doctrine
-- The next renderer milestone should move from CPU-built screen-space quads toward world-space camera projection and chunked instance rendering.
-- The shortest path is:
-  - add a real camera with view/projection matrices
-  - keep camera motion constrained at first rather than free-fly
-  - render chunk-local instance buffers instead of rebuilding visible tile quad vertices every frame
-  - rebuild chunk render data only when a chunk is dirty
+## Renderer doctrine
+- The project has now crossed the main seam from CPU-built screen-space quads to world-space rendering.
+- Current state:
+  - constrained pitched perspective camera
+  - view/projection matrices
+  - raycast picking onto the ground plane
+  - per-chunk persistent tile instance buffers
+  - dirty-only tile chunk rebuilds keyed by chunk revision
   - frustum-cull chunks before drawing
-- The renderer should transition to proper 3D in stages:
+  - stream scalar tile debug data through a texture each published generation
+  - render lots as separate placeholder world-space prisms
+- The renderer should still transition to richer 3D in stages:
   - world-space projected tiles/lots first
   - instanced simple prisms/boxes next
   - richer terrain/building meshes later
-- Do not jump directly to final art or complex meshes before chunked instance rendering exists, because zoomed-out performance will remain dominated by CPU-side geometry generation otherwise.
+- Do not jump directly to final art or complex meshes before the renderer ownership is cleaner and chunked world-space instancing is stable.
 
 ## Performance checkpoint
-- After the architecture refactor to chunked tile simulation, separate renderer ownership, and `x64 Release`, observed simulation throughput improved from roughly `900` updates/sec to roughly `1800` updates/sec on the user's machine.
-- That is a meaningful gain, but it also shows the original prototype held up better than expected for novice-era code.
-- Observed CPU utilization was still high, around the `80%` range, which suggests the simulation is not purely memory-starved and likely still has meaningful CPU-side optimization headroom.
+- After the earlier architecture refactor to chunked tile simulation, separate renderer ownership, and `x64 Release`, observed simulation throughput improved from roughly `900` updates/sec to roughly `1800` updates/sec on the user's machine.
+- This renderer/runtime pass removed several obvious structural costs:
+  - snapshot lot-vector copying on acquire
+  - hot-path `std::function` dispatch in chunk workers
+  - sleep-poll write-buffer waiting
+- Per-pass timing now exists in the runtime/renderer status print, so future optimization work should start from measured behavior instead of guesswork.
 
 ## Next optimization doctrine
-- Before deeper optimization, add per-pass timing for:
-  - neighbor pass
-  - local pass
-  - lot effects
-  - command apply
-  - publish/snapshot path
-  - renderer frame time
-- The current lowest-hanging simulation fruit is likely control-flow overhead rather than pure arithmetic:
-  - mutex-heavy chunk dispatch
-  - `std::function` overhead in the worker hot path
-  - copying published lot render data every frame
-  - the write-buffer fallback spin/sleep path
-- Keep the tile-object model for now, but a future hot/cold field split is on the table if profiling shows the current tile layout leaving performance behind.
+- Prefer structural wins first:
+  - cheaper tile-state upload or partial upload strategy if it shows up in profiling
+  - cheaper lot-effects iteration
+  - better renderer code organization now that `Renderer.cpp` is carrying a lot of camera/math/GPU setup logic
+  - only then deeper data-layout or SIMD experiments
+- Keep the tile-object model for now, but a future hot/cold field split is still on the table if profiling shows the current tile layout leaving performance behind.
 - AVX2 is worth considering as an experiment, but it should use intrinsics rather than inline assembly on MSVC x64.
 - SIMD work should follow profiling and probably target row-wise contiguous updates first, not blind hand-vectorization of everything.
 
 ## Compile/doctrine notes
-- Current release settings already include the important baseline optimization path.
-- If further CPU-side tuning is needed, `x64 Release` is the place to consider targeted flags such as AVX2 support, but only once the project is comfortable treating that instruction set as part of the machine baseline.
-- Prefer structural wins first:
-  - cheaper chunk scheduling
-  - cheaper published snapshot handling
-  - chunked renderer updates
-  - only then SIMD experiments
+- Current release settings include the important baseline optimization path and now also enable `/MP` in `Release|x64`.
+- The local shell environment can expose duplicate `Path` and `PATH` entries; clear the process `PATH` first before invoking MSBuild here.
+- Prefer structural wins before raising the machine baseline with ISA-specific flags.
 
 ## Guardrails
 - Do not drift into object-heavy "simulate everything literally" design just because modern hardware allows more brute force.
@@ -86,4 +87,4 @@ Primary design goals:
 - Use comments only at load-bearing seams so future work stays explainable without drowning the code in narration.
 
 ## Short mnemonic
-Tile-first simulation, cache-aware chunking, real buffer swapping, renderer as presentation only, and enough architectural discipline to let the prototype grow into the game you actually want.
+Tile-first simulation, cache-aware chunking, real buffer swapping, renderer as presentation only, world-space chunk instancing, and enough architectural discipline to let the prototype grow into the game you actually want.
