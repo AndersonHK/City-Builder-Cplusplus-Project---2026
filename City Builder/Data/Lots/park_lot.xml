@@ -1,0 +1,7 @@
+<lot id="park_lot">
+  <anchor x="0" y="0" />
+  <renderOrigin x="-1" y="-1" />
+  <modules>
+    <moduleRef id="park_module" x="-1" y="-1" />
+  </modules>
+</lot>

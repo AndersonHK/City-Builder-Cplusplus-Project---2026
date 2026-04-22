@@ -15,6 +15,9 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="AssetLoader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="AppController.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -22,9 +25,6 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Lot.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="LotModule.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Renderer.cpp">
@@ -44,8 +44,23 @@
     <None Include="Basic.shader">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="Data\Lots\park_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\smokestack_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\park_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\smokestack_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AssetLoader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="AppController.h">
       <Filter>Header Files</Filter>
     </ClInclude>

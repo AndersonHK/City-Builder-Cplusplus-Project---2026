@@ -1,6 +1,16 @@
 glew32.dll
 glfw3.dll
-City Builder/Debug/
-City Builder/x64/
-/City Builder/.vs
-/City Builder/City Builder/x64
+/Basic.shader
+/City Builder.exe
+/City Builder/.vs/
+/City Builder/Debug/
+/City Builder/x64/
+/City Builder/City Builder/x64/
+*.obj
+*.iobj
+*.ipdb
+*.pdb
+*.tlog
+*.lastbuildstate
+*.log
+*.user

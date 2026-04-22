@@ -1,12 +1,66 @@
 #pragma once
 
-class LotModule {
-public:
-    LotModule();
-    LotModule(int widthInTiles, int heightInTiles, int airPollutionOutput, int landValueOutput);
+#include <string>
 
+struct Int2 {
+    int x;
+    int y;
+
+    Int2()
+        : x(0),
+          y(0) {
+    }
+
+    Int2(int xValue, int yValue)
+        : x(xValue),
+          y(yValue) {
+    }
+};
+
+inline bool operator==(const Int2& left, const Int2& right) {
+    return left.x == right.x && left.y == right.y;
+}
+
+struct LotModule {
+    std::string id;
     int width;
     int height;
     int airPollutionEmit;
     int landValueEmit;
+    float renderHeight;
+    float colorR;
+    float colorG;
+    float colorB;
+
+    LotModule()
+        : width(1),
+          height(1),
+          airPollutionEmit(0),
+          landValueEmit(0),
+          renderHeight(0.5f),
+          colorR(0.4f),
+          colorG(0.4f),
+          colorB(0.4f) {
+    }
+};
+
+struct LotModulePlacementDefinition {
+    std::string moduleId;
+    Int2 localOrigin;
+
+    LotModulePlacementDefinition()
+        : localOrigin(0, 0) {
+    }
+};
+
+struct LotModulePlacement {
+    int instanceId;
+    const LotModule* module;
+    Int2 localOrigin;
+
+    LotModulePlacement()
+        : instanceId(0),
+          module(0),
+          localOrigin(0, 0) {
+    }
 };
