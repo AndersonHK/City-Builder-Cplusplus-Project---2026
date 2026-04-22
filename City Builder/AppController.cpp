@@ -13,6 +13,9 @@ const int kKeyUp = 265;
 const int kKeyQ = 81;
 const int kKeyW = 87;
 const int kKeyE = 69;
+const int kKeyR = 82;
+const int kKeyT = 84;
+const int kKeyY = 89;
 const int kKeyA = 65;
 }
 
@@ -40,6 +43,18 @@ void AppController::onLeftMouseButtonPressed() {
 
         case ActiveTool::ParkLot:
             simulationRuntime_.queuePlacePark(tileX, tileY);
+            break;
+
+        case ActiveTool::AddSmokestackModule:
+            simulationRuntime_.queueAddSmokestackModule(tileX, tileY);
+            break;
+
+        case ActiveTool::AddParkModule:
+            simulationRuntime_.queueAddParkModule(tileX, tileY);
+            break;
+
+        case ActiveTool::RemoveModule:
+            simulationRuntime_.queueRemoveModuleAtTile(tileX, tileY);
             break;
 
         case ActiveTool::Query:
@@ -87,12 +102,27 @@ void AppController::onKeyPressed(int key, int action) {
 
         case kKeyW:
             viewState_.activeTool = ActiveTool::SmokestackLot;
-            std::cout << "Selected tool: smokestack lot" << std::endl;
+            std::cout << "Selected tool: place smokestack lot" << std::endl;
             return;
 
         case kKeyE:
             viewState_.activeTool = ActiveTool::ParkLot;
-            std::cout << "Selected tool: 2x2 park lot" << std::endl;
+            std::cout << "Selected tool: place park lot" << std::endl;
+            return;
+
+        case kKeyR:
+            viewState_.activeTool = ActiveTool::AddSmokestackModule;
+            std::cout << "Selected tool: add smokestack module" << std::endl;
+            return;
+
+        case kKeyT:
+            viewState_.activeTool = ActiveTool::AddParkModule;
+            std::cout << "Selected tool: add park module" << std::endl;
+            return;
+
+        case kKeyY:
+            viewState_.activeTool = ActiveTool::RemoveModule;
+            std::cout << "Selected tool: remove module" << std::endl;
             return;
 
         case kKeyA:
@@ -178,5 +208,11 @@ void AppController::printQueryResult() const {
     }
 
     std::cout << "Query tool result: tile " << tileX << "x " << tileY << "y has land value " << queryResult.tile.landValue
-              << " and air pollution " << queryResult.tile.airPollution << " at generation " << queryResult.generation << std::endl;
+              << " and air pollution " << queryResult.tile.airPollution << " at generation " << queryResult.generation;
+
+    if (queryResult.hasLot) {
+        std::cout << " and belongs to lot #" << queryResult.lotId << " (" << queryResult.lotAssetId << ") with modules: " << queryResult.moduleSummary;
+    }
+
+    std::cout << std::endl;
 }

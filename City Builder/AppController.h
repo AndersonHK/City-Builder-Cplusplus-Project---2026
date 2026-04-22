@@ -6,6 +6,9 @@ enum class ActiveTool {
     PollutionBrush,
     SmokestackLot,
     ParkLot,
+    AddSmokestackModule,
+    AddParkModule,
+    RemoveModule,
     Query
 };
 
@@ -58,8 +61,6 @@ private:
     void panCamera(int deltaX, int deltaY);
     void printQueryResult() const;
 
-    static const int kWindowWidth = 2048;
-    static const int kWindowHeight = 2048;
     static const int kMinimumVisibleTiles = 128;
     static const int kMaximumVisibleTiles = 512;
 

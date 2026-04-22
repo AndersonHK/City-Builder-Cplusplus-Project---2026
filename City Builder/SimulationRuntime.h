@@ -6,7 +6,9 @@
 #include <cstdint>
 #include <deque>
 #include <mutex>
+#include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include "ChunkConfig.h"
@@ -30,8 +32,9 @@ struct RuntimeOptions {
 
 enum class PlayerCommandType {
     PaintPollution,
-    PlaceSmokestack,
-    PlacePark
+    PlaceLot,
+    AddModuleAtTile,
+    RemoveModuleAtTile
 };
 
 struct PlayerCommand {
@@ -39,6 +42,7 @@ struct PlayerCommand {
     int tileX;
     int tileY;
     int amount;
+    std::string assetId;
 
     PlayerCommand()
         : type(PlayerCommandType::PaintPollution),
@@ -52,10 +56,26 @@ struct TileQueryResult {
     bool isValid;
     Tile tile;
     std::uint64_t generation;
+    bool hasLot;
+    int lotId;
+    std::string lotAssetId;
+    std::string moduleSummary;
 
     TileQueryResult()
         : isValid(false),
-          generation(0) {
+          generation(0),
+          hasLot(false),
+          lotId(-1) {
+    }
+};
+
+struct PublishedLotInfo {
+    int lotId;
+    std::string assetId;
+    std::string moduleSummary;
+
+    PublishedLotInfo()
+        : lotId(-1) {
     }
 };
 
@@ -64,6 +84,7 @@ struct PublishedWorldSnapshot {
     const std::vector<Tile>* tiles;
     const std::vector<LotRenderInstance>* lots;
     const std::vector<std::uint64_t>* chunkRevisions;
+    const std::vector<int>* lotOccupancy;
     int width;
     int height;
     std::uint64_t generation;
@@ -74,6 +95,7 @@ struct PublishedWorldSnapshot {
           tiles(0),
           lots(0),
           chunkRevisions(0),
+          lotOccupancy(0),
           width(0),
           height(0),
           generation(0),
@@ -108,8 +130,13 @@ public:
     void stop();
 
     void queuePaintPollution(int tileX, int tileY, int amount);
+    void queuePlaceLot(const std::string& lotAssetId, int tileX, int tileY);
+    void queueAddModuleAtTile(const std::string& moduleAssetId, int tileX, int tileY);
+    void queueRemoveModuleAtTile(int tileX, int tileY);
     void queuePlaceSmokestack(int tileX, int tileY);
     void queuePlacePark(int tileX, int tileY);
+    void queueAddSmokestackModule(int tileX, int tileY);
+    void queueAddParkModule(int tileX, int tileY);
 
     TileQueryResult queryTile(int tileX, int tileY) const;
 
@@ -127,7 +154,9 @@ private:
     struct TileBuffer {
         std::vector<Tile> tiles;
         std::vector<LotRenderInstance> publishedLots;
+        std::vector<PublishedLotInfo> publishedLotInfos;
         std::vector<std::uint64_t> chunkRevisions;
+        std::vector<int> publishedLotOccupancy;
         std::uint64_t lotRenderRevision;
 
         TileBuffer()
@@ -141,6 +170,7 @@ private:
         LocalPass
     };
 
+    void loadAssets();
     void initializeWorld();
     void simulationLoop();
     void startWorkers();
@@ -163,9 +193,21 @@ private:
     void refreshPublishedLotSnapshot(TileBuffer& completedBuffer);
     void copyChunkRevisionsForWriteBuffer();
     void markChunkDirtyByTile(std::vector<std::uint64_t>& chunkRevisions, int tileX, int tileY);
+    void markChunksDirtyByTileIndices(std::vector<std::uint64_t>& chunkRevisions, const std::vector<int>& tileIndices);
     int chunkIndexForTile(int tileX, int tileY) const;
 
-    bool tryPlaceLot(const LotDefinition& lotDefinition, int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
+    const LotAsset* findLotAssetById(const std::string& lotAssetId) const;
+    const LotModule* findModuleAssetById(const std::string& moduleAssetId) const;
+    Lot* findLotById(int lotId);
+    const PublishedLotInfo* findPublishedLotInfoById(const std::vector<PublishedLotInfo>& publishedLotInfos, int lotId) const;
+
+    bool tryPlaceLot(const LotAsset& lotAsset, int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
+    bool tryAddModuleAtTile(const LotModule& moduleAsset, int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
+    bool tryRemoveModuleAtTile(int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
+    bool canPlaceLot(const Lot& candidateLot) const;
+    bool collectAdjacentLotIdsForModule(const LotModule& moduleAsset, int clickedTileX, int clickedTileY, std::vector<int>& adjacentLotIds) const;
+    void clearLotOccupancy(const std::vector<int>& tileIndices);
+    void setLotOccupancy(int lotId, const std::vector<int>& tileIndices);
     bool isTileInsideMap(int tileX, int tileY) const;
     int tileIndex(int tileX, int tileY) const;
 
@@ -173,6 +215,7 @@ private:
     static const int kMapHeight = 1024;
     static const int kMinimumJobsPerWorkerMultiplier = 8;
     static const int kPollutionSpreadRate = 4;
+    static const int kInvalidLotId = -1;
 
     RuntimeOptions runtimeOptions_;
     ChunkConfig chunkConfig_;
@@ -190,16 +233,17 @@ private:
     std::condition_variable renderCv_;
     mutable std::mutex renderMutex_;
 
+    std::vector<LotModule> moduleAssets_;
+    std::vector<LotAsset> lotAssets_;
+    std::unordered_map<std::string, std::size_t> moduleAssetIndexById_;
+    std::unordered_map<std::string, std::size_t> lotAssetIndexById_;
+    std::vector<int> lotOccupancy_;
     std::vector<Lot> lots_;
+    int nextLotId_;
     std::uint64_t lotsRevision_;
 
     std::deque<PlayerCommand> pendingCommands_;
     mutable std::mutex commandMutex_;
-
-    LotModule smokeStackModule_;
-    LotModule parkModule_;
-    LotDefinition smokeStackDefinition_;
-    LotDefinition parkDefinition_;
 
     std::thread simulationThread_;
     std::atomic<bool> keepRunning_;

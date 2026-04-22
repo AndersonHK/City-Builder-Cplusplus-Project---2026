@@ -1,14 +1,34 @@
 #include "SimulationRuntime.h"
 
+#include "AssetLoader.h"
+
 #include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <iostream>
 #include <random>
+#include <set>
+#include <stdexcept>
+
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
 
 namespace {
 long long DurationMicros(const std::chrono::steady_clock::time_point& startTime, const std::chrono::steady_clock::time_point& endTime) {
     return std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime).count();
+}
+
+std::string GetExecutableDirectory() {
+    char modulePath[MAX_PATH];
+    const DWORD pathLength = GetModuleFileNameA(0, modulePath, MAX_PATH);
+    std::string fullPath(modulePath, modulePath + pathLength);
+    const std::string::size_type separatorIndex = fullPath.find_last_of("\\/");
+    if (separatorIndex == std::string::npos) {
+        return ".";
+    }
+
+    return fullPath.substr(0, separatorIndex);
 }
 }
 
@@ -17,9 +37,8 @@ SimulationRuntime::SimulationRuntime(const RuntimeOptions& runtimeOptions)
       simulationWriteBufferIndex_(1),
       publishedBufferIndex_(0),
       publishedGeneration_(0),
+      nextLotId_(1),
       lotsRevision_(0),
-      smokeStackModule_(1, 1, 10000, -1000),
-      parkModule_(2, 2, -4000, 10000),
       keepRunning_(false),
       nextChunkIndex_(0),
       workersRemaining_(0),
@@ -43,33 +62,20 @@ SimulationRuntime::SimulationRuntime(const RuntimeOptions& runtimeOptions)
     chunkConfig_ = CalculateChunkConfig(kMapWidth, kMapHeight, sizeof(Tile), workerThreadCount, runtimeOptions_.manualL2BytesPerLogicalThread, runtimeOptions_.detectL2CacheSize, runtimeOptions_.usableL2Fraction, kMinimumJobsPerWorkerMultiplier);
     chunkLayout_ = BuildChunkLayout(kMapWidth, kMapHeight, chunkConfig_.chunkWidth, chunkConfig_.chunkHeight);
 
-    smokeStackDefinition_.footprintWidth = 1;
-    smokeStackDefinition_.footprintHeight = 2;
-    smokeStackDefinition_.renderOriginOffsetX = 0;
-    smokeStackDefinition_.renderOriginOffsetY = -1;
-    smokeStackDefinition_.occupiedOffsets.push_back(Int2(0, 0));
-    smokeStackDefinition_.occupiedOffsets.push_back(Int2(0, -1));
-    smokeStackDefinition_.modules.push_back(&smokeStackModule_);
-    smokeStackDefinition_.modules.push_back(&smokeStackModule_);
-
-    parkDefinition_.footprintWidth = 2;
-    parkDefinition_.footprintHeight = 2;
-    parkDefinition_.renderOriginOffsetX = -1;
-    parkDefinition_.renderOriginOffsetY = -1;
-    parkDefinition_.occupiedOffsets.push_back(Int2(0, 0));
-    parkDefinition_.occupiedOffsets.push_back(Int2(0, -1));
-    parkDefinition_.occupiedOffsets.push_back(Int2(-1, 0));
-    parkDefinition_.occupiedOffsets.push_back(Int2(-1, -1));
-    parkDefinition_.modules.push_back(&parkModule_);
+    loadAssets();
 
     tileBuffers_.resize(3);
     const std::size_t totalTileCount = static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight);
     const std::size_t chunkCount = chunkLayout_.size();
+    lotOccupancy_.assign(totalTileCount, kInvalidLotId);
+
     int bufferIndex = 0;
     for (; bufferIndex < 3; ++bufferIndex) {
         tileBuffers_[bufferIndex].tiles.resize(totalTileCount);
         tileBuffers_[bufferIndex].chunkRevisions.assign(chunkCount, 1);
         tileBuffers_[bufferIndex].publishedLots.clear();
+        tileBuffers_[bufferIndex].publishedLotInfos.clear();
+        tileBuffers_[bufferIndex].publishedLotOccupancy.assign(totalTileCount, kInvalidLotId);
         tileBuffers_[bufferIndex].lotRenderRevision = 0;
         bufferUseCounts_[bufferIndex].store(0);
     }
@@ -77,6 +83,8 @@ SimulationRuntime::SimulationRuntime(const RuntimeOptions& runtimeOptions)
     lastRenderedGeneration_.store(0);
     initializeWorld();
 
+    std::cout << "Loaded module assets: " << moduleAssets_.size() << std::endl;
+    std::cout << "Loaded lot assets: " << lotAssets_.size() << std::endl;
     std::cout << "L2 bytes per logical thread: " << chunkConfig_.chosenL2BytesPerLogicalThread << std::endl;
     std::cout << "Detected L2 bytes per logical thread: " << chunkConfig_.detectedL2BytesPerLogicalThread << std::endl;
     std::cout << "Manual L2 override bytes per logical thread: " << chunkConfig_.manualOverrideBytesPerLogicalThread << std::endl;
@@ -139,34 +147,64 @@ void SimulationRuntime::queuePaintPollution(int tileX, int tileY, int amount) {
     pendingCommands_.push_back(playerCommand);
 }
 
-void SimulationRuntime::queuePlaceSmokestack(int tileX, int tileY) {
+void SimulationRuntime::queuePlaceLot(const std::string& lotAssetId, int tileX, int tileY) {
     if (!isTileInsideMap(tileX, tileY)) {
         return;
     }
 
     PlayerCommand playerCommand;
-    playerCommand.type = PlayerCommandType::PlaceSmokestack;
+    playerCommand.type = PlayerCommandType::PlaceLot;
     playerCommand.tileX = tileX;
     playerCommand.tileY = tileY;
-    playerCommand.amount = 0;
+    playerCommand.assetId = lotAssetId;
 
     std::lock_guard<std::mutex> commandLock(commandMutex_);
     pendingCommands_.push_back(playerCommand);
 }
 
-void SimulationRuntime::queuePlacePark(int tileX, int tileY) {
+void SimulationRuntime::queueAddModuleAtTile(const std::string& moduleAssetId, int tileX, int tileY) {
     if (!isTileInsideMap(tileX, tileY)) {
         return;
     }
 
     PlayerCommand playerCommand;
-    playerCommand.type = PlayerCommandType::PlacePark;
+    playerCommand.type = PlayerCommandType::AddModuleAtTile;
     playerCommand.tileX = tileX;
     playerCommand.tileY = tileY;
-    playerCommand.amount = 0;
+    playerCommand.assetId = moduleAssetId;
 
     std::lock_guard<std::mutex> commandLock(commandMutex_);
     pendingCommands_.push_back(playerCommand);
+}
+
+void SimulationRuntime::queueRemoveModuleAtTile(int tileX, int tileY) {
+    if (!isTileInsideMap(tileX, tileY)) {
+        return;
+    }
+
+    PlayerCommand playerCommand;
+    playerCommand.type = PlayerCommandType::RemoveModuleAtTile;
+    playerCommand.tileX = tileX;
+    playerCommand.tileY = tileY;
+
+    std::lock_guard<std::mutex> commandLock(commandMutex_);
+    pendingCommands_.push_back(playerCommand);
+}
+
+void SimulationRuntime::queuePlaceSmokestack(int tileX, int tileY) {
+    queuePlaceLot("smokestack_lot", tileX, tileY);
+}
+
+void SimulationRuntime::queuePlacePark(int tileX, int tileY) {
+    queuePlaceLot("park_lot", tileX, tileY);
+}
+
+void SimulationRuntime::queueAddSmokestackModule(int tileX, int tileY) {
+    queueAddModuleAtTile("smokestack_module", tileX, tileY);
+}
+
+void SimulationRuntime::queueAddParkModule(int tileX, int tileY) {
+    queueAddModuleAtTile("park_module", tileX, tileY);
 }
 
 TileQueryResult SimulationRuntime::queryTile(int tileX, int tileY) const {
@@ -176,9 +214,25 @@ TileQueryResult SimulationRuntime::queryTile(int tileX, int tileY) const {
     }
 
     std::lock_guard<std::mutex> publishedLock(publishedMutex_);
+    const TileBuffer& publishedBuffer = tileBuffers_[publishedBufferIndex_];
     queryResult.isValid = true;
-    queryResult.tile = tileBuffers_[publishedBufferIndex_].tiles[tileIndex(tileX, tileY)];
+    queryResult.tile = publishedBuffer.tiles[tileIndex(tileX, tileY)];
     queryResult.generation = publishedGeneration_;
+
+    if (!publishedBuffer.publishedLotOccupancy.empty()) {
+        const int lotId = publishedBuffer.publishedLotOccupancy[tileIndex(tileX, tileY)];
+        if (lotId != kInvalidLotId) {
+            queryResult.hasLot = true;
+            queryResult.lotId = lotId;
+
+            const PublishedLotInfo* publishedLotInfo = findPublishedLotInfoById(publishedBuffer.publishedLotInfos, lotId);
+            if (publishedLotInfo != 0) {
+                queryResult.lotAssetId = publishedLotInfo->assetId;
+                queryResult.moduleSummary = publishedLotInfo->moduleSummary;
+            }
+        }
+    }
+
     return queryResult;
 }
 
@@ -190,6 +244,7 @@ PublishedWorldSnapshot SimulationRuntime::acquirePublishedSnapshot() {
     snapshot.tiles = &tileBuffers_[publishedBufferIndex_].tiles;
     snapshot.lots = &tileBuffers_[publishedBufferIndex_].publishedLots;
     snapshot.chunkRevisions = &tileBuffers_[publishedBufferIndex_].chunkRevisions;
+    snapshot.lotOccupancy = &tileBuffers_[publishedBufferIndex_].publishedLotOccupancy;
     snapshot.width = kMapWidth;
     snapshot.height = kMapHeight;
     snapshot.generation = publishedGeneration_;
@@ -249,6 +304,29 @@ RuntimeTimingSnapshot SimulationRuntime::timingSnapshot() const {
     return snapshot;
 }
 
+void SimulationRuntime::loadAssets() {
+    LoadedGameAssets loadedAssets;
+    std::string errorMessage;
+    if (!LoadGameAssets(GetExecutableDirectory() + "\\Data", loadedAssets, errorMessage)) {
+        throw std::runtime_error(errorMessage);
+    }
+
+    moduleAssets_ = loadedAssets.modules;
+    lotAssets_ = loadedAssets.lots;
+
+    moduleAssetIndexById_.clear();
+    std::size_t moduleIndex = 0;
+    for (; moduleIndex < moduleAssets_.size(); ++moduleIndex) {
+        moduleAssetIndexById_[moduleAssets_[moduleIndex].id] = moduleIndex;
+    }
+
+    lotAssetIndexById_.clear();
+    std::size_t lotIndex = 0;
+    for (; lotIndex < lotAssets_.size(); ++lotIndex) {
+        lotAssetIndexById_[lotAssets_[lotIndex].id] = lotIndex;
+    }
+}
+
 void SimulationRuntime::initializeWorld() {
     std::mt19937 randomEngine(static_cast<unsigned int>(std::time(0)));
     std::uniform_int_distribution<int> baseDistribution(0, 327670);
@@ -273,8 +351,15 @@ void SimulationRuntime::initializeWorld() {
     for (; bufferIndex < 3; ++bufferIndex) {
         tileBuffers_[bufferIndex].chunkRevisions.assign(chunkLayout_.size(), 1);
         tileBuffers_[bufferIndex].publishedLots.clear();
+        tileBuffers_[bufferIndex].publishedLotInfos.clear();
+        tileBuffers_[bufferIndex].publishedLotOccupancy.assign(static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight), kInvalidLotId);
         tileBuffers_[bufferIndex].lotRenderRevision = 0;
     }
+
+    lotOccupancy_.assign(static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight), kInvalidLotId);
+    lots_.clear();
+    nextLotId_ = 1;
+    lotsRevision_ = 0;
 
     std::lock_guard<std::mutex> publishedLock(publishedMutex_);
     publishedBufferIndex_ = simulationReadBufferIndex_;
@@ -532,7 +617,6 @@ void SimulationRuntime::runLocalChunk(const ChunkRect& chunkRect) {
 }
 
 void SimulationRuntime::runNeighborPass(const std::vector<Tile>& readTiles, std::vector<Tile>& writeTiles) {
-    // Chunk sizing is derived from the Tile working set so this hot pass stays inside a declared cache budget.
     parallelForEachChunk(WorkerTaskType::NeighborPass, &readTiles, &writeTiles);
 }
 
@@ -556,12 +640,24 @@ void SimulationRuntime::applyQueuedCommands(TileBuffer& writeBuffer) {
                 writeBuffer.tiles[tileIndex(playerCommand.tileX, playerCommand.tileY)].airPollution = playerCommand.amount;
                 break;
 
-            case PlayerCommandType::PlaceSmokestack:
-                tryPlaceLot(smokeStackDefinition_, playerCommand.tileX, playerCommand.tileY, writeBuffer);
+            case PlayerCommandType::PlaceLot: {
+                const LotAsset* lotAsset = findLotAssetById(playerCommand.assetId);
+                if (lotAsset != 0) {
+                    tryPlaceLot(*lotAsset, playerCommand.tileX, playerCommand.tileY, writeBuffer);
+                }
                 break;
+            }
 
-            case PlayerCommandType::PlacePark:
-                tryPlaceLot(parkDefinition_, playerCommand.tileX, playerCommand.tileY, writeBuffer);
+            case PlayerCommandType::AddModuleAtTile: {
+                const LotModule* moduleAsset = findModuleAssetById(playerCommand.assetId);
+                if (moduleAsset != 0) {
+                    tryAddModuleAtTile(*moduleAsset, playerCommand.tileX, playerCommand.tileY, writeBuffer);
+                }
+                break;
+            }
+
+            case PlayerCommandType::RemoveModuleAtTile:
+                tryRemoveModuleAtTile(playerCommand.tileX, playerCommand.tileY, writeBuffer);
                 break;
         }
     }
@@ -631,9 +727,17 @@ void SimulationRuntime::refreshPublishedLotSnapshot(TileBuffer& completedBuffer)
 
     completedBuffer.publishedLots.clear();
     completedBuffer.publishedLots.reserve(lots_.size());
+    completedBuffer.publishedLotInfos.clear();
+    completedBuffer.publishedLotInfos.reserve(lots_.size());
+    completedBuffer.publishedLotOccupancy = lotOccupancy_;
 
     std::size_t lotIndex = 0;
     for (; lotIndex < lots_.size(); ++lotIndex) {
+        PublishedLotInfo publishedLotInfo;
+        publishedLotInfo.lotId = lots_[lotIndex].id();
+        publishedLotInfo.assetId = lots_[lotIndex].assetId();
+        publishedLotInfo.moduleSummary = lots_[lotIndex].moduleSummary();
+        completedBuffer.publishedLotInfos.push_back(publishedLotInfo);
         completedBuffer.publishedLots.push_back(lots_[lotIndex].buildRenderInstance());
     }
 
@@ -653,6 +757,27 @@ void SimulationRuntime::markChunkDirtyByTile(std::vector<std::uint64_t>& chunkRe
     ++chunkRevisions[static_cast<std::size_t>(chunkIndex)];
 }
 
+void SimulationRuntime::markChunksDirtyByTileIndices(std::vector<std::uint64_t>& chunkRevisions, const std::vector<int>& tileIndices) {
+    std::set<int> touchedChunkIndices;
+
+    std::size_t tileIndexValue = 0;
+    for (; tileIndexValue < tileIndices.size(); ++tileIndexValue) {
+        const int tileLinearIndex = tileIndices[tileIndexValue];
+        const int tileY = tileLinearIndex / kMapWidth;
+        const int tileX = tileLinearIndex - (tileY * kMapWidth);
+        touchedChunkIndices.insert(chunkIndexForTile(tileX, tileY));
+    }
+
+    std::set<int>::const_iterator iterator = touchedChunkIndices.begin();
+    for (; iterator != touchedChunkIndices.end(); ++iterator) {
+        if (*iterator < 0 || *iterator >= static_cast<int>(chunkRevisions.size())) {
+            continue;
+        }
+
+        ++chunkRevisions[static_cast<std::size_t>(*iterator)];
+    }
+}
+
 int SimulationRuntime::chunkIndexForTile(int tileX, int tileY) const {
     if (!isTileInsideMap(tileX, tileY)) {
         return -1;
@@ -664,37 +789,245 @@ int SimulationRuntime::chunkIndexForTile(int tileX, int tileY) const {
     return (chunkY * chunkColumnCount) + chunkX;
 }
 
-bool SimulationRuntime::tryPlaceLot(const LotDefinition& lotDefinition, int clickedTileX, int clickedTileY, TileBuffer& writeBuffer) {
-    std::size_t offsetIndex = 0;
-    for (; offsetIndex < lotDefinition.occupiedOffsets.size(); ++offsetIndex) {
-        const Int2& occupiedOffset = lotDefinition.occupiedOffsets[offsetIndex];
-        const int tileX = clickedTileX + occupiedOffset.x;
-        const int tileY = clickedTileY + occupiedOffset.y;
+const LotAsset* SimulationRuntime::findLotAssetById(const std::string& lotAssetId) const {
+    const std::unordered_map<std::string, std::size_t>::const_iterator iterator = lotAssetIndexById_.find(lotAssetId);
+    if (iterator == lotAssetIndexById_.end()) {
+        return 0;
+    }
+
+    return &lotAssets_[iterator->second];
+}
+
+const LotModule* SimulationRuntime::findModuleAssetById(const std::string& moduleAssetId) const {
+    const std::unordered_map<std::string, std::size_t>::const_iterator iterator = moduleAssetIndexById_.find(moduleAssetId);
+    if (iterator == moduleAssetIndexById_.end()) {
+        return 0;
+    }
+
+    return &moduleAssets_[iterator->second];
+}
+
+Lot* SimulationRuntime::findLotById(int lotId) {
+    std::size_t lotIndex = 0;
+    for (; lotIndex < lots_.size(); ++lotIndex) {
+        if (lots_[lotIndex].id() == lotId) {
+            return &lots_[lotIndex];
+        }
+    }
+
+    return 0;
+}
+
+const PublishedLotInfo* SimulationRuntime::findPublishedLotInfoById(const std::vector<PublishedLotInfo>& publishedLotInfos, int lotId) const {
+    std::size_t lotIndex = 0;
+    for (; lotIndex < publishedLotInfos.size(); ++lotIndex) {
+        if (publishedLotInfos[lotIndex].lotId == lotId) {
+            return &publishedLotInfos[lotIndex];
+        }
+    }
+
+    return 0;
+}
+
+bool SimulationRuntime::tryPlaceLot(const LotAsset& lotAsset, int clickedTileX, int clickedTileY, TileBuffer& writeBuffer) {
+    Lot candidateLot(nextLotId_, lotAsset.id, clickedTileX, clickedTileY);
+
+    std::size_t placementIndex = 0;
+    for (; placementIndex < lotAsset.initialModules.size(); ++placementIndex) {
+        const LotModule* moduleAsset = findModuleAssetById(lotAsset.initialModules[placementIndex].moduleId);
+        if (moduleAsset == 0) {
+            return false;
+        }
+
+        candidateLot.addModule(*moduleAsset, lotAsset.initialModules[placementIndex].localOrigin, kMapWidth);
+    }
+
+    if (!canPlaceLot(candidateLot)) {
+        return false;
+    }
+
+    lots_.push_back(candidateLot);
+    setLotOccupancy(candidateLot.id(), candidateLot.occupiedTileIndices());
+    markChunksDirtyByTileIndices(writeBuffer.chunkRevisions, candidateLot.occupiedTileIndices());
+    ++nextLotId_;
+    ++lotsRevision_;
+    return true;
+}
+
+bool SimulationRuntime::tryAddModuleAtTile(const LotModule& moduleAsset, int clickedTileX, int clickedTileY, TileBuffer& writeBuffer) {
+    std::vector<int> adjacentLotIds;
+    if (!collectAdjacentLotIdsForModule(moduleAsset, clickedTileX, clickedTileY, adjacentLotIds)) {
+        return false;
+    }
+
+    const int targetLotId = adjacentLotIds[0];
+    Lot* targetLot = findLotById(targetLotId);
+    if (targetLot == 0) {
+        return false;
+    }
+
+    const Int2 localOrigin(clickedTileX - targetLot->anchorTileX(), clickedTileY - targetLot->anchorTileY());
+    targetLot->addModule(moduleAsset, localOrigin, kMapWidth);
+
+    std::vector<int> newlyOccupiedTiles;
+    const std::vector<int>& occupiedTileIndices = targetLot->occupiedTileIndices();
+    std::size_t tileIndexValue = 0;
+    for (; tileIndexValue < occupiedTileIndices.size(); ++tileIndexValue) {
+        if (lotOccupancy_[occupiedTileIndices[tileIndexValue]] == kInvalidLotId) {
+            newlyOccupiedTiles.push_back(occupiedTileIndices[tileIndexValue]);
+        }
+    }
+
+    setLotOccupancy(targetLotId, newlyOccupiedTiles);
+    markChunksDirtyByTileIndices(writeBuffer.chunkRevisions, newlyOccupiedTiles);
+    ++lotsRevision_;
+    return true;
+}
+
+bool SimulationRuntime::tryRemoveModuleAtTile(int clickedTileX, int clickedTileY, TileBuffer& writeBuffer) {
+    const int tileLinearIndex = tileIndex(clickedTileX, clickedTileY);
+    const int lotId = lotOccupancy_[tileLinearIndex];
+    if (lotId == kInvalidLotId) {
+        return false;
+    }
+
+    Lot* targetLot = findLotById(lotId);
+    if (targetLot == 0) {
+        return false;
+    }
+
+    const std::vector<int> oldOccupiedTiles = targetLot->occupiedTileIndices();
+    const Int2 localTile(clickedTileX - targetLot->anchorTileX(), clickedTileY - targetLot->anchorTileY());
+    const int moduleInstanceId = targetLot->moduleInstanceIdAtLocalTile(localTile);
+    if (moduleInstanceId < 0) {
+        return false;
+    }
+
+    if (!targetLot->removeModule(moduleInstanceId, kMapWidth)) {
+        return false;
+    }
+
+    clearLotOccupancy(oldOccupiedTiles);
+
+    std::vector<int> dirtyTiles = oldOccupiedTiles;
+    if (targetLot->modules().empty()) {
+        std::size_t lotIndex = 0;
+        for (; lotIndex < lots_.size(); ++lotIndex) {
+            if (lots_[lotIndex].id() != lotId) {
+                continue;
+            }
+
+            lots_.erase(lots_.begin() + static_cast<std::ptrdiff_t>(lotIndex));
+            break;
+        }
+    } else {
+        targetLot->rebaseAnchorToMinimumTile(kMapWidth);
+        setLotOccupancy(lotId, targetLot->occupiedTileIndices());
+        dirtyTiles.insert(dirtyTiles.end(), targetLot->occupiedTileIndices().begin(), targetLot->occupiedTileIndices().end());
+    }
+
+    markChunksDirtyByTileIndices(writeBuffer.chunkRevisions, dirtyTiles);
+    ++lotsRevision_;
+    return true;
+}
+
+bool SimulationRuntime::canPlaceLot(const Lot& candidateLot) const {
+    const std::vector<int>& occupiedTileIndices = candidateLot.occupiedTileIndices();
+    std::size_t tileIndexValue = 0;
+    for (; tileIndexValue < occupiedTileIndices.size(); ++tileIndexValue) {
+        const int tileLinearIndex = occupiedTileIndices[tileIndexValue];
+        const int tileY = tileLinearIndex / kMapWidth;
+        const int tileX = tileLinearIndex - (tileY * kMapWidth);
         if (!isTileInsideMap(tileX, tileY)) {
             return false;
         }
 
-        if (!writeBuffer.tiles[tileIndex(tileX, tileY)].isVacant) {
+        if (lotOccupancy_[tileLinearIndex] != kInvalidLotId) {
             return false;
         }
     }
 
-    lots_.push_back(Lot(clickedTileX, clickedTileY, lotDefinition, kMapWidth));
-    const Lot& placedLot = lots_.back();
+    return true;
+}
 
-    const std::vector<int>& occupiedTileIndices = placedLot.occupiedTileIndices();
-    std::size_t occupiedTileIndex = 0;
-    for (; occupiedTileIndex < occupiedTileIndices.size(); ++occupiedTileIndex) {
-        const int tileLinearIndex = occupiedTileIndices[occupiedTileIndex];
-        writeBuffer.tiles[tileLinearIndex].isVacant = false;
+bool SimulationRuntime::collectAdjacentLotIdsForModule(const LotModule& moduleAsset, int clickedTileX, int clickedTileY, std::vector<int>& adjacentLotIds) const {
+    adjacentLotIds.clear();
+    std::set<int> adjacentLotIdSet;
+    std::vector<int> candidateTileIndices;
+    candidateTileIndices.reserve(static_cast<std::size_t>(moduleAsset.width * moduleAsset.height));
 
-        const int tileY = tileLinearIndex / kMapWidth;
-        const int tileX = tileLinearIndex - (tileY * kMapWidth);
-        markChunkDirtyByTile(writeBuffer.chunkRevisions, tileX, tileY);
+    int tileY = 0;
+    for (; tileY < moduleAsset.height; ++tileY) {
+        int tileX = 0;
+        for (; tileX < moduleAsset.width; ++tileX) {
+            const int worldTileX = clickedTileX + tileX;
+            const int worldTileY = clickedTileY + tileY;
+            if (!isTileInsideMap(worldTileX, worldTileY)) {
+                return false;
+            }
+
+            const int candidateTileIndex = tileIndex(worldTileX, worldTileY);
+            if (lotOccupancy_[candidateTileIndex] != kInvalidLotId) {
+                return false;
+            }
+
+            candidateTileIndices.push_back(candidateTileIndex);
+        }
     }
 
-    ++lotsRevision_;
+    const int neighborOffsets[4][2] = {
+        {1, 0},
+        {-1, 0},
+        {0, 1},
+        {0, -1}
+    };
+
+    std::size_t candidateIndex = 0;
+    for (; candidateIndex < candidateTileIndices.size(); ++candidateIndex) {
+        const int candidateTileIndex = candidateTileIndices[candidateIndex];
+        const int candidateTileY = candidateTileIndex / kMapWidth;
+        const int candidateTileX = candidateTileIndex - (candidateTileY * kMapWidth);
+
+        int neighborIndex = 0;
+        for (; neighborIndex < 4; ++neighborIndex) {
+            const int neighborTileX = candidateTileX + neighborOffsets[neighborIndex][0];
+            const int neighborTileY = candidateTileY + neighborOffsets[neighborIndex][1];
+            if (!isTileInsideMap(neighborTileX, neighborTileY)) {
+                continue;
+            }
+
+            const int neighborTileIndex = tileIndex(neighborTileX, neighborTileY);
+            if (std::find(candidateTileIndices.begin(), candidateTileIndices.end(), neighborTileIndex) != candidateTileIndices.end()) {
+                continue;
+            }
+
+            const int neighborLotId = lotOccupancy_[neighborTileIndex];
+            if (neighborLotId != kInvalidLotId) {
+                adjacentLotIdSet.insert(neighborLotId);
+            }
+        }
+    }
+
+    if (adjacentLotIdSet.size() != 1u) {
+        return false;
+    }
+
+    adjacentLotIds.assign(adjacentLotIdSet.begin(), adjacentLotIdSet.end());
     return true;
+}
+
+void SimulationRuntime::clearLotOccupancy(const std::vector<int>& tileIndices) {
+    std::size_t tileIndexValue = 0;
+    for (; tileIndexValue < tileIndices.size(); ++tileIndexValue) {
+        lotOccupancy_[tileIndices[tileIndexValue]] = kInvalidLotId;
+    }
+}
+
+void SimulationRuntime::setLotOccupancy(int lotId, const std::vector<int>& tileIndices) {
+    std::size_t tileIndexValue = 0;
+    for (; tileIndexValue < tileIndices.size(); ++tileIndexValue) {
+        lotOccupancy_[tileIndices[tileIndexValue]] = lotId;
+    }
 }
 
 bool SimulationRuntime::isTileInsideMap(int tileX, int tileY) const {

@@ -558,7 +558,7 @@ std::vector<TileInstanceData> BuildTileChunkInstances(const PublishedWorldSnapsh
     std::vector<TileInstanceData> instances;
     instances.reserve(static_cast<std::size_t>(chunkRect.width) * static_cast<std::size_t>(chunkRect.height));
 
-    if (snapshot.tiles == 0) {
+    if (snapshot.tiles == 0 || snapshot.lotOccupancy == 0) {
         return instances;
     }
 
@@ -573,7 +573,8 @@ std::vector<TileInstanceData> BuildTileChunkInstances(const PublishedWorldSnapsh
             instance.originZ = static_cast<float>(tileY);
             instance.tileU = (static_cast<float>(tileX) + 0.5f) / static_cast<float>(snapshot.width);
             instance.tileV = (static_cast<float>(tileY) + 0.5f) / static_cast<float>(snapshot.height);
-            instance.lift = tile.isVacant ? 0.0f : 0.04f;
+            const int lotId = (*snapshot.lotOccupancy)[static_cast<std::size_t>(tileY) * static_cast<std::size_t>(snapshot.width) + static_cast<std::size_t>(tileX)];
+            instance.lift = lotId < 0 ? 0.0f : 0.04f;
             instances.push_back(instance);
         }
     }
