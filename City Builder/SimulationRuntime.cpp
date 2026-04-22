@@ -7,7 +7,6 @@
 #include <ctime>
 #include <iostream>
 #include <random>
-#include <set>
 #include <stdexcept>
 
 #define WIN32_LEAN_AND_MEAN
@@ -142,9 +141,7 @@ void SimulationRuntime::queuePaintPollution(int tileX, int tileY, int amount) {
     playerCommand.tileX = tileX;
     playerCommand.tileY = tileY;
     playerCommand.amount = amount;
-
-    std::lock_guard<std::mutex> commandLock(commandMutex_);
-    pendingCommands_.push_back(playerCommand);
+    enqueueCommand(playerCommand);
 }
 
 void SimulationRuntime::queuePlaceLot(const std::string& lotAssetId, int tileX, int tileY) {
@@ -157,9 +154,7 @@ void SimulationRuntime::queuePlaceLot(const std::string& lotAssetId, int tileX, 
     playerCommand.tileX = tileX;
     playerCommand.tileY = tileY;
     playerCommand.assetId = lotAssetId;
-
-    std::lock_guard<std::mutex> commandLock(commandMutex_);
-    pendingCommands_.push_back(playerCommand);
+    enqueueCommand(playerCommand);
 }
 
 void SimulationRuntime::queueAddModuleAtTile(const std::string& moduleAssetId, int tileX, int tileY) {
@@ -172,9 +167,7 @@ void SimulationRuntime::queueAddModuleAtTile(const std::string& moduleAssetId, i
     playerCommand.tileX = tileX;
     playerCommand.tileY = tileY;
     playerCommand.assetId = moduleAssetId;
-
-    std::lock_guard<std::mutex> commandLock(commandMutex_);
-    pendingCommands_.push_back(playerCommand);
+    enqueueCommand(playerCommand);
 }
 
 void SimulationRuntime::queueRemoveModuleAtTile(int tileX, int tileY) {
@@ -186,9 +179,7 @@ void SimulationRuntime::queueRemoveModuleAtTile(int tileX, int tileY) {
     playerCommand.type = PlayerCommandType::RemoveModuleAtTile;
     playerCommand.tileX = tileX;
     playerCommand.tileY = tileY;
-
-    std::lock_guard<std::mutex> commandLock(commandMutex_);
-    pendingCommands_.push_back(playerCommand);
+    enqueueCommand(playerCommand);
 }
 
 void SimulationRuntime::queuePlaceSmokestack(int tileX, int tileY) {
@@ -674,6 +665,11 @@ void SimulationRuntime::runLocalTilePass(std::vector<Tile>& writeTiles) {
     parallelForEachChunk(WorkerTaskType::LocalPass, 0, &writeTiles);
 }
 
+void SimulationRuntime::enqueueCommand(const PlayerCommand& playerCommand) {
+    std::lock_guard<std::mutex> commandLock(commandMutex_);
+    pendingCommands_.push_back(playerCommand);
+}
+
 void SimulationRuntime::publishCompletedBuffer() {
     const int completedBufferIndex = simulationWriteBufferIndex_;
     TileBuffer& completedBuffer = tileBuffers_[completedBufferIndex];
@@ -758,23 +754,28 @@ void SimulationRuntime::markChunkDirtyByTile(std::vector<std::uint64_t>& chunkRe
 }
 
 void SimulationRuntime::markChunksDirtyByTileIndices(std::vector<std::uint64_t>& chunkRevisions, const std::vector<int>& tileIndices) {
-    std::set<int> touchedChunkIndices;
+    std::vector<int> touchedChunkIndices;
+    touchedChunkIndices.reserve(tileIndices.size());
 
     std::size_t tileIndexValue = 0;
     for (; tileIndexValue < tileIndices.size(); ++tileIndexValue) {
         const int tileLinearIndex = tileIndices[tileIndexValue];
         const int tileY = tileLinearIndex / kMapWidth;
         const int tileX = tileLinearIndex - (tileY * kMapWidth);
-        touchedChunkIndices.insert(chunkIndexForTile(tileX, tileY));
+        touchedChunkIndices.push_back(chunkIndexForTile(tileX, tileY));
     }
 
-    std::set<int>::const_iterator iterator = touchedChunkIndices.begin();
-    for (; iterator != touchedChunkIndices.end(); ++iterator) {
-        if (*iterator < 0 || *iterator >= static_cast<int>(chunkRevisions.size())) {
+    std::sort(touchedChunkIndices.begin(), touchedChunkIndices.end());
+    touchedChunkIndices.erase(std::unique(touchedChunkIndices.begin(), touchedChunkIndices.end()), touchedChunkIndices.end());
+
+    std::size_t touchedIndex = 0;
+    for (; touchedIndex < touchedChunkIndices.size(); ++touchedIndex) {
+        const int chunkIndex = touchedChunkIndices[touchedIndex];
+        if (chunkIndex < 0 || chunkIndex >= static_cast<int>(chunkRevisions.size())) {
             continue;
         }
 
-        ++chunkRevisions[static_cast<std::size_t>(*iterator)];
+        ++chunkRevisions[static_cast<std::size_t>(chunkIndex)];
     }
 }
 
@@ -952,7 +953,6 @@ bool SimulationRuntime::canPlaceLot(const Lot& candidateLot) const {
 
 bool SimulationRuntime::collectAdjacentLotIdsForModule(const LotModule& moduleAsset, int clickedTileX, int clickedTileY, std::vector<int>& adjacentLotIds) const {
     adjacentLotIds.clear();
-    std::set<int> adjacentLotIdSet;
     std::vector<int> candidateTileIndices;
     candidateTileIndices.reserve(static_cast<std::size_t>(moduleAsset.width * moduleAsset.height));
 
@@ -1002,17 +1002,17 @@ bool SimulationRuntime::collectAdjacentLotIdsForModule(const LotModule& moduleAs
             }
 
             const int neighborLotId = lotOccupancy_[neighborTileIndex];
-            if (neighborLotId != kInvalidLotId) {
-                adjacentLotIdSet.insert(neighborLotId);
+            if (neighborLotId != kInvalidLotId && std::find(adjacentLotIds.begin(), adjacentLotIds.end(), neighborLotId) == adjacentLotIds.end()) {
+                adjacentLotIds.push_back(neighborLotId);
             }
         }
     }
 
-    if (adjacentLotIdSet.size() != 1u) {
+    if (adjacentLotIds.size() != 1u) {
+        adjacentLotIds.clear();
         return false;
     }
 
-    adjacentLotIds.assign(adjacentLotIdSet.begin(), adjacentLotIdSet.end());
     return true;
 }
 

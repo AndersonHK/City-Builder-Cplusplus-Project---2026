@@ -59,6 +59,7 @@ private:
     int hoveredTileY() const;
     void clampCameraToMap();
     void panCamera(int deltaX, int deltaY);
+    void setActiveTool(ActiveTool activeTool);
     void printQueryResult() const;
 
     static const int kMinimumVisibleTiles = 128;

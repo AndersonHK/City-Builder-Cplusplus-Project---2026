@@ -41,22 +41,28 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 - `City Builder/Tile.h`
   - canonical tile data model for the current milestone
 - `City Builder/LotModule.h`
-- `City Builder/LotModule.cpp`
 - `City Builder/Lot.h`
 - `City Builder/Lot.cpp`
   - building footprint/effect primitives
   - render-facing placeholder prism data
+- `City Builder/AssetLoader.h`
+- `City Builder/AssetLoader.cpp`
+  - strict XML asset loading for module and lot archetypes
 - `City Builder/ShaderProgram.h`
 - `City Builder/ShaderProgram.cpp`
   - shader parsing/compilation/linking
 - `City Builder/Basic.shader`
   - canonical runtime shader file copied beside the executable
   - matrix-driven world-space instancing shader
+- `City Builder/Data/Lots/*.xml`
+- `City Builder/Data/Modules/*.xml`
+  - runtime lot/module archetype data copied beside the executable
 
 ## Build/project facts
 - Primary target is `x64 Release`.
 - The shader file is intended to ship beside the built `.exe`.
 - `Release|x64` now enables `/MP`.
+- `.vcxproj.user`, debug logs, and build outputs were cleaned out of source control and should stay untracked.
 - This shell environment may need the duplicate process `PATH` entry cleared before MSBuild runs cleanly.
 - Missing legacy `Dependencies`, `Linker`, and `vendor` references from the old project layout should not remain load-bearing assumptions forever; the refactor should keep the project internally coherent even if external library paths are machine-local.
 
@@ -82,6 +88,7 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - mouse hit testing uses renderer-driven raycasts
   - arrow-key pan semantics now match the current fixed camera heading
   - holding left mouse in `Q` mode continuously paints pollution again
+  - `R`, `T`, and `Y` expose live module-add/remove testing for the XML-backed lot system
 
 ## Current migration doctrine
 - Keep the tile-object model for now.

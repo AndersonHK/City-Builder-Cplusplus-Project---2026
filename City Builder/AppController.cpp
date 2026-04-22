@@ -17,6 +17,33 @@ const int kKeyR = 82;
 const int kKeyT = 84;
 const int kKeyY = 89;
 const int kKeyA = 65;
+
+const char* ActiveToolName(ActiveTool activeTool) {
+    switch (activeTool) {
+        case ActiveTool::PollutionBrush:
+            return "pollution brush";
+
+        case ActiveTool::SmokestackLot:
+            return "place smokestack lot";
+
+        case ActiveTool::ParkLot:
+            return "place park lot";
+
+        case ActiveTool::AddSmokestackModule:
+            return "add smokestack module";
+
+        case ActiveTool::AddParkModule:
+            return "add park module";
+
+        case ActiveTool::RemoveModule:
+            return "remove module";
+
+        case ActiveTool::Query:
+            return "query";
+    }
+
+    return "unknown";
+}
 }
 
 AppController::AppController(SimulationRuntime& simulationRuntime)
@@ -96,38 +123,31 @@ void AppController::onKeyPressed(int key, int action) {
             return;
 
         case kKeyQ:
-            viewState_.activeTool = ActiveTool::PollutionBrush;
-            std::cout << "Selected tool: pollution brush" << std::endl;
+            setActiveTool(ActiveTool::PollutionBrush);
             return;
 
         case kKeyW:
-            viewState_.activeTool = ActiveTool::SmokestackLot;
-            std::cout << "Selected tool: place smokestack lot" << std::endl;
+            setActiveTool(ActiveTool::SmokestackLot);
             return;
 
         case kKeyE:
-            viewState_.activeTool = ActiveTool::ParkLot;
-            std::cout << "Selected tool: place park lot" << std::endl;
+            setActiveTool(ActiveTool::ParkLot);
             return;
 
         case kKeyR:
-            viewState_.activeTool = ActiveTool::AddSmokestackModule;
-            std::cout << "Selected tool: add smokestack module" << std::endl;
+            setActiveTool(ActiveTool::AddSmokestackModule);
             return;
 
         case kKeyT:
-            viewState_.activeTool = ActiveTool::AddParkModule;
-            std::cout << "Selected tool: add park module" << std::endl;
+            setActiveTool(ActiveTool::AddParkModule);
             return;
 
         case kKeyY:
-            viewState_.activeTool = ActiveTool::RemoveModule;
-            std::cout << "Selected tool: remove module" << std::endl;
+            setActiveTool(ActiveTool::RemoveModule);
             return;
 
         case kKeyA:
-            viewState_.activeTool = ActiveTool::Query;
-            std::cout << "Selected tool: query" << std::endl;
+            setActiveTool(ActiveTool::Query);
             return;
     }
 }
@@ -172,6 +192,11 @@ void AppController::panCamera(int deltaX, int deltaY) {
     viewState_.cameraX += deltaX;
     viewState_.cameraY += deltaY;
     clampCameraToMap();
+}
+
+void AppController::setActiveTool(ActiveTool activeTool) {
+    viewState_.activeTool = activeTool;
+    std::cout << "Selected tool: " << ActiveToolName(activeTool) << std::endl;
 }
 
 ViewState AppController::viewState() const {

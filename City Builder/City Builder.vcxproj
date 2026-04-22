@@ -139,7 +139,6 @@ copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\
     <ClCompile Include="AppController.cpp" />
     <ClCompile Include="ChunkConfig.cpp" />
     <ClCompile Include="Lot.cpp" />
-    <ClCompile Include="LotModule.cpp" />
     <ClCompile Include="Renderer.cpp" />
     <ClCompile Include="ShaderProgram.cpp" />
     <ClCompile Include="SimulationRuntime.cpp" />

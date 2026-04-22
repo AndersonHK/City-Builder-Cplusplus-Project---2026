@@ -5,19 +5,6 @@
 #include <map>
 #include <sstream>
 
-namespace {
-bool ContainsTile(const std::vector<Int2>& tiles, const Int2& tile) {
-    std::size_t tileIndex = 0;
-    for (; tileIndex < tiles.size(); ++tileIndex) {
-        if (tiles[tileIndex] == tile) {
-            return true;
-        }
-    }
-
-    return false;
-}
-}
-
 Lot::Lot()
     : lotId_(-1),
       anchorTileX_(0),
@@ -116,10 +103,6 @@ int Lot::moduleInstanceIdAtLocalTile(const Int2& localTile) const {
     }
 
     return -1;
-}
-
-bool Lot::occupiesLocalTile(const Int2& localTile) const {
-    return ContainsTile(occupiedOffsets_, localTile);
 }
 
 void Lot::rebaseAnchorToMinimumTile(int mapWidth) {
@@ -245,10 +228,7 @@ void Lot::rebuildCachedState(int mapWidth) {
             int tileX = 0;
             for (; tileX < placement.module->width; ++tileX) {
                 const Int2 localTile(placement.localOrigin.x + tileX, placement.localOrigin.y + tileY);
-                if (!ContainsTile(occupiedOffsets_, localTile)) {
-                    occupiedOffsets_.push_back(localTile);
-                }
-
+                occupiedOffsets_.push_back(localTile);
                 minX = std::min(minX, localTile.x);
                 minY = std::min(minY, localTile.y);
                 maxX = std::max(maxX, localTile.x);
@@ -256,6 +236,18 @@ void Lot::rebuildCachedState(int mapWidth) {
             }
         }
     }
+
+    std::sort(occupiedOffsets_.begin(), occupiedOffsets_.end(), [](const Int2& left, const Int2& right) {
+        if (left.y != right.y) {
+            return left.y < right.y;
+        }
+
+        return left.x < right.x;
+    });
+
+    occupiedOffsets_.erase(std::unique(occupiedOffsets_.begin(), occupiedOffsets_.end(), [](const Int2& left, const Int2& right) {
+        return left.x == right.x && left.y == right.y;
+    }), occupiedOffsets_.end());
 
     if (totalWeight > 0.0f) {
         colorR_ = weightedColorR / totalWeight;
@@ -265,14 +257,6 @@ void Lot::rebuildCachedState(int mapWidth) {
 
     minimumOccupiedOffset_ = Int2(minX, minY);
     maximumOccupiedOffset_ = Int2(maxX, maxY);
-
-    std::sort(occupiedOffsets_.begin(), occupiedOffsets_.end(), [](const Int2& left, const Int2& right) {
-        if (left.y != right.y) {
-            return left.y < right.y;
-        }
-
-        return left.x < right.x;
-    });
 
     occupiedTileIndices_.reserve(occupiedOffsets_.size());
     std::size_t occupiedIndex = 0;

@@ -16,6 +16,7 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 - `Renderer` owns GLFW/OpenGL setup, camera math, world-space picking, streamed tile-state texture updates, chunk instance buffers, lot instance buffers, and frustum culling.
 - `AppController` owns tool selection, pan/zoom intent, hovered-tile state, and command submission.
 - `ChunkConfig` is still the explicit place to reason about cache-derived chunk sizing.
+- `LotModule.h` is the remaining lot/module type declaration point; the old empty `LotModule.cpp` and other stale legacy helper files were removed during cleanup.
 
 ## Current renderer checkpoint
 - The old CPU-built visible-tile clip-space quad path is gone.
@@ -47,6 +48,9 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - chunk-own lots too, or
   - move tiles from flat quads to simple raised terrain/lot solids, or
   - split renderer support code into smaller files now that `Renderer.cpp` is carrying a lot
+- keep the repo clean:
+  - do not reintroduce tracked build outputs
+  - keep user-local VS files like `.vcxproj.user` out of git
 - continue cleaning up project/build assumptions around local dependency paths
 - keep profiling the simulation before speculative SIMD work
 - look for remaining low-hanging runtime wins in:

@@ -63,6 +63,10 @@ Primary design goals:
   - snapshot lot-vector copying on acquire
   - hot-path `std::function` dispatch in chunk workers
   - sleep-poll write-buffer waiting
+- The cleanup pass also removed low-value codebase churn:
+  - legacy unused helper/source files
+  - tracked debug output artifacts
+  - the empty `LotModule.cpp` stub
 - Per-pass timing now exists in the runtime/renderer status print, so future optimization work should start from measured behavior instead of guesswork.
 
 ## Next optimization doctrine
@@ -78,6 +82,7 @@ Primary design goals:
 ## Compile/doctrine notes
 - Current release settings include the important baseline optimization path and now also enable `/MP` in `Release|x64`.
 - The local shell environment can expose duplicate `Path` and `PATH` entries; clear the process `PATH` first before invoking MSBuild here.
+- User-local Visual Studio state and build products should stay ignored rather than tracked in the repo.
 - Prefer structural wins before raising the machine baseline with ISA-specific flags.
 
 ## Guardrails

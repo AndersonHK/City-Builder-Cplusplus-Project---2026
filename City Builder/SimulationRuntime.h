@@ -187,6 +187,7 @@ private:
     void applyQueuedCommands(TileBuffer& writeBuffer);
     void applyLotEffects(std::vector<Tile>& writeTiles);
     void runLocalTilePass(std::vector<Tile>& writeTiles);
+    void enqueueCommand(const PlayerCommand& playerCommand);
     void publishCompletedBuffer();
     int chooseNextWriteBuffer();
     int findAvailableWriteBuffer() const;

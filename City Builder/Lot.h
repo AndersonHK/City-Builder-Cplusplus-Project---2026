@@ -58,7 +58,6 @@ public:
     int addModule(const LotModule& module, const Int2& localOrigin, int mapWidth);
     bool removeModule(int moduleInstanceId, int mapWidth);
     int moduleInstanceIdAtLocalTile(const Int2& localTile) const;
-    bool occupiesLocalTile(const Int2& localTile) const;
     void rebaseAnchorToMinimumTile(int mapWidth);
     void applyEffects(std::vector<Tile>& tiles) const;
     LotRenderInstance buildRenderInstance() const;

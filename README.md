@@ -21,6 +21,9 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
 - `Q`: pollution brush
 - `W`: place smokestack lot
 - `E`: place park lot
+- `R`: add smokestack module to an adjacent lot footprint
+- `T`: add park module to an adjacent lot footprint
+- `Y`: remove the module under the hovered tile
 - `A`: query hovered tile
 
 ## Build
@@ -41,6 +44,12 @@ If link fails with `LNK1104` on `City Builder.exe`, stop any running copy of the
 - Tile chunk render data rebuilds only when render-topology-relevant chunk revisions change.
 - Dynamic scalar tile debug color still updates every publish through a texture upload so chunk instance data can stay stable.
 - Lots are not chunk-owned yet; they still use a separate renderer path for now.
+- Lot/module archetypes load from XML under `City Builder/Data`.
+
+## Repository hygiene
+- The active code lives under `City Builder/`; stale tracked build outputs and legacy unused helper files were removed.
+- `LotModule` is header-only right now; there is no meaningful `LotModule.cpp`.
+- User-local Visual Studio files such as `.vcxproj.user` should stay untracked.
 
 ## Near-term refactor candidates
 - split the growing `Renderer.cpp` support code into smaller renderer units
