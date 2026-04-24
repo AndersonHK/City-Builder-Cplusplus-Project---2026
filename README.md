@@ -59,11 +59,11 @@ If link fails with `LNK1104` on `City Builder.exe`, stop any running copy of the
 - Lot/module archetypes load from XML under `City Builder/Data`.
 
 ## Design guides
-- `docs/design/renderer.md` - renderer upload, culling, texture, and shader decisions
-- `docs/design/simulation-threading.md` - tile passes, triple buffering, and chunk worker rules
-- `docs/design/lots.md` - lot/module placement, occupancy, effects, and render snapshots
-- `docs/design/xml-assets.md` - strict XML archetype loading and validation
-- `docs/design/transport-network.md` - road topology, packed render state, and layer revisions
+- `docs/design/transport-network.md` - atomic road lanes, surfaces, seams, template layout, overlap validation, packed road state, and layer revisions. Main code anchors: `RoadLaneTypeId` (`City Builder/TransportNetwork.h:45`), `RoadTemplateSeamBetween` (`City Builder/TransportNetwork.cpp:277`), `TransportNetwork::makeRoadTemplate` (`City Builder/TransportNetwork.cpp:727`), and `TransportNetwork::resolveDirtyTile` (`City Builder/TransportNetwork.cpp:963`).
+- `docs/design/renderer.md` - renderer upload, culling, texture, shader decisions, packed surface-edge masks, and shared ground/elevated road render data. Main code anchors: `BuildRoadChunkInstances` (`City Builder/Renderer.cpp:1120`), `UpdateGroundRoadChunkTexture` (`City Builder/Renderer.cpp:1333`), and `applyRoadEdgeOverlays` (`City Builder/Basic.shader:102`).
+- `docs/design/simulation-threading.md` - tile passes, triple buffering, chunk worker rules, and published snapshot ownership.
+- `docs/design/lots.md` - lot/module placement, occupancy, effects, and render snapshots.
+- `docs/design/xml-assets.md` - strict XML archetype loading and validation.
 
 ## Repository hygiene
 - The active code lives under `City Builder/`; stale tracked build outputs and legacy unused helper files were removed.

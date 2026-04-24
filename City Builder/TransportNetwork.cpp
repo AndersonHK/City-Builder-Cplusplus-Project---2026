@@ -5,22 +5,28 @@
 
 namespace {
 const float kRoadLayoutEpsilon = 0.0001f;
+const std::uint8_t kRoadAxisHorizontal = 1u << 0;
+const std::uint8_t kRoadAxisVertical = 1u << 1;
 
 struct LayoutWidth {
-    RoadElementKind kind;
+    RoadLaneTypeId laneType;
+    RoadLaneSurface surface;
     RoadLaneRole laneRole;
     float width;
     float minimumWidth;
     float maximumWidth;
     std::uint8_t laneTravelMask;
+    std::uint8_t arrowTravelMask;
 
     LayoutWidth()
-        : kind(RoadElementKind::Lane),
+        : laneType(RoadLaneTypeId::Car),
+          surface(RoadLaneSurface::Asphalt),
           laneRole(RoadLaneRole::Through),
           width(1.0f),
           minimumWidth(1.0f),
           maximumWidth(1.0f),
-          laneTravelMask(0) {
+          laneTravelMask(0),
+          arrowTravelMask(0) {
     }
 };
 
@@ -31,20 +37,24 @@ enum class RoadTemplateSeamKind : std::uint8_t {
 };
 
 struct CrossSectionTile {
-    std::uint8_t elementMask;
+    std::uint8_t laneTypeMask;
+    std::uint8_t surfaceMask;
     std::uint8_t laneTravelMask;
+    std::uint8_t arrowTravelMask;
     std::uint8_t laneCount;
-    bool lowSidewalkEdge;
-    bool highSidewalkEdge;
+    bool lowSurfaceEdge;
+    bool highSurfaceEdge;
     RoadTemplateSeamKind lowSeamKind;
     RoadTemplateSeamKind highSeamKind;
 
     CrossSectionTile()
-        : elementMask(0),
+        : laneTypeMask(0),
+          surfaceMask(0),
           laneTravelMask(0),
+          arrowTravelMask(0),
           laneCount(0),
-          lowSidewalkEdge(false),
-          highSidewalkEdge(false),
+          lowSurfaceEdge(false),
+          highSurfaceEdge(false),
           lowSeamKind(RoadTemplateSeamKind::None),
           highSeamKind(RoadTemplateSeamKind::None) {
     }
@@ -238,20 +248,20 @@ std::uint8_t OppositeRoadDirection(std::uint8_t roadDirection) {
     }
 }
 
-// Converts an element kind into the authored element mask stored per tile.
-std::uint8_t ElementMaskForKind(RoadElementKind kind) {
-    switch (kind) {
-        case RoadElementKind::Sidewalk:
-            return kRoadElementSidewalk;
-        case RoadElementKind::Lane:
-            return kRoadElementLane;
-        case RoadElementKind::Divider:
-            return kRoadElementDivider;
-        case RoadElementKind::Shoulder:
-            return kRoadElementShoulder;
-        default:
-            return 0;
-    }
+std::uint8_t LaneTypeMaskFor(RoadLaneTypeId laneType) {
+    return static_cast<std::uint8_t>(1u << static_cast<std::uint8_t>(laneType));
+}
+
+std::uint8_t SurfaceMaskFor(RoadLaneSurface surface) {
+    return static_cast<std::uint8_t>(1u << static_cast<std::uint8_t>(surface));
+}
+
+bool LaneTypeUsesRoadArrows(RoadLaneTypeId laneType) {
+    return laneType == RoadLaneTypeId::Car || laneType == RoadLaneTypeId::Bus;
+}
+
+bool LaneRoleUsesDirectedFlow(RoadLaneRole laneRole) {
+    return laneRole == RoadLaneRole::Through || laneRole == RoadLaneRole::Turn || laneRole == RoadLaneRole::Transit;
 }
 
 // Converts an authored template seam into the compact render edge mask.
@@ -265,7 +275,7 @@ void PackRoadTemplateSeamEdge(std::uint8_t& dividerMask, std::uint8_t sideBit, R
 
 // Defines the one visual relationship between any two adjacent template members.
 RoadTemplateSeamKind RoadTemplateSeamBetween(const LayoutWidth& first, const LayoutWidth& second) {
-    if (first.kind != RoadElementKind::Lane || second.kind != RoadElementKind::Lane) {
+    if (first.laneType != RoadLaneTypeId::Car || second.laneType != RoadLaneTypeId::Car) {
         return RoadTemplateSeamKind::None;
     }
 
@@ -290,6 +300,24 @@ bool HasHorizontalLane(std::uint8_t laneTravelMask) {
 // True when a travel mask has north/south lane continuity.
 bool HasVerticalLane(std::uint8_t laneTravelMask) {
     return (laneTravelMask & (kLaneIntentNorth | kLaneIntentSouth)) != 0;
+}
+
+std::uint16_t MakeRoadTemplateId(RoadFamily family, TransportLayerId layer, int laneCount, RoadTrafficSide trafficSide, RoadDirectionMode directionMode) {
+    return static_cast<std::uint16_t>(
+        (static_cast<std::uint16_t>(family) << 12) |
+        (static_cast<std::uint16_t>(layer) << 10) |
+        (static_cast<std::uint16_t>(trafficSide) << 8) |
+        (static_cast<std::uint16_t>(directionMode) << 6) |
+        static_cast<std::uint16_t>(std::max(0, std::min(63, laneCount))));
+}
+
+bool CardinalJunctionIsIntersection(std::uint8_t junctionMask) {
+    const bool north = (junctionMask & kRoadDirectionNorth) != 0;
+    const bool east = (junctionMask & kRoadDirectionEast) != 0;
+    const bool south = (junctionMask & kRoadDirectionSouth) != 0;
+    const bool west = (junctionMask & kRoadDirectionWest) != 0;
+    const int count = (north ? 1 : 0) + (east ? 1 : 0) + (south ? 1 : 0) + (west ? 1 : 0);
+    return count >= 2 && !((north && south && count == 2) || (east && west && count == 2));
 }
 
 // Builds a tile footprint from template element widths, using min/max constraints.
@@ -317,7 +345,7 @@ std::vector<LayoutWidth> BuildLayoutWidths(const RoadTemplate& roadTemplate, std
     int laneTotal = 0;
     std::size_t countIndex = 0;
     for (; countIndex < roadTemplate.elements.size(); ++countIndex) {
-        if (roadTemplate.elements[countIndex].kind == RoadElementKind::Lane) {
+        if (LaneRoleUsesDirectedFlow(roadTemplate.elements[countIndex].laneRole)) {
             ++laneTotal;
         }
     }
@@ -327,12 +355,13 @@ std::vector<LayoutWidth> BuildLayoutWidths(const RoadTemplate& roadTemplate, std
     for (; elementIndex < roadTemplate.elements.size(); ++elementIndex) {
         const RoadTemplateElement& element = roadTemplate.elements[elementIndex];
         LayoutWidth layoutWidth;
-        layoutWidth.kind = element.kind;
+        layoutWidth.laneType = element.laneType;
+        layoutWidth.surface = element.surface;
         layoutWidth.laneRole = element.laneRole;
         layoutWidth.width = element.behavior.preferredWidth;
         layoutWidth.minimumWidth = element.behavior.minimumWidth;
         layoutWidth.maximumWidth = element.behavior.maximumWidth;
-        if (element.kind == RoadElementKind::Lane) {
+        if (LaneRoleUsesDirectedFlow(element.laneRole)) {
             std::uint8_t laneDirection = forwardDirection;
             if (roadTemplate.directionMode == RoadDirectionMode::TwoWay && laneOrdinal < laneTotal / 2) {
                 laneDirection = reverseDirection;
@@ -341,7 +370,12 @@ std::vector<LayoutWidth> BuildLayoutWidths(const RoadTemplate& roadTemplate, std
             }
 
             layoutWidth.laneTravelMask = LaneIntentFromRoadDirection(laneDirection);
+            if (LaneTypeUsesRoadArrows(element.laneType)) {
+                layoutWidth.arrowTravelMask = layoutWidth.laneTravelMask;
+            }
             ++laneOrdinal;
+        } else if (element.laneRole == RoadLaneRole::Access) {
+            layoutWidth.laneTravelMask = static_cast<std::uint8_t>(LaneIntentFromRoadDirection(forwardDirection) | LaneIntentFromRoadDirection(reverseDirection));
         }
 
         totalWidth += layoutWidth.width;
@@ -396,22 +430,23 @@ std::vector<CrossSectionTile> BuildCrossSectionTiles(const std::vector<LayoutWid
         const int lastTile = std::min(footprint - 1, static_cast<int>(std::ceil(end - kRoadLayoutEpsilon)) - 1);
         int tileOffset = firstTile;
         for (; tileOffset <= lastTile; ++tileOffset) {
-            tiles[static_cast<std::size_t>(tileOffset)].elementMask |= ElementMaskForKind(width.kind);
-            if (width.kind == RoadElementKind::Lane) {
-                tiles[static_cast<std::size_t>(tileOffset)].laneTravelMask |= width.laneTravelMask;
-                ++tiles[static_cast<std::size_t>(tileOffset)].laneCount;
-            }
+            CrossSectionTile& tile = tiles[static_cast<std::size_t>(tileOffset)];
+            tile.laneTypeMask |= LaneTypeMaskFor(width.laneType);
+            tile.surfaceMask |= SurfaceMaskFor(width.surface);
+            tile.laneTravelMask |= width.laneTravelMask;
+            tile.arrowTravelMask |= width.arrowTravelMask;
+            ++tile.laneCount;
         }
 
         cursor = end;
     }
 
     if (!widths.empty()) {
-        if (widths.front().kind == RoadElementKind::Sidewalk) {
-            tiles.front().lowSidewalkEdge = true;
+        if (widths.front().surface == RoadLaneSurface::Sidewalk) {
+            tiles.front().lowSurfaceEdge = true;
         }
-        if (widths.back().kind == RoadElementKind::Sidewalk) {
-            tiles.back().highSidewalkEdge = true;
+        if (widths.back().surface == RoadLaneSurface::Sidewalk) {
+            tiles.back().highSurfaceEdge = true;
         }
     }
 
@@ -492,6 +527,11 @@ bool TransportNetwork::placeRoadStroke(const RoadStrokeCommand& roadStrokeComman
     roadTemplate.layer = roadStrokeCommand.layer;
     if (roadTemplate.elements.empty()) {
         roadTemplate = makeRoadTemplate(roadStrokeCommand.family, roadStrokeCommand.layer, 1, RoadTrafficSide::RightHand, RoadDirectionMode::TwoWay);
+    } else if (roadTemplate.identity.id == 0) {
+        roadTemplate.identity.id = MakeRoadTemplateId(roadTemplate.family, roadTemplate.layer, roadTemplate.laneCount, roadTemplate.trafficSide, roadTemplate.directionMode);
+    }
+    if (roadTemplate.identity.footprint == 0) {
+        roadTemplate.identity.footprint = static_cast<std::uint8_t>(std::min(255, ChooseTemplateFootprint(roadTemplate)));
     }
 
     std::vector<PendingPlacement> placements;
@@ -520,17 +560,20 @@ bool TransportNetwork::placeRoadStroke(const RoadStrokeCommand& roadStrokeComman
 
         const std::size_t slot = layerOffset + static_cast<std::size_t>(placement.tileIndex);
         const BuildRoadCell& existingCell = buildCells_[slot];
-        const RoadFamily existingFamily = static_cast<RoadFamily>(existingCell.family);
-        if (existingFamily != RoadFamily::None && existingFamily != roadStrokeCommand.family) {
+        if (!canMergePlacement(existingCell, placement, roadStrokeCommand.family, roadTemplate)) {
             return false;
         }
 
-        if (existingCell.family != static_cast<std::uint8_t>(roadStrokeCommand.family) ||
-            (existingCell.elementMask & placement.elementMask) != placement.elementMask ||
-            (existingCell.laneTravelMask & placement.laneTravelMask) != placement.laneTravelMask ||
-            (existingCell.sidewalkMask & placement.sidewalkMask) != placement.sidewalkMask ||
-            (existingCell.dividerMask & placement.dividerMask) != placement.dividerMask ||
-            existingCell.laneCount < placement.laneCount) {
+        if (!(existingCell.family != static_cast<std::uint8_t>(RoadFamily::None) &&
+            (existingCell.axisMask & placement.axisMask) == placement.axisMask &&
+            (existingCell.crossSectionMask & placement.crossSectionMask) == placement.crossSectionMask &&
+            (existingCell.laneTypeMask & placement.laneTypeMask) == placement.laneTypeMask &&
+            (existingCell.surfaceMask & placement.surfaceMask) == placement.surfaceMask &&
+            (existingCell.laneTravelMask & placement.laneTravelMask) == placement.laneTravelMask &&
+            (existingCell.arrowTravelMask & placement.arrowTravelMask) == placement.arrowTravelMask &&
+            (existingCell.surfaceEdgeMask & placement.surfaceEdgeMask) == placement.surfaceEdgeMask &&
+            (existingCell.dividerMask & placement.dividerMask) == placement.dividerMask &&
+            existingCell.laneCount >= placement.laneCount)) {
             madeChange = true;
         }
     }
@@ -549,9 +592,16 @@ bool TransportNetwork::placeRoadStroke(const RoadStrokeCommand& roadStrokeComman
         BuildRoadCell& buildCell = buildCells_[slot];
         const bool addsNewLaneDirection = (placement.laneTravelMask & ~buildCell.laneTravelMask) != 0;
         buildCell.family = static_cast<std::uint8_t>(roadStrokeCommand.family);
-        buildCell.elementMask |= placement.elementMask;
+        buildCell.templateId = buildCell.templateId == 0 || buildCell.templateId == placement.templateId
+            ? placement.templateId
+            : 0;
+        buildCell.axisMask |= placement.axisMask;
+        buildCell.crossSectionMask |= placement.crossSectionMask;
+        buildCell.laneTypeMask |= placement.laneTypeMask;
+        buildCell.surfaceMask |= placement.surfaceMask;
         buildCell.laneTravelMask |= placement.laneTravelMask;
-        buildCell.sidewalkMask |= placement.sidewalkMask;
+        buildCell.arrowTravelMask |= placement.arrowTravelMask;
+        buildCell.surfaceEdgeMask |= placement.surfaceEdgeMask;
         buildCell.dividerMask |= placement.dividerMask;
         buildCell.laneCount = addsNewLaneDirection
             ? static_cast<std::uint8_t>(std::min(255, static_cast<int>(buildCell.laneCount) + static_cast<int>(placement.laneCount)))
@@ -640,7 +690,7 @@ bool TransportNetwork::hasOccupancy(TransportLayerId layer, int tileIndexValue) 
         return false;
     }
 
-    return buildCells_[slot].family != static_cast<std::uint8_t>(RoadFamily::None) && buildCells_[slot].elementMask != 0;
+    return buildCells_[slot].family != static_cast<std::uint8_t>(RoadFamily::None) && buildCells_[slot].laneTypeMask != 0;
 }
 
 // Checks whether ground roads block lot placement on a tile.
@@ -681,27 +731,30 @@ RoadTemplate TransportNetwork::makeRoadTemplate(RoadFamily family, TransportLaye
     roadTemplate.trafficSide = trafficSide;
     roadTemplate.directionMode = directionMode;
     roadTemplate.laneCount = std::max(1, laneCount);
+    roadTemplate.identity.id = MakeRoadTemplateId(family, layer, roadTemplate.laneCount, trafficSide, directionMode);
+    roadTemplate.overlapPolicy = RoadTemplateOverlapPolicy::AdapterFriendly;
+    const bool hasPedestrianEdgeLanes = family == RoadFamily::LocalStreet && layer == TransportLayerId::Ground;
 
-    RoadTemplateElement sidewalkElement;
-    sidewalkElement.kind = RoadElementKind::Sidewalk;
-    sidewalkElement.laneRole = RoadLaneRole::None;
-    sidewalkElement.behavior.kind = RoadElementKind::Sidewalk;
-    sidewalkElement.behavior.minimumWidth = family == RoadFamily::LocalStreet ? 0.18f : 0.0f;
-    sidewalkElement.behavior.preferredWidth = family == RoadFamily::LocalStreet ? 0.25f : 0.0f;
-    sidewalkElement.behavior.maximumWidth = family == RoadFamily::LocalStreet ? 0.45f : 0.0f;
-    sidewalkElement.behavior.connectorMask = kRoadDirectionNorth | kRoadDirectionEast | kRoadDirectionSouth | kRoadDirectionWest;
+    RoadTemplateElement pedestrianElement;
+    pedestrianElement.laneType = RoadLaneTypeId::Pedestrian;
+    pedestrianElement.surface = RoadLaneSurface::Sidewalk;
+    pedestrianElement.laneRole = RoadLaneRole::Access;
+    pedestrianElement.behavior.minimumWidth = hasPedestrianEdgeLanes ? 0.18f : 0.0f;
+    pedestrianElement.behavior.preferredWidth = hasPedestrianEdgeLanes ? 0.25f : 0.0f;
+    pedestrianElement.behavior.maximumWidth = hasPedestrianEdgeLanes ? 0.45f : 0.0f;
+    pedestrianElement.behavior.connectorMask = kRoadDirectionNorth | kRoadDirectionEast | kRoadDirectionSouth | kRoadDirectionWest;
 
     RoadTemplateElement laneElement;
-    laneElement.kind = RoadElementKind::Lane;
+    laneElement.laneType = RoadLaneTypeId::Car;
+    laneElement.surface = RoadLaneSurface::Asphalt;
     laneElement.laneRole = RoadLaneRole::Through;
-    laneElement.behavior.kind = RoadElementKind::Lane;
     laneElement.behavior.minimumWidth = 0.60f;
     laneElement.behavior.preferredWidth = family == RoadFamily::Highway ? 0.90f : 0.75f;
     laneElement.behavior.maximumWidth = 1.0f;
     laneElement.behavior.connectorMask = kRoadDirectionNorth | kRoadDirectionEast | kRoadDirectionSouth | kRoadDirectionWest;
 
-    if (sidewalkElement.behavior.preferredWidth > 0.0f) {
-        roadTemplate.elements.push_back(sidewalkElement);
+    if (hasPedestrianEdgeLanes && pedestrianElement.behavior.preferredWidth > 0.0f) {
+        roadTemplate.elements.push_back(pedestrianElement);
     }
 
     const int totalLaneElements = directionMode == RoadDirectionMode::TwoWay ? roadTemplate.laneCount * 2 : roadTemplate.laneCount;
@@ -710,10 +763,11 @@ RoadTemplate TransportNetwork::makeRoadTemplate(RoadFamily family, TransportLaye
         roadTemplate.elements.push_back(laneElement);
     }
 
-    if (sidewalkElement.behavior.preferredWidth > 0.0f) {
-        roadTemplate.elements.push_back(sidewalkElement);
+    if (hasPedestrianEdgeLanes && pedestrianElement.behavior.preferredWidth > 0.0f) {
+        roadTemplate.elements.push_back(pedestrianElement);
     }
 
+    roadTemplate.identity.footprint = static_cast<std::uint8_t>(std::min(255, ChooseTemplateFootprint(roadTemplate)));
     return roadTemplate;
 }
 
@@ -746,15 +800,18 @@ bool TransportNetwork::appendLegPlacements(const Int2& startTile, const Int2& en
 
     std::uint8_t forwardDirection = 0;
     std::uint8_t reverseDirection = 0;
+    std::uint8_t axisMask = 0;
     bool horizontal = false;
     if (startTile.y == endTile.y) {
         horizontal = true;
+        axisMask = kRoadAxisHorizontal;
         forwardDirection = startTile.x <= endTile.x ? kRoadDirectionEast : kRoadDirectionWest;
         if (roadTemplate.directionMode == RoadDirectionMode::TwoWay) {
             forwardDirection = kRoadDirectionEast;
         }
         reverseDirection = OppositeRoadDirection(forwardDirection);
     } else if (startTile.x == endTile.x) {
+        axisMask = kRoadAxisVertical;
         forwardDirection = startTile.y <= endTile.y ? kRoadDirectionSouth : kRoadDirectionNorth;
         if (roadTemplate.directionMode == RoadDirectionMode::TwoWay) {
             forwardDirection = kRoadDirectionNorth;
@@ -782,26 +839,27 @@ bool TransportNetwork::appendLegPlacements(const Int2& startTile, const Int2& en
         int crossOffset = 0;
         for (; crossOffset < footprint; ++crossOffset) {
             const CrossSectionTile& crossSectionTile = crossSectionTiles[static_cast<std::size_t>(crossOffset)];
-            if (crossSectionTile.elementMask == 0) {
+            if (crossSectionTile.laneTypeMask == 0) {
                 continue;
             }
 
             const int tileX = horizontal ? longitudinal : startTile.x + crossOffset;
             const int tileY = horizontal ? startTile.y + crossOffset : longitudinal;
-            std::uint8_t sidewalkMask = 0;
+            std::uint8_t surfaceEdgeMask = 0;
             std::uint8_t dividerMask = 0;
             const std::uint8_t lowSideBit = horizontal ? kRoadDirectionNorth : kRoadDirectionWest;
             const std::uint8_t highSideBit = horizontal ? kRoadDirectionSouth : kRoadDirectionEast;
-            if (crossSectionTile.lowSidewalkEdge) {
-                sidewalkMask |= lowSideBit;
+            if (crossSectionTile.lowSurfaceEdge) {
+                surfaceEdgeMask |= lowSideBit;
             }
-            if (crossSectionTile.highSidewalkEdge) {
-                sidewalkMask |= highSideBit;
+            if (crossSectionTile.highSurfaceEdge) {
+                surfaceEdgeMask |= highSideBit;
             }
             PackRoadTemplateSeamEdge(dividerMask, lowSideBit, crossSectionTile.lowSeamKind);
             PackRoadTemplateSeamEdge(dividerMask, highSideBit, crossSectionTile.highSeamKind);
 
-            if (!appendPlacement(tileX, tileY, crossSectionTile.elementMask, crossSectionTile.laneTravelMask, crossSectionTile.laneCount, sidewalkMask, dividerMask, placements)) {
+            const std::uint8_t crossSectionMask = static_cast<std::uint8_t>(1u << std::min(crossOffset, 7));
+            if (!appendPlacement(tileX, tileY, roadTemplate.identity.id, axisMask, crossSectionMask, crossSectionTile.laneTypeMask, crossSectionTile.surfaceMask, crossSectionTile.laneTravelMask, crossSectionTile.arrowTravelMask, crossSectionTile.laneCount, surfaceEdgeMask, dividerMask, placements)) {
                 return false;
             }
         }
@@ -811,7 +869,7 @@ bool TransportNetwork::appendLegPlacements(const Int2& startTile, const Int2& en
 }
 
 // Adds or merges one tile placement inside a pending stroke.
-bool TransportNetwork::appendPlacement(int tileX, int tileY, std::uint8_t elementMask, std::uint8_t laneTravelMask, std::uint8_t laneCount, std::uint8_t sidewalkMask, std::uint8_t dividerMask, std::vector<PendingPlacement>& placements) const {
+bool TransportNetwork::appendPlacement(int tileX, int tileY, std::uint16_t templateId, std::uint8_t axisMask, std::uint8_t crossSectionMask, std::uint8_t laneTypeMask, std::uint8_t surfaceMask, std::uint8_t laneTravelMask, std::uint8_t arrowTravelMask, std::uint8_t laneCount, std::uint8_t surfaceEdgeMask, std::uint8_t dividerMask, std::vector<PendingPlacement>& placements) const {
     if (!isTileInsideMap(tileX, tileY)) {
         return false;
     }
@@ -822,10 +880,23 @@ bool TransportNetwork::appendPlacement(int tileX, int tileY, std::uint8_t elemen
             continue;
         }
 
+        if ((placements[placementIndex].axisMask & axisMask) != 0 &&
+            (placements[placementIndex].crossSectionMask & crossSectionMask) != crossSectionMask &&
+            placements[placementIndex].laneTravelMask != laneTravelMask) {
+            return false;
+        }
+
         const bool addsNewLaneDirection = (laneTravelMask & ~placements[placementIndex].laneTravelMask) != 0;
-        placements[placementIndex].elementMask |= elementMask;
+        placements[placementIndex].templateId = placements[placementIndex].templateId == 0 || placements[placementIndex].templateId == templateId
+            ? templateId
+            : 0;
+        placements[placementIndex].axisMask |= axisMask;
+        placements[placementIndex].crossSectionMask |= crossSectionMask;
+        placements[placementIndex].laneTypeMask |= laneTypeMask;
+        placements[placementIndex].surfaceMask |= surfaceMask;
         placements[placementIndex].laneTravelMask |= laneTravelMask;
-        placements[placementIndex].sidewalkMask |= sidewalkMask;
+        placements[placementIndex].arrowTravelMask |= arrowTravelMask;
+        placements[placementIndex].surfaceEdgeMask |= surfaceEdgeMask;
         placements[placementIndex].dividerMask |= dividerMask;
         placements[placementIndex].laneCount = addsNewLaneDirection
             ? static_cast<std::uint8_t>(std::min(255, static_cast<int>(placements[placementIndex].laneCount) + static_cast<int>(laneCount)))
@@ -837,13 +908,55 @@ bool TransportNetwork::appendPlacement(int tileX, int tileY, std::uint8_t elemen
     placement.tileX = tileX;
     placement.tileY = tileY;
     placement.tileIndex = tileIndex(tileX, tileY);
-    placement.elementMask = elementMask;
+    placement.templateId = templateId;
+    placement.axisMask = axisMask;
+    placement.crossSectionMask = crossSectionMask;
+    placement.laneTypeMask = laneTypeMask;
+    placement.surfaceMask = surfaceMask;
     placement.laneTravelMask = laneTravelMask;
+    placement.arrowTravelMask = arrowTravelMask;
     placement.laneCount = laneCount;
-    placement.sidewalkMask = sidewalkMask;
+    placement.surfaceEdgeMask = surfaceEdgeMask;
     placement.dividerMask = dividerMask;
     placements.push_back(placement);
     return true;
+}
+
+// Template overlap validation lives before mutation so road bodies cannot merge
+// into new bidirectional lanes unless an explicit perpendicular intersection is involved.
+bool TransportNetwork::canMergePlacement(const BuildRoadCell& existingCell, const PendingPlacement& placement, RoadFamily family, const RoadTemplate& roadTemplate) const {
+    const RoadFamily existingFamily = static_cast<RoadFamily>(existingCell.family);
+    if (existingFamily == RoadFamily::None) {
+        return true;
+    }
+
+    if (existingFamily != family) {
+        return false;
+    }
+
+    const bool placementAlreadyPresent =
+        (existingCell.axisMask & placement.axisMask) == placement.axisMask &&
+        (existingCell.crossSectionMask & placement.crossSectionMask) == placement.crossSectionMask &&
+        (existingCell.laneTypeMask & placement.laneTypeMask) == placement.laneTypeMask &&
+        (existingCell.surfaceMask & placement.surfaceMask) == placement.surfaceMask &&
+        (existingCell.laneTravelMask & placement.laneTravelMask) == placement.laneTravelMask &&
+        (existingCell.arrowTravelMask & placement.arrowTravelMask) == placement.arrowTravelMask &&
+        (existingCell.surfaceEdgeMask & placement.surfaceEdgeMask) == placement.surfaceEdgeMask &&
+        (existingCell.dividerMask & placement.dividerMask) == placement.dividerMask &&
+        existingCell.laneCount >= placement.laneCount;
+    if (placementAlreadyPresent) {
+        return true;
+    }
+
+    if (roadTemplate.overlapPolicy != RoadTemplateOverlapPolicy::AdapterFriendly) {
+        return false;
+    }
+
+    if ((existingCell.axisMask & placement.axisMask) != 0) {
+        return false;
+    }
+
+    return existingCell.axisMask != 0 && placement.axisMask != 0;
 }
 
 // Rebuilds one resolved road cell and its render-state bytes.
@@ -854,7 +967,7 @@ void TransportNetwork::resolveDirtyTile(TransportLayerId layer, int tileX, int t
     const std::size_t groundRenderOffset = static_cast<std::size_t>(tileIndexValue) * kGroundRoadRenderChannelsPerTile;
 
     ResolvedRoadCell resolvedCell;
-    if (buildCell.family == static_cast<std::uint8_t>(RoadFamily::None) || buildCell.elementMask == 0) {
+    if (buildCell.family == static_cast<std::uint8_t>(RoadFamily::None) || buildCell.laneTypeMask == 0) {
         resolvedCells_[slot] = resolvedCell;
         if (layer == TransportLayerId::Ground) {
             groundRoadRenderState_[groundRenderOffset + 0u] = 0;
@@ -913,35 +1026,49 @@ void TransportNetwork::resolveDirtyTile(TransportLayerId layer, int tileX, int t
     }
 
     resolvedCell.family = buildCell.family;
-    resolvedCell.laneIntentMask = buildCell.laneTravelMask;
-    resolvedCell.elementMask = buildCell.elementMask;
+    resolvedCell.travelMask = buildCell.laneTravelMask;
+    resolvedCell.laneTypeMask = buildCell.laneTypeMask;
+    resolvedCell.surfaceMask = buildCell.surfaceMask;
     resolvedCell.laneCount = buildCell.laneCount;
     resolvedCell.junctionMask = junctionMask;
     resolvedCell.renderVariant = static_cast<std::uint8_t>(ChooseRenderVariant(junctionMask));
-    resolvedCell.sidewalkMask = buildCell.sidewalkMask;
+    resolvedCell.surfaceEdgeMask = static_cast<std::uint8_t>(buildCell.surfaceEdgeMask & kRoadSurfaceSidewalkEdgeMask);
+    if ((buildCell.laneTypeMask & kRoadLaneTypePedestrian) != 0 && CardinalJunctionIsIntersection(junctionMask)) {
+        const std::uint8_t crosswalkEdges = resolvedCell.surfaceEdgeMask;
+        if (crosswalkEdges != 0) {
+            resolvedCell.surfaceEdgeMask = static_cast<std::uint8_t>(crosswalkEdges << kRoadSurfaceCrosswalkShift);
+            resolvedCell.surfaceMask = static_cast<std::uint8_t>((resolvedCell.surfaceMask & ~kRoadSurfaceSidewalk) | kRoadSurfaceCrosswalk);
+        }
+    }
     resolvedCell.dividerMask = buildCell.dividerMask;
     if (HasHorizontalLane(buildCell.laneTravelMask) && HasVerticalLane(buildCell.laneTravelMask)) {
         resolvedCell.dividerMask = 0;
     }
     resolvedCell.exitMask = exitMask;
     resolvedCell.baseGlyph = static_cast<std::uint8_t>(ChooseBaseGlyph(family, static_cast<RoadRenderVariant>(resolvedCell.renderVariant), junctionMask));
-    resolvedCell.arrowGlyph = static_cast<std::uint8_t>(ChooseArrowGlyph(buildCell.laneTravelMask));
+    resolvedCell.arrowGlyph = static_cast<std::uint8_t>(ChooseArrowGlyph(buildCell.arrowTravelMask));
 
-    if ((buildCell.elementMask & kRoadElementLane) != 0 && family == RoadFamily::LocalStreet) {
-        resolvedCell.carCost = 10;
-    } else if ((buildCell.elementMask & kRoadElementLane) != 0 && family == RoadFamily::Highway) {
-        resolvedCell.carCost = 4;
+    if ((buildCell.laneTypeMask & kRoadLaneTypeCar) != 0) {
+        resolvedCell.laneTypeCosts[static_cast<std::size_t>(RoadLaneTypeId::Car)] = family == RoadFamily::Highway ? 4 : 10;
     }
 
-    if ((buildCell.elementMask & kRoadElementSidewalk) != 0) {
-        resolvedCell.pedestrianCost = 12;
+    if ((buildCell.laneTypeMask & kRoadLaneTypePedestrian) != 0) {
+        resolvedCell.laneTypeCosts[static_cast<std::size_t>(RoadLaneTypeId::Pedestrian)] = 12;
+    }
+
+    if ((buildCell.laneTypeMask & kRoadLaneTypeBike) != 0) {
+        resolvedCell.laneTypeCosts[static_cast<std::size_t>(RoadLaneTypeId::Bike)] = 8;
+    }
+
+    if ((buildCell.laneTypeMask & kRoadLaneTypeBus) != 0) {
+        resolvedCell.laneTypeCosts[static_cast<std::size_t>(RoadLaneTypeId::Bus)] = family == RoadFamily::Highway ? 4 : 7;
     }
 
     resolvedCells_[slot] = resolvedCell;
     if (layer == TransportLayerId::Ground) {
         groundRoadRenderState_[groundRenderOffset + 0u] = resolvedCell.baseGlyph;
         groundRoadRenderState_[groundRenderOffset + 1u] = resolvedCell.arrowGlyph;
-        groundRoadRenderState_[groundRenderOffset + 2u] = resolvedCell.sidewalkMask;
+        groundRoadRenderState_[groundRenderOffset + 2u] = resolvedCell.surfaceEdgeMask;
         groundRoadRenderState_[groundRenderOffset + 3u] = resolvedCell.dividerMask;
     }
 }
@@ -954,7 +1081,7 @@ bool TransportNetwork::hasSameFamilyNeighbor(TransportLayerId layer, int tileX, 
 
     const std::size_t slot = slotIndex(layer, tileIndex(tileX, tileY), totalTileCount_);
     const BuildRoadCell& buildCell = buildCells_[slot];
-    return buildCell.family == static_cast<std::uint8_t>(family) && buildCell.elementMask != 0;
+    return buildCell.family == static_cast<std::uint8_t>(family) && buildCell.laneTypeMask != 0;
 }
 
 // Checks whether an adjacent road lane can carry travel through the requested side.

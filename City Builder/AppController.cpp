@@ -505,13 +505,18 @@ void AppController::printQueryResult() const {
             std::cout
                 << " | road[" << TransportLayerName(queryResult.roadLayers[roadIndex]) << "] family=" << RoadFamilyName(static_cast<RoadFamily>(roadCell.family))
                 << " lanes=" << static_cast<int>(roadCell.laneCount)
-                << " elements=" << static_cast<int>(roadCell.elementMask)
+                << " laneTypes=" << static_cast<int>(roadCell.laneTypeMask)
+                << " surfaces=" << static_cast<int>(roadCell.surfaceMask)
+                << " travel=" << DirectionMaskToString(roadCell.travelMask)
                 << " exits=" << DirectionMaskToString(roadCell.exitMask)
-                << " sidewalks=" << DirectionMaskToString(roadCell.sidewalkMask)
+                << " surfaceEdges=" << DirectionMaskToString(roadCell.surfaceEdgeMask)
                 << " junction=" << DirectionMaskToString(roadCell.junctionMask)
                 << " variant=" << RoadRenderVariantName(static_cast<RoadRenderVariant>(roadCell.renderVariant))
-                << " carCost=" << roadCell.carCost
-                << " pedCost=" << roadCell.pedestrianCost;
+                << " costs(car/ped/bike/bus)="
+                << roadCell.laneTypeCosts[static_cast<std::size_t>(RoadLaneTypeId::Car)] << "/"
+                << roadCell.laneTypeCosts[static_cast<std::size_t>(RoadLaneTypeId::Pedestrian)] << "/"
+                << roadCell.laneTypeCosts[static_cast<std::size_t>(RoadLaneTypeId::Bike)] << "/"
+                << roadCell.laneTypeCosts[static_cast<std::size_t>(RoadLaneTypeId::Bus)];
         }
     }
 

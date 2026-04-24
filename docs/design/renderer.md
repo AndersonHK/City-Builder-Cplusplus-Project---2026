@@ -13,9 +13,16 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Tiles draw from persistent per-chunk static instance buffers containing world origin and map UV.
 - Tile scalar color comes from a persistent full-map `GL_RG16_SNORM` texture updated only for visible stale chunks.
 - Lot occupancy lift comes from a persistent full-map `GL_R8` mask texture updated only for visible stale chunks.
-- Ground roads render in the tile pass from packed road-state bytes and generated road atlases.
-- Elevated roads use separate per-chunk instance buffers and rebuild lazily for visible stale chunks.
+- Ground roads render in the tile pass from packed road-state bytes and generated road atlases. The ground-road upload path is `UpdateGroundRoadChunkTexture` (`City Builder/Renderer.cpp:1333`).
+- Elevated roads use separate per-chunk instance buffers and rebuild lazily for visible stale chunks. They consume the same resolved road glyph, surface-edge, and divider masks through `BuildRoadChunkInstances` (`City Builder/Renderer.cpp:1120`).
 - Lots still render through one global placeholder-prism instance buffer keyed by lot revision.
+
+## Road Render Data
+- The road simulation owns topology, lane type masks, surface masks, and path masks; rendering only consumes `ResolvedRoadCell` snapshots.
+- Ground road channel 0 is the base glyph, channel 1 is the arrow glyph, channel 2 packs surface-edge masks, and channel 3 packs white/yellow divider edges.
+- Channel 2 low nibble is sidewalk surface edges and high nibble is crosswalk surface edges. This is a visualization of resolved lane surfaces, not a renderer-owned pedestrian policy.
+- Elevated road instances carry the same base/arrow glyphs and packed surface-edge/divider masks as instance attributes (`City Builder/Renderer.cpp:1147`).
+- `Basic.shader` unpacks surface-edge and divider masks in `applyRoadEdgeOverlays` (`City Builder/Basic.shader:102`).
 
 ## Rules
 - Calculate visible chunks before upload work, then upload only visible stale chunks.
@@ -23,9 +30,15 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Keep static geometry separate from dynamic scalar masks so future elevation/terrain work can replace the geometry path without reintroducing full-map uploads.
 - Keep shader sampling UV-compatible with full-map textures unless a future renderer migration changes the handoff contract explicitly.
 - Add renderer metrics when adding new upload paths.
+- Keep ground and elevated road rendering fed by the same resolved road cell contract; do not fork road-template semantics in the renderer.
 
 ## Checks
 - Build `x64 Release`.
 - Compare the status line at `32`, `64`, `128`, `256`, and `512` visible-tile zoom.
 - Verify `tileStateChunks`, `tileStateTiles`, and `tileStateBytes` scale with visible chunks.
 - Pan after road or lot edits to confirm deferred chunks update before drawing.
+- Verify local-street crosswalk surfaces appear only at intersections and elevated highways render without pedestrian lane surfaces by default.
+
+## Related Guides
+- `docs/design/transport-network.md` owns road template placement, overlap validation, and resolved road-cell meaning.
+- `docs/design/simulation-threading.md` owns snapshot publication rules.

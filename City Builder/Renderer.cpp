@@ -158,7 +158,7 @@ struct RoadInstanceData {
     float lift;
     float baseGlyph;
     float arrowGlyph;
-    float sidewalkMask;
+    float surfaceEdgeMask;
     float dividerMask;
 };
 
@@ -833,7 +833,7 @@ void PaintRoadBaseGlyph(std::vector<std::uint8_t>& pixels, int textureWidth, int
     }
 
     const std::uint8_t junctionMask = BaseGlyphJunctionMask(glyph);
-    const std::uint8_t sidewalkMask = 0;
+    const std::uint8_t surfaceEdgeMask = 0;
     const Vec4 roadColor = family == RoadFamily::LocalStreet ? Vec4(0.22f, 0.23f, 0.24f, 1.0f) : Vec4(0.16f, 0.19f, 0.25f, 1.0f);
     const Vec4 sidewalkColor(0.74f, 0.72f, 0.66f, 1.0f);
     const Vec4 markingColor = family == RoadFamily::LocalStreet ? Vec4(0.88f, 0.84f, 0.74f, 1.0f) : Vec4(0.93f, 0.86f, 0.32f, 1.0f);
@@ -849,13 +849,13 @@ void PaintRoadBaseGlyph(std::vector<std::uint8_t>& pixels, int textureWidth, int
 
             Vec4 pixelColor = roadColor;
             if (family == RoadFamily::LocalStreet) {
-                if ((sidewalkMask & kRoadDirectionNorth) != 0 && v < 0.16f) {
+                if ((surfaceEdgeMask & kRoadDirectionNorth) != 0 && v < 0.16f) {
                     pixelColor = sidewalkColor;
-                } else if ((sidewalkMask & kRoadDirectionEast) != 0 && u > 0.84f) {
+                } else if ((surfaceEdgeMask & kRoadDirectionEast) != 0 && u > 0.84f) {
                     pixelColor = sidewalkColor;
-                } else if ((sidewalkMask & kRoadDirectionSouth) != 0 && v > 0.84f) {
+                } else if ((surfaceEdgeMask & kRoadDirectionSouth) != 0 && v > 0.84f) {
                     pixelColor = sidewalkColor;
-                } else if ((sidewalkMask & kRoadDirectionWest) != 0 && u < 0.16f) {
+                } else if ((surfaceEdgeMask & kRoadDirectionWest) != 0 && u < 0.16f) {
                     pixelColor = sidewalkColor;
                 }
             }
@@ -1144,7 +1144,7 @@ std::vector<RoadInstanceData> BuildRoadChunkInstances(const PublishedWorldSnapsh
             instance.lift = RoadLayerLift(layer);
             instance.baseGlyph = static_cast<float>(roadCell.baseGlyph);
             instance.arrowGlyph = static_cast<float>(roadCell.arrowGlyph);
-            instance.sidewalkMask = static_cast<float>(roadCell.sidewalkMask);
+            instance.surfaceEdgeMask = static_cast<float>(roadCell.surfaceEdgeMask);
             instance.dividerMask = static_cast<float>(roadCell.dividerMask);
             instances.push_back(instance);
         }

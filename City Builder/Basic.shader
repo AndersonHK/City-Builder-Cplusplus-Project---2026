@@ -99,24 +99,42 @@ bool hasMaskBit(float maskValue, int bitValue)
     return (mask & bitValue) != 0;
 }
 
-vec3 applyRoadEdgeOverlays(vec3 baseColor, vec2 localUv, float sidewalkMask, float dividerMask)
+vec3 applyRoadEdgeOverlays(vec3 baseColor, vec2 localUv, float surfaceEdgeMask, float dividerMask)
 {
     vec3 finalColor = baseColor;
     vec3 sidewalkColor = vec3(0.74, 0.72, 0.66);
+    vec3 crosswalkColor = vec3(0.91, 0.89, 0.78);
     vec3 whiteDividerColor = vec3(0.88, 0.84, 0.74);
     vec3 yellowDividerColor = vec3(0.93, 0.86, 0.32);
 
-    if (hasMaskBit(sidewalkMask, 1) && localUv.y < 0.16) {
+    int surfaceEdges = int(floor(surfaceEdgeMask + 0.5));
+    int sidewalkEdges = surfaceEdges & 15;
+    int crosswalkEdges = (surfaceEdges >> 4) & 15;
+    bool crosswalkStripe = fract((localUv.x + localUv.y) * 10.0) < 0.52;
+
+    if ((sidewalkEdges & 1) != 0 && localUv.y < 0.16) {
         finalColor = sidewalkColor;
     }
-    if (hasMaskBit(sidewalkMask, 2) && localUv.x > 0.84) {
+    if ((sidewalkEdges & 2) != 0 && localUv.x > 0.84) {
         finalColor = sidewalkColor;
     }
-    if (hasMaskBit(sidewalkMask, 4) && localUv.y > 0.84) {
+    if ((sidewalkEdges & 4) != 0 && localUv.y > 0.84) {
         finalColor = sidewalkColor;
     }
-    if (hasMaskBit(sidewalkMask, 8) && localUv.x < 0.16) {
+    if ((sidewalkEdges & 8) != 0 && localUv.x < 0.16) {
         finalColor = sidewalkColor;
+    }
+    if ((crosswalkEdges & 1) != 0 && localUv.y < 0.18 && crosswalkStripe) {
+        finalColor = crosswalkColor;
+    }
+    if ((crosswalkEdges & 2) != 0 && localUv.x > 0.82 && crosswalkStripe) {
+        finalColor = crosswalkColor;
+    }
+    if ((crosswalkEdges & 4) != 0 && localUv.y > 0.82 && crosswalkStripe) {
+        finalColor = crosswalkColor;
+    }
+    if ((crosswalkEdges & 8) != 0 && localUv.x < 0.18 && crosswalkStripe) {
+        finalColor = crosswalkColor;
     }
 
     int divider = int(floor(dividerMask + 0.5));

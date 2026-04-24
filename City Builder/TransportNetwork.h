@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <array>
 #include <vector>
 
 #include "ChunkConfig.h"
@@ -41,10 +42,18 @@ enum class RoadDirectionMode : std::uint8_t {
     OneWayReverse
 };
 
-enum class RoadElementKind : std::uint8_t {
-    Sidewalk = 0,
-    Lane,
-    Divider,
+enum class RoadLaneTypeId : std::uint8_t {
+    Car = 0,
+    Pedestrian,
+    Bike,
+    Bus,
+    Count
+};
+
+enum class RoadLaneSurface : std::uint8_t {
+    Asphalt = 0,
+    Sidewalk,
+    Crosswalk,
     Shoulder
 };
 
@@ -52,7 +61,13 @@ enum class RoadLaneRole : std::uint8_t {
     None = 0,
     Through,
     Turn,
-    Transit
+    Transit,
+    Access
+};
+
+enum class RoadTemplateOverlapPolicy : std::uint8_t {
+    StrictSameTemplate = 0,
+    AdapterFriendly
 };
 
 enum class RoadRenderVariant : std::uint8_t {
@@ -114,7 +129,6 @@ enum class RoadArrowGlyph : std::uint8_t {
 };
 
 struct RoadElementBehavior {
-    RoadElementKind kind;
     float minimumWidth;
     float preferredWidth;
     float maximumWidth;
@@ -122,8 +136,7 @@ struct RoadElementBehavior {
 
     // Defaults to one lane-width road element.
     RoadElementBehavior()
-        : kind(RoadElementKind::Lane),
-          minimumWidth(1.0f),
+        : minimumWidth(1.0f),
           preferredWidth(1.0f),
           maximumWidth(1.0f),
           connectorMask(0) {
@@ -142,15 +155,28 @@ struct RoadLaneFlow {
 };
 
 struct RoadTemplateElement {
-    RoadElementKind kind;
+    RoadLaneTypeId laneType;
+    RoadLaneSurface surface;
     RoadLaneRole laneRole;
     RoadElementBehavior behavior;
     RoadLaneFlow flow;
 
     // Starts as a lane element until a template builder fills it.
     RoadTemplateElement()
-        : kind(RoadElementKind::Lane),
+        : laneType(RoadLaneTypeId::Car),
+          surface(RoadLaneSurface::Asphalt),
           laneRole(RoadLaneRole::Through) {
+    }
+};
+
+struct RoadTemplateIdentity {
+    std::uint16_t id;
+    std::uint8_t footprint;
+
+    // Starts invalid until the template builder computes stable metadata.
+    RoadTemplateIdentity()
+        : id(0),
+          footprint(0) {
     }
 };
 
@@ -159,6 +185,8 @@ struct RoadTemplate {
     TransportLayerId layer;
     RoadTrafficSide trafficSide;
     RoadDirectionMode directionMode;
+    RoadTemplateIdentity identity;
+    RoadTemplateOverlapPolicy overlapPolicy;
     int laneCount;
     std::vector<RoadTemplateElement> elements;
 
@@ -168,6 +196,7 @@ struct RoadTemplate {
           layer(TransportLayerId::Ground),
           trafficSide(RoadTrafficSide::RightHand),
           directionMode(RoadDirectionMode::TwoWay),
+          overlapPolicy(RoadTemplateOverlapPolicy::AdapterFriendly),
           laneCount(1) {
     }
 };
@@ -194,34 +223,34 @@ struct RoadStrokeCommand {
 
 struct ResolvedRoadCell {
     std::uint8_t family;
-    std::uint8_t laneIntentMask;
-    std::uint8_t elementMask;
+    std::uint8_t travelMask;
+    std::uint8_t laneTypeMask;
+    std::uint8_t surfaceMask;
     std::uint8_t laneCount;
     std::uint8_t exitMask;
-    std::uint8_t sidewalkMask;
+    std::uint8_t surfaceEdgeMask;
     std::uint8_t dividerMask;
     std::uint8_t junctionMask;
     std::uint8_t renderVariant;
     std::uint8_t baseGlyph;
     std::uint8_t arrowGlyph;
-    std::uint16_t carCost;
-    std::uint16_t pedestrianCost;
+    std::array<std::uint16_t, static_cast<std::size_t>(RoadLaneTypeId::Count)> laneTypeCosts;
 
     // Starts with no resolved road visual or traversal data.
     ResolvedRoadCell()
         : family(static_cast<std::uint8_t>(RoadFamily::None)),
-          laneIntentMask(0),
-          elementMask(0),
+          travelMask(0),
+          laneTypeMask(0),
+          surfaceMask(0),
           laneCount(0),
           exitMask(0),
-          sidewalkMask(0),
+          surfaceEdgeMask(0),
           dividerMask(0),
           junctionMask(0),
           renderVariant(static_cast<std::uint8_t>(RoadRenderVariant::None)),
           baseGlyph(static_cast<std::uint8_t>(RoadBaseGlyph::None)),
-          arrowGlyph(static_cast<std::uint8_t>(RoadArrowGlyph::None)),
-          carCost(0),
-          pedestrianCost(0) {
+          arrowGlyph(static_cast<std::uint8_t>(RoadArrowGlyph::None)) {
+        laneTypeCosts.fill(0);
     }
 };
 
@@ -238,17 +267,23 @@ constexpr std::uint8_t kLaneIntentEast = 1u << 0;
 constexpr std::uint8_t kLaneIntentWest = 1u << 1;
 constexpr std::uint8_t kLaneIntentNorth = 1u << 2;
 constexpr std::uint8_t kLaneIntentSouth = 1u << 3;
-constexpr std::uint8_t kRoadElementLane = 1u << 0;
-constexpr std::uint8_t kRoadElementSidewalk = 1u << 1;
-constexpr std::uint8_t kRoadElementDivider = 1u << 2;
-constexpr std::uint8_t kRoadElementShoulder = 1u << 3;
+constexpr std::uint8_t kRoadLaneTypeCar = 1u << static_cast<std::uint8_t>(RoadLaneTypeId::Car);
+constexpr std::uint8_t kRoadLaneTypePedestrian = 1u << static_cast<std::uint8_t>(RoadLaneTypeId::Pedestrian);
+constexpr std::uint8_t kRoadLaneTypeBike = 1u << static_cast<std::uint8_t>(RoadLaneTypeId::Bike);
+constexpr std::uint8_t kRoadLaneTypeBus = 1u << static_cast<std::uint8_t>(RoadLaneTypeId::Bus);
+constexpr std::uint8_t kRoadSurfaceAsphalt = 1u << static_cast<std::uint8_t>(RoadLaneSurface::Asphalt);
+constexpr std::uint8_t kRoadSurfaceSidewalk = 1u << static_cast<std::uint8_t>(RoadLaneSurface::Sidewalk);
+constexpr std::uint8_t kRoadSurfaceCrosswalk = 1u << static_cast<std::uint8_t>(RoadLaneSurface::Crosswalk);
+constexpr std::uint8_t kRoadSurfaceShoulder = 1u << static_cast<std::uint8_t>(RoadLaneSurface::Shoulder);
+constexpr std::uint8_t kRoadSurfaceSidewalkEdgeMask = 0x0Fu;
+constexpr std::uint8_t kRoadSurfaceCrosswalkShift = 4u;
 constexpr std::uint8_t kRoadDividerWhiteShift = 0u;
 constexpr std::uint8_t kRoadDividerYellowShift = 4u;
 constexpr std::size_t kGroundRoadRenderChannelsPerTile = 4u;
 
 struct RoadResolvedTile {
     std::uint8_t family;
-    std::uint8_t elementMask;
+    std::uint8_t laneTypeMask;
     std::uint8_t laneCount;
     std::uint8_t travelMask;
     std::uint8_t exitMask;
@@ -256,7 +291,7 @@ struct RoadResolvedTile {
     // Starts with no aggregate tile-level road path data.
     RoadResolvedTile()
         : family(static_cast<std::uint8_t>(RoadFamily::None)),
-          elementMask(0),
+          laneTypeMask(0),
           laneCount(0),
           travelMask(0),
           exitMask(0) {
@@ -292,19 +327,29 @@ public:
 private:
     struct BuildRoadCell {
         std::uint8_t family;
-        std::uint8_t elementMask;
+        std::uint16_t templateId;
+        std::uint8_t axisMask;
+        std::uint8_t crossSectionMask;
+        std::uint8_t laneTypeMask;
+        std::uint8_t surfaceMask;
         std::uint8_t laneTravelMask;
+        std::uint8_t arrowTravelMask;
         std::uint8_t laneCount;
-        std::uint8_t sidewalkMask;
+        std::uint8_t surfaceEdgeMask;
         std::uint8_t dividerMask;
 
         // Starts with no authored road elements.
         BuildRoadCell()
             : family(static_cast<std::uint8_t>(RoadFamily::None)),
-              elementMask(0),
+              templateId(0),
+              axisMask(0),
+              crossSectionMask(0),
+              laneTypeMask(0),
+              surfaceMask(0),
               laneTravelMask(0),
+              arrowTravelMask(0),
               laneCount(0),
-              sidewalkMask(0),
+              surfaceEdgeMask(0),
               dividerMask(0) {
         }
     };
@@ -313,10 +358,15 @@ private:
         int tileX;
         int tileY;
         int tileIndex;
-        std::uint8_t elementMask;
+        std::uint16_t templateId;
+        std::uint8_t axisMask;
+        std::uint8_t crossSectionMask;
+        std::uint8_t laneTypeMask;
+        std::uint8_t surfaceMask;
         std::uint8_t laneTravelMask;
+        std::uint8_t arrowTravelMask;
         std::uint8_t laneCount;
-        std::uint8_t sidewalkMask;
+        std::uint8_t surfaceEdgeMask;
         std::uint8_t dividerMask;
 
         // Starts as an invalid pending stroke tile.
@@ -324,10 +374,15 @@ private:
             : tileX(0),
               tileY(0),
               tileIndex(0),
-              elementMask(0),
+              templateId(0),
+              axisMask(0),
+              crossSectionMask(0),
+              laneTypeMask(0),
+              surfaceMask(0),
               laneTravelMask(0),
+              arrowTravelMask(0),
               laneCount(0),
-              sidewalkMask(0),
+              surfaceEdgeMask(0),
               dividerMask(0) {
         }
     };
@@ -336,7 +391,8 @@ private:
     int tileIndex(int tileX, int tileY) const;
     int chunkIndexForTile(int tileX, int tileY) const;
     bool appendLegPlacements(const Int2& startTile, const Int2& endTile, const RoadTemplate& roadTemplate, std::vector<PendingPlacement>& placements) const;
-    bool appendPlacement(int tileX, int tileY, std::uint8_t elementMask, std::uint8_t laneTravelMask, std::uint8_t laneCount, std::uint8_t sidewalkMask, std::uint8_t dividerMask, std::vector<PendingPlacement>& placements) const;
+    bool appendPlacement(int tileX, int tileY, std::uint16_t templateId, std::uint8_t axisMask, std::uint8_t crossSectionMask, std::uint8_t laneTypeMask, std::uint8_t surfaceMask, std::uint8_t laneTravelMask, std::uint8_t arrowTravelMask, std::uint8_t laneCount, std::uint8_t surfaceEdgeMask, std::uint8_t dividerMask, std::vector<PendingPlacement>& placements) const;
+    bool canMergePlacement(const BuildRoadCell& existingCell, const PendingPlacement& placement, RoadFamily family, const RoadTemplate& roadTemplate) const;
     void resolveDirtyTile(TransportLayerId layer, int tileX, int tileY);
     bool hasSameFamilyNeighbor(TransportLayerId layer, int tileX, int tileY, RoadFamily family) const;
     bool hasCompatibleLaneNeighbor(TransportLayerId layer, int tileX, int tileY, RoadFamily family, std::uint8_t directionBit) const;
