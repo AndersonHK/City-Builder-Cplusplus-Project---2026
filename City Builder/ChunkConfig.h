@@ -9,6 +9,7 @@ struct ChunkRect {
     int width;
     int height;
 
+    // Defaults to a valid one-tile rectangle.
     ChunkRect()
         : startX(0),
           startY(0),
@@ -30,6 +31,7 @@ struct ChunkConfig {
     int chunkCount;
     bool usedDetectedCacheSize;
 
+    // Starts with conservative defaults until CalculateChunkConfig fills the decision fields.
     ChunkConfig()
         : detectedL2BytesPerLogicalThread(0),
           manualOverrideBytesPerLogicalThread(0),

@@ -1,6 +1,6 @@
 # Codex repository map and implementation memory
 
-Snapshot: 2026-04-21
+Snapshot: 2026-04-22
 Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 
 ## Top-level layout that matters now
@@ -14,7 +14,14 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - command queue
   - published render snapshots
   - per-chunk render revisions
+  - transport network publication
   - per-pass timing
+- `City Builder/TransportNetwork.h`
+- `City Builder/TransportNetwork.cpp`
+  - multi-layer road placement/state
+  - road topology resolution
+  - packed ground-road render-state derivation
+  - split ground/elevated road chunk revisions
 - `City Builder/Renderer.h`
 - `City Builder/Renderer.cpp`
   - GLFW window/context ownership
@@ -22,9 +29,12 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - renderer-local math helpers
   - perspective camera state
   - ground-plane picking
-  - chunk instance buffer ownership
+  - static tile chunk instance buffer ownership
+  - visible-chunk tile-state and tile-lift texture uploads
+  - lazy visible-chunk ground-road texture upload
+  - road atlas generation
+  - lazy visible-chunk elevated-road buffer ownership
   - lot instance buffer ownership
-  - tile-state texture upload
   - chunk frustum culling
 - `City Builder/AppController.h`
 - `City Builder/AppController.cpp`
@@ -57,6 +67,8 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 - `City Builder/Data/Lots/*.xml`
 - `City Builder/Data/Modules/*.xml`
   - runtime lot/module archetype data copied beside the executable
+- `docs/design/*.md`
+  - focused design guides for renderer, simulation threading, lots, XML assets, and transport network work
 
 ## Build/project facts
 - Primary target is `x64 Release`.
@@ -75,20 +87,30 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - tiles
   - lots
   - per-chunk render revisions
+  - resolved road cells
+  - packed ground-road render state
+  - split ground/elevated road chunk revisions
 
 ## Current renderer map
 - Tiles:
-  - built into per-chunk world-space instance caches
-  - rebuilt only when a chunk revision changes
-  - colored from a streamed tile-state texture each publish
+  - built into static per-chunk world-space instance caches
+  - colored from compact tile-state texture uploads for visible stale chunks
+  - lifted from a small lot-occupancy mask texture for visible stale chunks
+- Roads:
+  - ground roads render as a tile overlay from packed road-state bytes plus atlas lookups
+  - ground and elevated road uploads are deferred while dirty chunks are hidden
+  - elevated roads rebuild only when visible chunks have changed revisions
 - Lots:
   - rebuilt only when the lot revision changes
   - rendered as separate world-space placeholder prisms
 - Input:
   - mouse hit testing uses renderer-driven raycasts
   - arrow-key pan semantics now match the current fixed camera heading
+  - `Shift+Enter` toggles fullscreen on the primary monitor
   - holding left mouse in `Q` mode continuously paints pollution again
-  - `R`, `T`, and `Y` expose live module-add/remove testing for the XML-backed lot system
+  - mouse wheel supports `512 / 256 / 128 / 64 / 32` visible-tile steps
+  - `R` drag-places ground streets and `H` drag-places elevated highways
+  - `T` and `Y` still expose live module add/remove testing for the XML-backed lot system
 
 ## Current migration doctrine
 - Keep the tile-object model for now.

@@ -6,6 +6,7 @@
 #include "Renderer.h"
 #include "SimulationRuntime.h"
 
+// Boots the simulation, controller, and renderer for the desktop prototype.
 int main() {
     try {
         RuntimeOptions runtimeOptions;

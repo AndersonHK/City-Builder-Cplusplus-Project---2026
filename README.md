@@ -3,12 +3,15 @@
 Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: tile-first, systems-driven, cache-aware, and staged toward richer 3D presentation without making rendering the source of truth.
 
 ## Current state
-- `SimulationRuntime` owns authoritative world state, chunked simulation passes, triple buffering, published render snapshots, and timing instrumentation.
+- `SimulationRuntime` owns authoritative world state, chunked simulation passes, triple buffering, published render snapshots, timing instrumentation, and a multi-layer transport network for roads.
 - `Renderer` owns the OpenGL presentation path:
   - constrained pitched perspective camera
   - world-space tile rendering
   - per-chunk persistent tile instance buffers
-  - streamed tile-state debug shading texture
+  - visible-chunk tile-state debug shading texture updates
+  - visible-chunk lot-lift mask texture updates
+  - packed ground-road overlay texture updates in the tile pass
+  - lazy visible-chunk elevated-road rendering for stacked highways
   - separate lot prism instancing
   - chunk frustum culling
   - ground-plane mouse picking
@@ -16,12 +19,14 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
 
 ## Controls
 - Arrow keys: pan the camera-relative view
-- Mouse wheel: zoom in and out
+- Mouse wheel: zoom in and out across `512 / 256 / 128 / 64 / 32` visible-tile steps
+- `Shift+Enter`: enter or exit fullscreen mode
 - Left mouse in `Q` mode: continuously paint pollution while held
 - `Q`: pollution brush
 - `W`: place smokestack lot
 - `E`: place park lot
-- `R`: add smokestack module to an adjacent lot footprint
+- `R`: drag-place a ground local street
+- `H`: drag-place an elevated highway
 - `T`: add park module to an adjacent lot footprint
 - `Y`: remove the module under the hovered tile
 - `A`: query hovered tile
@@ -41,10 +46,21 @@ If link fails with `LNK1104` on `City Builder.exe`, stop any running copy of the
 ## Architecture notes
 - Simulation remains tile-statistical and authoritative.
 - Rendering consumes published immutable snapshots only.
-- Tile chunk render data rebuilds only when render-topology-relevant chunk revisions change.
-- Dynamic scalar tile debug color still updates every publish through a texture upload so chunk instance data can stay stable.
+- Tile chunk geometry is static after renderer setup for the current flat-tile presentation.
+- Dynamic scalar tile debug color uploads only visible stale chunks through a compact texture.
+- Lot occupancy lift uploads only visible stale chunks through a small mask texture.
+- Roads live in a separate transport layer with their own published cell snapshot, packed ground-road render state, and split ground/elevated chunk revisions so `Tile` stays compact for the scalar simulation passes.
+- Ground-road and elevated-road uploads are dirty visible-chunk only, and stale hidden chunks stay deferred until visible.
+- The renderer timing print breaks out tile-state packing/upload bytes, lift uploads, ground-road uploads, elevated-road uploads, and draw costs.
 - Lots are not chunk-owned yet; they still use a separate renderer path for now.
 - Lot/module archetypes load from XML under `City Builder/Data`.
+
+## Design guides
+- `docs/design/renderer.md` - renderer upload, culling, texture, and shader decisions
+- `docs/design/simulation-threading.md` - tile passes, triple buffering, and chunk worker rules
+- `docs/design/lots.md` - lot/module placement, occupancy, effects, and render snapshots
+- `docs/design/xml-assets.md` - strict XML archetype loading and validation
+- `docs/design/transport-network.md` - road topology, packed render state, and layer revisions
 
 ## Repository hygiene
 - The active code lives under `City Builder/`; stale tracked build outputs and legacy unused helper files were removed.

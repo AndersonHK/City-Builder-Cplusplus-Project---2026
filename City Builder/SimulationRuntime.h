@@ -15,6 +15,7 @@
 #include "Lot.h"
 #include "LotModule.h"
 #include "Tile.h"
+#include "TransportNetwork.h"
 
 struct RuntimeOptions {
     bool fastForward;
@@ -22,6 +23,7 @@ struct RuntimeOptions {
     std::size_t manualL2BytesPerLogicalThread;
     double usableL2Fraction;
 
+    // Defaults to fast simulation and detected cache sizing.
     RuntimeOptions()
         : fastForward(true),
           detectL2CacheSize(true),
@@ -34,7 +36,8 @@ enum class PlayerCommandType {
     PaintPollution,
     PlaceLot,
     AddModuleAtTile,
-    RemoveModuleAtTile
+    RemoveModuleAtTile,
+    PlaceRoadStroke
 };
 
 struct PlayerCommand {
@@ -43,7 +46,9 @@ struct PlayerCommand {
     int tileY;
     int amount;
     std::string assetId;
+    RoadStrokeCommand roadStroke;
 
+    // Starts as a no-op-ish pollution command until a queue helper fills it.
     PlayerCommand()
         : type(PlayerCommandType::PaintPollution),
           tileX(0),
@@ -60,7 +65,10 @@ struct TileQueryResult {
     int lotId;
     std::string lotAssetId;
     std::string moduleSummary;
+    std::vector<TransportLayerId> roadLayers;
+    std::vector<ResolvedRoadCell> roads;
 
+    // Defaults to an invalid query result.
     TileQueryResult()
         : isValid(false),
           generation(0),
@@ -74,6 +82,7 @@ struct PublishedLotInfo {
     std::string assetId;
     std::string moduleSummary;
 
+    // Defaults to an invalid published lot metadata record.
     PublishedLotInfo()
         : lotId(-1) {
     }
@@ -85,21 +94,32 @@ struct PublishedWorldSnapshot {
     const std::vector<LotRenderInstance>* lots;
     const std::vector<std::uint64_t>* chunkRevisions;
     const std::vector<int>* lotOccupancy;
+    const std::vector<ResolvedRoadCell>* roads;
+    const std::vector<std::uint8_t>* groundRoadRenderState;
+    const std::vector<std::uint64_t>* groundRoadChunkRevisions;
+    const std::vector<std::uint64_t>* elevatedRoadChunkRevisions;
     int width;
     int height;
     std::uint64_t generation;
     std::uint64_t lotRevision;
+    std::uint64_t roadRevision;
 
+    // Defaults to an empty snapshot before acquirePublishedSnapshot fills it.
     PublishedWorldSnapshot()
         : bufferIndex(-1),
           tiles(0),
           lots(0),
           chunkRevisions(0),
           lotOccupancy(0),
+          roads(0),
+          groundRoadRenderState(0),
+          groundRoadChunkRevisions(0),
+          elevatedRoadChunkRevisions(0),
           width(0),
           height(0),
           generation(0),
-          lotRevision(0) {
+          lotRevision(0),
+          roadRevision(0) {
     }
 };
 
@@ -111,6 +131,7 @@ struct RuntimeTimingSnapshot {
     long long publishMicros;
     long long writeBufferWaitMicros;
 
+    // Initializes all timing counters to zero.
     RuntimeTimingSnapshot()
         : neighborPassMicros(0),
           commandPassMicros(0),
@@ -133,10 +154,13 @@ public:
     void queuePlaceLot(const std::string& lotAssetId, int tileX, int tileY);
     void queueAddModuleAtTile(const std::string& moduleAssetId, int tileX, int tileY);
     void queueRemoveModuleAtTile(int tileX, int tileY);
+    void queuePlaceRoadStroke(const RoadStrokeCommand& roadStrokeCommand);
     void queuePlaceSmokestack(int tileX, int tileY);
     void queuePlacePark(int tileX, int tileY);
     void queueAddSmokestackModule(int tileX, int tileY);
     void queueAddParkModule(int tileX, int tileY);
+    void queuePlaceStreetRoad(const Int2& startTile, const Int2& cornerTile, const Int2& endTile);
+    void queuePlaceHighwayRoad(const Int2& startTile, const Int2& cornerTile, const Int2& endTile);
 
     TileQueryResult queryTile(int tileX, int tileY) const;
 
@@ -157,10 +181,17 @@ private:
         std::vector<PublishedLotInfo> publishedLotInfos;
         std::vector<std::uint64_t> chunkRevisions;
         std::vector<int> publishedLotOccupancy;
+        std::vector<ResolvedRoadCell> publishedRoads;
+        std::vector<std::uint8_t> publishedGroundRoadRenderState;
+        std::vector<std::uint64_t> publishedGroundRoadChunkRevisions;
+        std::vector<std::uint64_t> publishedElevatedRoadChunkRevisions;
         std::uint64_t lotRenderRevision;
+        std::uint64_t roadRenderRevision;
 
+        // Starts with no published render payloads for this buffer.
         TileBuffer()
-            : lotRenderRevision(0) {
+            : lotRenderRevision(0),
+              roadRenderRevision(0) {
         }
     };
 
@@ -192,6 +223,7 @@ private:
     int chooseNextWriteBuffer();
     int findAvailableWriteBuffer() const;
     void refreshPublishedLotSnapshot(TileBuffer& completedBuffer);
+    void refreshPublishedRoadSnapshot(TileBuffer& completedBuffer);
     void copyChunkRevisionsForWriteBuffer();
     void markChunkDirtyByTile(std::vector<std::uint64_t>& chunkRevisions, int tileX, int tileY);
     void markChunksDirtyByTileIndices(std::vector<std::uint64_t>& chunkRevisions, const std::vector<int>& tileIndices);
@@ -242,6 +274,7 @@ private:
     std::vector<Lot> lots_;
     int nextLotId_;
     std::uint64_t lotsRevision_;
+    TransportNetwork transportNetwork_;
 
     std::deque<PlayerCommand> pendingCommands_;
     mutable std::mutex commandMutex_;

@@ -17,6 +17,7 @@ struct LotRenderInstance {
     float colorG;
     float colorB;
 
+    // Defaults to a small neutral placeholder prism.
     LotRenderInstance()
         : lotId(-1),
           originX(0),
@@ -36,6 +37,7 @@ struct LotAsset {
     Int2 renderOrigin;
     std::vector<LotModulePlacementDefinition> initialModules;
 
+    // Starts an unloaded lot archetype with a zero anchor.
     LotAsset()
         : anchor(0, 0),
           renderOrigin(0, 0) {

@@ -14,10 +14,12 @@
 #include <windows.h>
 
 namespace {
+// Converts a steady-clock span to microseconds for lightweight profiling.
 long long DurationMicros(const std::chrono::steady_clock::time_point& startTime, const std::chrono::steady_clock::time_point& endTime) {
     return std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime).count();
 }
 
+// Finds the executable directory so data assets can be loaded beside the binary.
 std::string GetExecutableDirectory() {
     char modulePath[MAX_PATH];
     const DWORD pathLength = GetModuleFileNameA(0, modulePath, MAX_PATH);
@@ -31,6 +33,7 @@ std::string GetExecutableDirectory() {
 }
 }
 
+// Allocates the triple-buffered world and derives chunk/work scheduling config.
 SimulationRuntime::SimulationRuntime(const RuntimeOptions& runtimeOptions)
     : simulationReadBufferIndex_(0),
       simulationWriteBufferIndex_(1),
@@ -60,6 +63,7 @@ SimulationRuntime::SimulationRuntime(const RuntimeOptions& runtimeOptions)
     const int workerThreadCount = hardwareThreads > 2u ? static_cast<int>(hardwareThreads) - 2 : 1;
     chunkConfig_ = CalculateChunkConfig(kMapWidth, kMapHeight, sizeof(Tile), workerThreadCount, runtimeOptions_.manualL2BytesPerLogicalThread, runtimeOptions_.detectL2CacheSize, runtimeOptions_.usableL2Fraction, kMinimumJobsPerWorkerMultiplier);
     chunkLayout_ = BuildChunkLayout(kMapWidth, kMapHeight, chunkConfig_.chunkWidth, chunkConfig_.chunkHeight);
+    transportNetwork_.initialize(kMapWidth, kMapHeight, chunkLayout_);
 
     loadAssets();
 
@@ -75,7 +79,12 @@ SimulationRuntime::SimulationRuntime(const RuntimeOptions& runtimeOptions)
         tileBuffers_[bufferIndex].publishedLots.clear();
         tileBuffers_[bufferIndex].publishedLotInfos.clear();
         tileBuffers_[bufferIndex].publishedLotOccupancy.assign(totalTileCount, kInvalidLotId);
+        tileBuffers_[bufferIndex].publishedRoads.assign(totalTileCount * TransportNetwork::layerCount(), ResolvedRoadCell());
+        tileBuffers_[bufferIndex].publishedGroundRoadRenderState.assign(totalTileCount * kGroundRoadRenderChannelsPerTile, 0);
+        tileBuffers_[bufferIndex].publishedGroundRoadChunkRevisions.assign(chunkCount, 1);
+        tileBuffers_[bufferIndex].publishedElevatedRoadChunkRevisions.assign(chunkCount, 1);
         tileBuffers_[bufferIndex].lotRenderRevision = 0;
+        tileBuffers_[bufferIndex].roadRenderRevision = 0;
         bufferUseCounts_[bufferIndex].store(0);
     }
 
@@ -95,10 +104,12 @@ SimulationRuntime::SimulationRuntime(const RuntimeOptions& runtimeOptions)
     std::cout << "Chunk count: " << chunkConfig_.chunkCount << std::endl;
 }
 
+// Stops worker activity before runtime storage is destroyed.
 SimulationRuntime::~SimulationRuntime() {
     stop();
 }
 
+// Starts the simulation thread and worker pool.
 void SimulationRuntime::start() {
     if (keepRunning_.exchange(true)) {
         return;
@@ -108,6 +119,7 @@ void SimulationRuntime::start() {
     simulationThread_ = std::thread(&SimulationRuntime::simulationLoop, this);
 }
 
+// Requests shutdown and joins all simulation-owned threads.
 void SimulationRuntime::stop() {
     if (!keepRunning_.exchange(false)) {
         return;
@@ -131,6 +143,7 @@ void SimulationRuntime::stop() {
     stopWorkers();
 }
 
+// Queues a pollution brush write for the next command boundary.
 void SimulationRuntime::queuePaintPollution(int tileX, int tileY, int amount) {
     if (!isTileInsideMap(tileX, tileY)) {
         return;
@@ -144,6 +157,7 @@ void SimulationRuntime::queuePaintPollution(int tileX, int tileY, int amount) {
     enqueueCommand(playerCommand);
 }
 
+// Queues a lot placement by archetype id.
 void SimulationRuntime::queuePlaceLot(const std::string& lotAssetId, int tileX, int tileY) {
     if (!isTileInsideMap(tileX, tileY)) {
         return;
@@ -157,6 +171,7 @@ void SimulationRuntime::queuePlaceLot(const std::string& lotAssetId, int tileX, 
     enqueueCommand(playerCommand);
 }
 
+// Queues a module expansion against the lot adjacent to a clicked tile.
 void SimulationRuntime::queueAddModuleAtTile(const std::string& moduleAssetId, int tileX, int tileY) {
     if (!isTileInsideMap(tileX, tileY)) {
         return;
@@ -170,6 +185,7 @@ void SimulationRuntime::queueAddModuleAtTile(const std::string& moduleAssetId, i
     enqueueCommand(playerCommand);
 }
 
+// Queues removal of the module under a clicked occupied tile.
 void SimulationRuntime::queueRemoveModuleAtTile(int tileX, int tileY) {
     if (!isTileInsideMap(tileX, tileY)) {
         return;
@@ -182,22 +198,65 @@ void SimulationRuntime::queueRemoveModuleAtTile(int tileX, int tileY) {
     enqueueCommand(playerCommand);
 }
 
+// Queues a multi-tile road stroke for transport-layer application.
+void SimulationRuntime::queuePlaceRoadStroke(const RoadStrokeCommand& roadStrokeCommand) {
+    if (!isTileInsideMap(roadStrokeCommand.startTile.x, roadStrokeCommand.startTile.y) ||
+        !isTileInsideMap(roadStrokeCommand.cornerTile.x, roadStrokeCommand.cornerTile.y) ||
+        !isTileInsideMap(roadStrokeCommand.endTile.x, roadStrokeCommand.endTile.y)) {
+        return;
+    }
+
+    PlayerCommand playerCommand;
+    playerCommand.type = PlayerCommandType::PlaceRoadStroke;
+    playerCommand.tileX = roadStrokeCommand.endTile.x;
+    playerCommand.tileY = roadStrokeCommand.endTile.y;
+    playerCommand.roadStroke = roadStrokeCommand;
+    enqueueCommand(playerCommand);
+}
+
+// Queues the default smokestack lot archetype.
 void SimulationRuntime::queuePlaceSmokestack(int tileX, int tileY) {
     queuePlaceLot("smokestack_lot", tileX, tileY);
 }
 
+// Queues the default park lot archetype.
 void SimulationRuntime::queuePlacePark(int tileX, int tileY) {
     queuePlaceLot("park_lot", tileX, tileY);
 }
 
+// Queues a smokestack module expansion.
 void SimulationRuntime::queueAddSmokestackModule(int tileX, int tileY) {
     queueAddModuleAtTile("smokestack_module", tileX, tileY);
 }
 
+// Queues a park module expansion.
 void SimulationRuntime::queueAddParkModule(int tileX, int tileY) {
     queueAddModuleAtTile("park_module", tileX, tileY);
 }
 
+// Queues a ground local-street stroke.
+void SimulationRuntime::queuePlaceStreetRoad(const Int2& startTile, const Int2& cornerTile, const Int2& endTile) {
+    RoadStrokeCommand roadStrokeCommand;
+    roadStrokeCommand.startTile = startTile;
+    roadStrokeCommand.cornerTile = cornerTile;
+    roadStrokeCommand.endTile = endTile;
+    roadStrokeCommand.family = RoadFamily::LocalStreet;
+    roadStrokeCommand.layer = TransportLayerId::Ground;
+    queuePlaceRoadStroke(roadStrokeCommand);
+}
+
+// Queues an elevated highway stroke.
+void SimulationRuntime::queuePlaceHighwayRoad(const Int2& startTile, const Int2& cornerTile, const Int2& endTile) {
+    RoadStrokeCommand roadStrokeCommand;
+    roadStrokeCommand.startTile = startTile;
+    roadStrokeCommand.cornerTile = cornerTile;
+    roadStrokeCommand.endTile = endTile;
+    roadStrokeCommand.family = RoadFamily::Highway;
+    roadStrokeCommand.layer = TransportLayerId::Elevated;
+    queuePlaceRoadStroke(roadStrokeCommand);
+}
+
+// Reads the currently published snapshot for debug tile inspection.
 TileQueryResult SimulationRuntime::queryTile(int tileX, int tileY) const {
     TileQueryResult queryResult;
     if (!isTileInsideMap(tileX, tileY)) {
@@ -224,9 +283,25 @@ TileQueryResult SimulationRuntime::queryTile(int tileX, int tileY) const {
         }
     }
 
+    if (!publishedBuffer.publishedRoads.empty()) {
+        const int tileIndexValue = tileIndex(tileX, tileY);
+        std::size_t layerIndex = 0;
+        for (; layerIndex < TransportNetwork::layerCount(); ++layerIndex) {
+            const std::size_t slot = TransportNetwork::slotIndex(static_cast<TransportLayerId>(layerIndex), tileIndexValue, static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight));
+            const ResolvedRoadCell& roadCell = publishedBuffer.publishedRoads[slot];
+            if (roadCell.family == static_cast<std::uint8_t>(RoadFamily::None)) {
+                continue;
+            }
+
+            queryResult.roadLayers.push_back(static_cast<TransportLayerId>(layerIndex));
+            queryResult.roads.push_back(roadCell);
+        }
+    }
+
     return queryResult;
 }
 
+// Pins the current published buffer for renderer-side read-only access.
 PublishedWorldSnapshot SimulationRuntime::acquirePublishedSnapshot() {
     PublishedWorldSnapshot snapshot;
 
@@ -236,10 +311,15 @@ PublishedWorldSnapshot SimulationRuntime::acquirePublishedSnapshot() {
     snapshot.lots = &tileBuffers_[publishedBufferIndex_].publishedLots;
     snapshot.chunkRevisions = &tileBuffers_[publishedBufferIndex_].chunkRevisions;
     snapshot.lotOccupancy = &tileBuffers_[publishedBufferIndex_].publishedLotOccupancy;
+    snapshot.roads = &tileBuffers_[publishedBufferIndex_].publishedRoads;
+    snapshot.groundRoadRenderState = &tileBuffers_[publishedBufferIndex_].publishedGroundRoadRenderState;
+    snapshot.groundRoadChunkRevisions = &tileBuffers_[publishedBufferIndex_].publishedGroundRoadChunkRevisions;
+    snapshot.elevatedRoadChunkRevisions = &tileBuffers_[publishedBufferIndex_].publishedElevatedRoadChunkRevisions;
     snapshot.width = kMapWidth;
     snapshot.height = kMapHeight;
     snapshot.generation = publishedGeneration_;
     snapshot.lotRevision = tileBuffers_[publishedBufferIndex_].lotRenderRevision;
+    snapshot.roadRevision = tileBuffers_[publishedBufferIndex_].roadRenderRevision;
 
     if (snapshot.bufferIndex >= 0) {
         bufferUseCounts_[snapshot.bufferIndex].fetch_add(1);
@@ -248,6 +328,7 @@ PublishedWorldSnapshot SimulationRuntime::acquirePublishedSnapshot() {
     return snapshot;
 }
 
+// Releases a pinned published buffer and advances render-consumption tracking.
 void SimulationRuntime::releasePublishedSnapshot(const PublishedWorldSnapshot& snapshot) {
     if (snapshot.bufferIndex < 0 || snapshot.bufferIndex >= 3) {
         return;
@@ -264,26 +345,32 @@ void SimulationRuntime::releasePublishedSnapshot(const PublishedWorldSnapshot& s
     renderCv_.notify_all();
 }
 
+// Returns the fixed map width for this milestone.
 int SimulationRuntime::mapWidth() const {
     return kMapWidth;
 }
 
+// Returns the fixed map height for this milestone.
 int SimulationRuntime::mapHeight() const {
     return kMapHeight;
 }
 
+// Returns the most recent simulation throughput counter.
 int SimulationRuntime::updatesPerSecond() const {
     return updatesPerSecond_.load();
 }
 
+// Exposes the derived chunk sizing decisions for diagnostics.
 const ChunkConfig& SimulationRuntime::chunkConfig() const {
     return chunkConfig_;
 }
 
+// Exposes the shared chunk layout used by simulation, transport, and rendering.
 const std::vector<ChunkRect>& SimulationRuntime::chunkLayout() const {
     return chunkLayout_;
 }
 
+// Copies timing counters for the renderer's status print.
 RuntimeTimingSnapshot SimulationRuntime::timingSnapshot() const {
     RuntimeTimingSnapshot snapshot;
     snapshot.neighborPassMicros = neighborPassMicros_.load();
@@ -295,6 +382,7 @@ RuntimeTimingSnapshot SimulationRuntime::timingSnapshot() const {
     return snapshot;
 }
 
+// Loads XML lot/module archetypes from the executable data directory.
 void SimulationRuntime::loadAssets() {
     LoadedGameAssets loadedAssets;
     std::string errorMessage;
@@ -318,6 +406,7 @@ void SimulationRuntime::loadAssets() {
     }
 }
 
+// Seeds the three tile buffers and the initial published snapshot.
 void SimulationRuntime::initializeWorld() {
     std::mt19937 randomEngine(static_cast<unsigned int>(std::time(0)));
     std::uniform_int_distribution<int> baseDistribution(0, 327670);
@@ -344,19 +433,26 @@ void SimulationRuntime::initializeWorld() {
         tileBuffers_[bufferIndex].publishedLots.clear();
         tileBuffers_[bufferIndex].publishedLotInfos.clear();
         tileBuffers_[bufferIndex].publishedLotOccupancy.assign(static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight), kInvalidLotId);
+        tileBuffers_[bufferIndex].publishedRoads.assign(static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight) * TransportNetwork::layerCount(), ResolvedRoadCell());
+        tileBuffers_[bufferIndex].publishedGroundRoadRenderState.assign(static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight) * kGroundRoadRenderChannelsPerTile, 0);
+        tileBuffers_[bufferIndex].publishedGroundRoadChunkRevisions.assign(chunkLayout_.size(), 1);
+        tileBuffers_[bufferIndex].publishedElevatedRoadChunkRevisions.assign(chunkLayout_.size(), 1);
         tileBuffers_[bufferIndex].lotRenderRevision = 0;
+        tileBuffers_[bufferIndex].roadRenderRevision = 0;
     }
 
     lotOccupancy_.assign(static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight), kInvalidLotId);
     lots_.clear();
     nextLotId_ = 1;
     lotsRevision_ = 0;
+    transportNetwork_.clear();
 
     std::lock_guard<std::mutex> publishedLock(publishedMutex_);
     publishedBufferIndex_ = simulationReadBufferIndex_;
     publishedGeneration_ = 0;
 }
 
+// Runs the ordered simulation passes and publishes completed write buffers.
 void SimulationRuntime::simulationLoop() {
     int updatesThisSecond = 0;
     std::chrono::steady_clock::time_point secondWindowStart = std::chrono::steady_clock::now();
@@ -402,6 +498,7 @@ void SimulationRuntime::simulationLoop() {
     }
 }
 
+// Starts the chunk worker threads used by parallel tile passes.
 void SimulationRuntime::startWorkers() {
     stopWorkerThreads_ = false;
     workerThreads_.clear();
@@ -412,6 +509,7 @@ void SimulationRuntime::startWorkers() {
     }
 }
 
+// Wakes and joins chunk workers during shutdown.
 void SimulationRuntime::stopWorkers() {
     {
         std::lock_guard<std::mutex> workerLock(workerMutex_);
@@ -435,6 +533,7 @@ void SimulationRuntime::stopWorkers() {
     currentWorkerTask_ = WorkerTaskType::None;
 }
 
+// Waits for chunk-task generations and participates until shutdown.
 void SimulationRuntime::workerMain() {
     std::uint64_t observedGeneration = 0;
 
@@ -457,6 +556,7 @@ void SimulationRuntime::workerMain() {
     }
 }
 
+// Dispatches one chunked tile pass across workers and the simulation thread.
 void SimulationRuntime::parallelForEachChunk(WorkerTaskType workerTask, const std::vector<Tile>* readTiles, std::vector<Tile>* writeTiles) {
     if (chunkLayout_.empty()) {
         return;
@@ -494,6 +594,7 @@ void SimulationRuntime::parallelForEachChunk(WorkerTaskType workerTask, const st
     });
 }
 
+// Claims chunk indices atomically until the active pass is complete.
 void SimulationRuntime::runPendingChunkTasks() {
     for (;;) {
         const std::size_t chunkIndex = nextChunkIndex_.fetch_add(1);
@@ -505,6 +606,7 @@ void SimulationRuntime::runPendingChunkTasks() {
     }
 }
 
+// Records one participant finishing the current chunk-task generation.
 void SimulationRuntime::completeChunkTaskParticipant() {
     if (workersRemaining_.fetch_sub(1) == 1u) {
         std::lock_guard<std::mutex> workerLock(workerMutex_);
@@ -516,6 +618,7 @@ void SimulationRuntime::completeChunkTaskParticipant() {
     }
 }
 
+// Routes the active worker task enum to the concrete chunk pass.
 void SimulationRuntime::executeChunkTask(const ChunkRect& chunkRect) {
     switch (currentWorkerTask_) {
         case WorkerTaskType::NeighborPass:
@@ -531,6 +634,7 @@ void SimulationRuntime::executeChunkTask(const ChunkRect& chunkRect) {
     }
 }
 
+// Computes neighbor diffusion from the read buffer into the write buffer.
 void SimulationRuntime::runNeighborChunk(const ChunkRect& chunkRect) {
     if (currentReadTiles_ == 0 || currentWriteTiles_ == 0) {
         return;
@@ -581,6 +685,7 @@ void SimulationRuntime::runNeighborChunk(const ChunkRect& chunkRect) {
     }
 }
 
+// Applies per-tile decay and local land-value pressure in place.
 void SimulationRuntime::runLocalChunk(const ChunkRect& chunkRect) {
     if (currentWriteTiles_ == 0) {
         return;
@@ -607,10 +712,12 @@ void SimulationRuntime::runLocalChunk(const ChunkRect& chunkRect) {
     }
 }
 
+// Runs the full-map neighbor pass over all chunks.
 void SimulationRuntime::runNeighborPass(const std::vector<Tile>& readTiles, std::vector<Tile>& writeTiles) {
     parallelForEachChunk(WorkerTaskType::NeighborPass, &readTiles, &writeTiles);
 }
 
+// Drains player commands and applies them at a stable simulation boundary.
 void SimulationRuntime::applyQueuedCommands(TileBuffer& writeBuffer) {
     std::deque<PlayerCommand> queuedCommands;
     {
@@ -650,10 +757,15 @@ void SimulationRuntime::applyQueuedCommands(TileBuffer& writeBuffer) {
             case PlayerCommandType::RemoveModuleAtTile:
                 tryRemoveModuleAtTile(playerCommand.tileX, playerCommand.tileY, writeBuffer);
                 break;
+
+            case PlayerCommandType::PlaceRoadStroke:
+                transportNetwork_.placeRoadStroke(playerCommand.roadStroke, lotOccupancy_, kInvalidLotId);
+                break;
         }
     }
 }
 
+// Applies all active lot/module effects after direct commands.
 void SimulationRuntime::applyLotEffects(std::vector<Tile>& writeTiles) {
     std::size_t lotIndex = 0;
     for (; lotIndex < lots_.size(); ++lotIndex) {
@@ -661,19 +773,23 @@ void SimulationRuntime::applyLotEffects(std::vector<Tile>& writeTiles) {
     }
 }
 
+// Runs the full-map local tile pass over all chunks.
 void SimulationRuntime::runLocalTilePass(std::vector<Tile>& writeTiles) {
     parallelForEachChunk(WorkerTaskType::LocalPass, 0, &writeTiles);
 }
 
+// Adds a command to the thread-safe pending input queue.
 void SimulationRuntime::enqueueCommand(const PlayerCommand& playerCommand) {
     std::lock_guard<std::mutex> commandLock(commandMutex_);
     pendingCommands_.push_back(playerCommand);
 }
 
+// Publishes the completed write buffer and advances triple-buffer ownership.
 void SimulationRuntime::publishCompletedBuffer() {
     const int completedBufferIndex = simulationWriteBufferIndex_;
     TileBuffer& completedBuffer = tileBuffers_[completedBufferIndex];
     refreshPublishedLotSnapshot(completedBuffer);
+    refreshPublishedRoadSnapshot(completedBuffer);
 
     {
         std::lock_guard<std::mutex> publishedLock(publishedMutex_);
@@ -685,6 +801,7 @@ void SimulationRuntime::publishCompletedBuffer() {
     simulationWriteBufferIndex_ = chooseNextWriteBuffer();
 }
 
+// Selects an unused buffer for the next simulation write pass.
 int SimulationRuntime::chooseNextWriteBuffer() {
     const int immediateBufferIndex = findAvailableWriteBuffer();
     if (immediateBufferIndex >= 0) {
@@ -701,6 +818,7 @@ int SimulationRuntime::chooseNextWriteBuffer() {
     return findAvailableWriteBuffer();
 }
 
+// Finds a non-read, non-render-pinned tile buffer.
 int SimulationRuntime::findAvailableWriteBuffer() const {
     int bufferIndex = 0;
     for (; bufferIndex < 3; ++bufferIndex) {
@@ -716,6 +834,7 @@ int SimulationRuntime::findAvailableWriteBuffer() const {
     return -1;
 }
 
+// Refreshes lot render/query snapshots only when the lot revision changed.
 void SimulationRuntime::refreshPublishedLotSnapshot(TileBuffer& completedBuffer) {
     if (completedBuffer.lotRenderRevision == lotsRevision_) {
         return;
@@ -740,10 +859,25 @@ void SimulationRuntime::refreshPublishedLotSnapshot(TileBuffer& completedBuffer)
     completedBuffer.lotRenderRevision = lotsRevision_;
 }
 
+// Refreshes road render/query snapshots only when the road revision changed.
+void SimulationRuntime::refreshPublishedRoadSnapshot(TileBuffer& completedBuffer) {
+    if (completedBuffer.roadRenderRevision == transportNetwork_.revision()) {
+        return;
+    }
+
+    completedBuffer.publishedRoads = transportNetwork_.resolvedCells();
+    completedBuffer.publishedGroundRoadRenderState = transportNetwork_.groundRoadRenderState();
+    completedBuffer.publishedGroundRoadChunkRevisions = transportNetwork_.groundChunkRevisions();
+    completedBuffer.publishedElevatedRoadChunkRevisions = transportNetwork_.elevatedChunkRevisions();
+    completedBuffer.roadRenderRevision = transportNetwork_.revision();
+}
+
+// Carries render-topology chunk revisions forward into the next write buffer.
 void SimulationRuntime::copyChunkRevisionsForWriteBuffer() {
     tileBuffers_[simulationWriteBufferIndex_].chunkRevisions = tileBuffers_[simulationReadBufferIndex_].chunkRevisions;
 }
 
+// Bumps the render-topology revision for one tile's chunk.
 void SimulationRuntime::markChunkDirtyByTile(std::vector<std::uint64_t>& chunkRevisions, int tileX, int tileY) {
     const int chunkIndex = chunkIndexForTile(tileX, tileY);
     if (chunkIndex < 0 || chunkIndex >= static_cast<int>(chunkRevisions.size())) {
@@ -753,6 +887,7 @@ void SimulationRuntime::markChunkDirtyByTile(std::vector<std::uint64_t>& chunkRe
     ++chunkRevisions[static_cast<std::size_t>(chunkIndex)];
 }
 
+// Bumps each touched chunk once for a set of modified tile indices.
 void SimulationRuntime::markChunksDirtyByTileIndices(std::vector<std::uint64_t>& chunkRevisions, const std::vector<int>& tileIndices) {
     std::vector<int> touchedChunkIndices;
     touchedChunkIndices.reserve(tileIndices.size());
@@ -779,6 +914,7 @@ void SimulationRuntime::markChunksDirtyByTileIndices(std::vector<std::uint64_t>&
     }
 }
 
+// Maps a world tile coordinate to its chunk index.
 int SimulationRuntime::chunkIndexForTile(int tileX, int tileY) const {
     if (!isTileInsideMap(tileX, tileY)) {
         return -1;
@@ -790,6 +926,7 @@ int SimulationRuntime::chunkIndexForTile(int tileX, int tileY) const {
     return (chunkY * chunkColumnCount) + chunkX;
 }
 
+// Looks up a loaded lot archetype by id.
 const LotAsset* SimulationRuntime::findLotAssetById(const std::string& lotAssetId) const {
     const std::unordered_map<std::string, std::size_t>::const_iterator iterator = lotAssetIndexById_.find(lotAssetId);
     if (iterator == lotAssetIndexById_.end()) {
@@ -799,6 +936,7 @@ const LotAsset* SimulationRuntime::findLotAssetById(const std::string& lotAssetI
     return &lotAssets_[iterator->second];
 }
 
+// Looks up a loaded module archetype by id.
 const LotModule* SimulationRuntime::findModuleAssetById(const std::string& moduleAssetId) const {
     const std::unordered_map<std::string, std::size_t>::const_iterator iterator = moduleAssetIndexById_.find(moduleAssetId);
     if (iterator == moduleAssetIndexById_.end()) {
@@ -808,6 +946,7 @@ const LotModule* SimulationRuntime::findModuleAssetById(const std::string& modul
     return &moduleAssets_[iterator->second];
 }
 
+// Finds a mutable live lot by runtime id.
 Lot* SimulationRuntime::findLotById(int lotId) {
     std::size_t lotIndex = 0;
     for (; lotIndex < lots_.size(); ++lotIndex) {
@@ -819,6 +958,7 @@ Lot* SimulationRuntime::findLotById(int lotId) {
     return 0;
 }
 
+// Finds immutable published lot metadata by runtime id.
 const PublishedLotInfo* SimulationRuntime::findPublishedLotInfoById(const std::vector<PublishedLotInfo>& publishedLotInfos, int lotId) const {
     std::size_t lotIndex = 0;
     for (; lotIndex < publishedLotInfos.size(); ++lotIndex) {
@@ -830,6 +970,7 @@ const PublishedLotInfo* SimulationRuntime::findPublishedLotInfoById(const std::v
     return 0;
 }
 
+// Attempts to instantiate a lot archetype at the clicked tile.
 bool SimulationRuntime::tryPlaceLot(const LotAsset& lotAsset, int clickedTileX, int clickedTileY, TileBuffer& writeBuffer) {
     Lot candidateLot(nextLotId_, lotAsset.id, clickedTileX, clickedTileY);
 
@@ -855,6 +996,7 @@ bool SimulationRuntime::tryPlaceLot(const LotAsset& lotAsset, int clickedTileX, 
     return true;
 }
 
+// Attempts to attach a module to exactly one adjacent lot.
 bool SimulationRuntime::tryAddModuleAtTile(const LotModule& moduleAsset, int clickedTileX, int clickedTileY, TileBuffer& writeBuffer) {
     std::vector<int> adjacentLotIds;
     if (!collectAdjacentLotIdsForModule(moduleAsset, clickedTileX, clickedTileY, adjacentLotIds)) {
@@ -885,6 +1027,7 @@ bool SimulationRuntime::tryAddModuleAtTile(const LotModule& moduleAsset, int cli
     return true;
 }
 
+// Attempts to remove the module occupying the clicked tile.
 bool SimulationRuntime::tryRemoveModuleAtTile(int clickedTileX, int clickedTileY, TileBuffer& writeBuffer) {
     const int tileLinearIndex = tileIndex(clickedTileX, clickedTileY);
     const int lotId = lotOccupancy_[tileLinearIndex];
@@ -932,6 +1075,7 @@ bool SimulationRuntime::tryRemoveModuleAtTile(int clickedTileX, int clickedTileY
     return true;
 }
 
+// Checks occupancy and ground-road conflicts for a candidate lot footprint.
 bool SimulationRuntime::canPlaceLot(const Lot& candidateLot) const {
     const std::vector<int>& occupiedTileIndices = candidateLot.occupiedTileIndices();
     std::size_t tileIndexValue = 0;
@@ -946,11 +1090,16 @@ bool SimulationRuntime::canPlaceLot(const Lot& candidateLot) const {
         if (lotOccupancy_[tileLinearIndex] != kInvalidLotId) {
             return false;
         }
+
+        if (transportNetwork_.hasGroundOccupancy(tileLinearIndex)) {
+            return false;
+        }
     }
 
     return true;
 }
 
+// Finds the single neighboring lot eligible for a module placement.
 bool SimulationRuntime::collectAdjacentLotIdsForModule(const LotModule& moduleAsset, int clickedTileX, int clickedTileY, std::vector<int>& adjacentLotIds) const {
     adjacentLotIds.clear();
     std::vector<int> candidateTileIndices;
@@ -1016,6 +1165,7 @@ bool SimulationRuntime::collectAdjacentLotIdsForModule(const LotModule& moduleAs
     return true;
 }
 
+// Clears lot occupancy for a known set of world tile indices.
 void SimulationRuntime::clearLotOccupancy(const std::vector<int>& tileIndices) {
     std::size_t tileIndexValue = 0;
     for (; tileIndexValue < tileIndices.size(); ++tileIndexValue) {
@@ -1023,6 +1173,7 @@ void SimulationRuntime::clearLotOccupancy(const std::vector<int>& tileIndices) {
     }
 }
 
+// Assigns lot occupancy for a known set of world tile indices.
 void SimulationRuntime::setLotOccupancy(int lotId, const std::vector<int>& tileIndices) {
     std::size_t tileIndexValue = 0;
     for (; tileIndexValue < tileIndices.size(); ++tileIndexValue) {
@@ -1030,10 +1181,12 @@ void SimulationRuntime::setLotOccupancy(int lotId, const std::vector<int>& tileI
     }
 }
 
+// Validates a tile coordinate against the fixed map bounds.
 bool SimulationRuntime::isTileInsideMap(int tileX, int tileY) const {
     return tileX >= 0 && tileX < kMapWidth && tileY >= 0 && tileY < kMapHeight;
 }
 
+// Converts a tile coordinate to row-major storage index.
 int SimulationRuntime::tileIndex(int tileX, int tileY) const {
     return (tileY * kMapWidth) + tileX;
 }

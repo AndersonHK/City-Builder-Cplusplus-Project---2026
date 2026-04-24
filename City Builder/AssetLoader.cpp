@@ -19,12 +19,14 @@ struct ParsedTag {
     bool isClosing;
     bool isSelfClosing;
 
+    // Starts with an empty tag until ParseTag fills the fields.
     ParsedTag()
         : isClosing(false),
           isSelfClosing(false) {
     }
 };
 
+// Reads a whole UTF-8-ish asset file into memory for the small XML parser.
 std::string ReadTextFile(const std::string& path) {
     std::ifstream stream(path.c_str(), std::ios::in | std::ios::binary);
     if (!stream.is_open()) {
@@ -36,6 +38,7 @@ std::string ReadTextFile(const std::string& path) {
     return builder.str();
 }
 
+// Removes leading and trailing whitespace from XML tag fragments.
 std::string Trim(const std::string& text) {
     std::size_t startIndex = 0;
     while (startIndex < text.size() && std::isspace(static_cast<unsigned char>(text[startIndex])) != 0) {
@@ -50,6 +53,7 @@ std::string Trim(const std::string& text) {
     return text.substr(startIndex, endIndex - startIndex);
 }
 
+// Uses the file stem as the fallback asset id.
 std::string StripExtension(const std::string& fileName) {
     const std::size_t extensionIndex = fileName.find_last_of('.');
     if (extensionIndex == std::string::npos) {
@@ -59,6 +63,7 @@ std::string StripExtension(const std::string& fileName) {
     return fileName.substr(0, extensionIndex);
 }
 
+// Splits one XML tag token into name, attributes, and closing flags.
 ParsedTag ParseTag(const std::string& token) {
     ParsedTag tag;
     std::string trimmedToken = Trim(token);
@@ -88,6 +93,7 @@ ParsedTag ParseTag(const std::string& token) {
     return tag;
 }
 
+// Fetches a required quoted XML attribute or throws with context.
 std::string GetRequiredAttribute(const std::string& attributes, const std::string& attributeName) {
     const std::string attributePattern = attributeName + "=\"";
     const std::size_t startIndex = attributes.find(attributePattern);
@@ -104,6 +110,7 @@ std::string GetRequiredAttribute(const std::string& attributes, const std::strin
     return attributes.substr(valueStartIndex, valueEndIndex - valueStartIndex);
 }
 
+// Fetches an optional quoted XML attribute with a caller-provided default.
 std::string GetOptionalAttribute(const std::string& attributes, const std::string& attributeName, const std::string& defaultValue) {
     const std::string attributePattern = attributeName + "=\"";
     const std::size_t startIndex = attributes.find(attributePattern);
@@ -120,10 +127,12 @@ std::string GetOptionalAttribute(const std::string& attributes, const std::strin
     return attributes.substr(valueStartIndex, valueEndIndex - valueStartIndex);
 }
 
+// Parses a required integer XML attribute.
 int ParseRequiredInt(const std::string& attributes, const std::string& attributeName) {
     return std::stoi(GetRequiredAttribute(attributes, attributeName));
 }
 
+// Parses an optional float XML attribute.
 float ParseOptionalFloat(const std::string& attributes, const std::string& attributeName, float defaultValue) {
     const std::string value = GetOptionalAttribute(attributes, attributeName, "");
     if (value.empty()) {
@@ -133,6 +142,7 @@ float ParseOptionalFloat(const std::string& attributes, const std::string& attri
     return static_cast<float>(std::atof(value.c_str()));
 }
 
+// Extracts XML tags while skipping declarations and comments.
 std::vector<std::string> ExtractTagTokens(const std::string& xmlText) {
     std::vector<std::string> tokens;
     std::size_t openIndex = xmlText.find('<');
@@ -153,6 +163,7 @@ std::vector<std::string> ExtractTagTokens(const std::string& xmlText) {
     return tokens;
 }
 
+// Loads one module archetype from XML and validates its required fields.
 LotModule LoadModuleAsset(const std::string& filePath, const std::string& fileName) {
     const std::vector<std::string> tokens = ExtractTagTokens(ReadTextFile(filePath));
     if (tokens.empty()) {
@@ -220,6 +231,7 @@ LotModule LoadModuleAsset(const std::string& filePath, const std::string& fileNa
     return module;
 }
 
+// Loads one lot archetype and its initial module placements from XML.
 LotAsset LoadLotAsset(const std::string& filePath, const std::string& fileName) {
     const std::vector<std::string> tokens = ExtractTagTokens(ReadTextFile(filePath));
     if (tokens.empty()) {
@@ -297,6 +309,7 @@ LotAsset LoadLotAsset(const std::string& filePath, const std::string& fileName) 
     return lotAsset;
 }
 
+// Verifies that a lot references real modules and occupies its anchor tile.
 void ValidateLotAsset(LotAsset& lotAsset, const std::vector<LotModule>& modules) {
     std::set<std::string> moduleIds;
     std::size_t moduleIndex = 0;
@@ -353,6 +366,7 @@ void ValidateLotAsset(LotAsset& lotAsset, const std::vector<LotModule>& modules)
     lotAsset.anchor = Int2(0, 0);
 }
 
+// Enumerates XML files in a data directory using the Win32 file API.
 std::vector<std::string> CollectXmlFiles(const std::string& directoryPath) {
     std::vector<std::string> files;
     std::string searchPattern = directoryPath + "\\*.xml";
@@ -377,6 +391,7 @@ std::vector<std::string> CollectXmlFiles(const std::string& directoryPath) {
 }
 }
 
+// Loads all module and lot archetypes, returning errors instead of throwing across the runtime boundary.
 bool LoadGameAssets(const std::string& dataDirectory, LoadedGameAssets& assets, std::string& errorMessage) {
     assets.modules.clear();
     assets.lots.clear();

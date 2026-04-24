@@ -5,6 +5,7 @@
 #include <map>
 #include <sstream>
 
+// Creates an empty placeholder lot used before an archetype is applied.
 Lot::Lot()
     : lotId_(-1),
       anchorTileX_(0),
@@ -20,6 +21,7 @@ Lot::Lot()
       colorB_(0.4f) {
 }
 
+// Creates a lot instance anchored in world tile coordinates.
 Lot::Lot(int lotId, const std::string& assetId, int anchorTileX, int anchorTileY)
     : lotId_(lotId),
       assetId_(assetId),
@@ -36,34 +38,42 @@ Lot::Lot(int lotId, const std::string& assetId, int anchorTileX, int anchorTileY
       colorB_(0.4f) {
 }
 
+// Returns the stable runtime lot id.
 int Lot::id() const {
     return lotId_;
 }
 
+// Returns the archetype id used to create the lot.
 const std::string& Lot::assetId() const {
     return assetId_;
 }
 
+// Returns the lot anchor's x tile.
 int Lot::anchorTileX() const {
     return anchorTileX_;
 }
 
+// Returns the lot anchor's y tile.
 int Lot::anchorTileY() const {
     return anchorTileY_;
 }
 
+// Exposes placed modules for tooling and effects.
 const std::vector<LotModulePlacement>& Lot::modules() const {
     return modules_;
 }
 
+// Returns cached occupied footprint offsets relative to the anchor.
 const std::vector<Int2>& Lot::occupiedOffsets() const {
     return occupiedOffsets_;
 }
 
+// Returns cached occupied world tile indices for fast occupancy updates.
 const std::vector<int>& Lot::occupiedTileIndices() const {
     return occupiedTileIndices_;
 }
 
+// Adds a module placement and refreshes the lot footprint caches.
 int Lot::addModule(const LotModule& module, const Int2& localOrigin, int mapWidth) {
     LotModulePlacement placement;
     placement.instanceId = nextModuleInstanceId_++;
@@ -74,6 +84,7 @@ int Lot::addModule(const LotModule& module, const Int2& localOrigin, int mapWidt
     return placement.instanceId;
 }
 
+// Removes a module by instance id and refreshes the lot footprint caches.
 bool Lot::removeModule(int moduleInstanceId, int mapWidth) {
     std::size_t moduleIndex = 0;
     for (; moduleIndex < modules_.size(); ++moduleIndex) {
@@ -89,6 +100,7 @@ bool Lot::removeModule(int moduleInstanceId, int mapWidth) {
     return false;
 }
 
+// Finds the module occupying a tile inside the lot-local footprint.
 int Lot::moduleInstanceIdAtLocalTile(const Int2& localTile) const {
     std::size_t moduleIndex = 0;
     for (; moduleIndex < modules_.size(); ++moduleIndex) {
@@ -105,6 +117,7 @@ int Lot::moduleInstanceIdAtLocalTile(const Int2& localTile) const {
     return -1;
 }
 
+// Moves the anchor to the minimum occupied tile after footprint shrinkage.
 void Lot::rebaseAnchorToMinimumTile(int mapWidth) {
     if (occupiedOffsets_.empty()) {
         return;
@@ -123,6 +136,7 @@ void Lot::rebaseAnchorToMinimumTile(int mapWidth) {
     rebuildCachedState(mapWidth);
 }
 
+// Applies each module's statistical effects to its occupied tiles.
 void Lot::applyEffects(std::vector<Tile>& tiles) const {
     if (occupiedTileIndices_.empty()) {
         return;
@@ -140,6 +154,7 @@ void Lot::applyEffects(std::vector<Tile>& tiles) const {
     }
 }
 
+// Builds the renderer-facing placeholder prism description.
 LotRenderInstance Lot::buildRenderInstance() const {
     LotRenderInstance renderInstance;
     renderInstance.lotId = lotId_;
@@ -154,6 +169,7 @@ LotRenderInstance Lot::buildRenderInstance() const {
     return renderInstance;
 }
 
+// Produces a compact module count string for tile queries.
 std::string Lot::moduleSummary() const {
     std::map<std::string, int> moduleCounts;
 
@@ -181,6 +197,7 @@ std::string Lot::moduleSummary() const {
     return summary.str();
 }
 
+// Recomputes occupied tiles, bounds, render height, and aggregate color.
 void Lot::rebuildCachedState(int mapWidth) {
     occupiedOffsets_.clear();
     occupiedTileIndices_.clear();

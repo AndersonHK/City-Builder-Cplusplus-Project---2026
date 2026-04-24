@@ -6,7 +6,8 @@ enum class ActiveTool {
     PollutionBrush,
     SmokestackLot,
     ParkLot,
-    AddSmokestackModule,
+    RoadStreet,
+    RoadHighway,
     AddParkModule,
     RemoveModule,
     Query
@@ -24,7 +25,13 @@ struct ViewState {
     double mouseX;
     double mouseY;
     ActiveTool activeTool;
+    bool roadDragActive;
+    int roadDragStartX;
+    int roadDragStartY;
+    int roadDragCurrentX;
+    int roadDragCurrentY;
 
+    // Initializes the default camera span and active tool for a new session.
     ViewState()
         : cameraX(0),
           cameraY(0),
@@ -36,7 +43,12 @@ struct ViewState {
           hasHoveredTile(false),
           mouseX(0.0),
           mouseY(0.0),
-          activeTool(ActiveTool::PollutionBrush) {
+          activeTool(ActiveTool::PollutionBrush),
+          roadDragActive(false),
+          roadDragStartX(0),
+          roadDragStartY(0),
+          roadDragCurrentX(0),
+          roadDragCurrentY(0) {
     }
 };
 
@@ -46,6 +58,7 @@ public:
 
     void onCursorMoved(double mouseX, double mouseY);
     void onLeftMouseButtonPressed();
+    void onLeftMouseButtonReleased();
     void onLeftMouseButtonHeld();
     void onKeyPressed(int key, int action);
     void onScroll(double yOffset);
@@ -60,9 +73,12 @@ private:
     void clampCameraToMap();
     void panCamera(int deltaX, int deltaY);
     void setActiveTool(ActiveTool activeTool);
+    bool activeToolIsRoad() const;
+    void beginRoadDrag(int tileX, int tileY);
+    void commitRoadDrag(int tileX, int tileY);
     void printQueryResult() const;
 
-    static const int kMinimumVisibleTiles = 128;
+    static const int kMinimumVisibleTiles = 32;
     static const int kMaximumVisibleTiles = 512;
 
     SimulationRuntime& simulationRuntime_;
