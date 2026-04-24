@@ -11,7 +11,9 @@ Use this guide when changing road placement, topology resolution, road render da
 - `TransportNetwork` owns authored build cells, resolved road cells, packed ground-road render bytes, and per-layer chunk revisions.
 - Ground roads render as tile overlays from packed base/arrow glyph ids.
 - Elevated roads render as separate chunked instance buffers.
-- Road strokes are two axis-aligned legs with lane-intent bits.
+- Road strokes are two axis-aligned legs that carry a modular road template.
+- Road templates are ordered cross-sections of elements such as sidewalks, lanes, dividers, and shoulders. Each element has min/preferred/max widths, and the layout pass chooses the nearest whole-tile footprint that satisfies those constraints.
+- Lane elements resolve to aggregate per-tile travel masks for pathfinding, while visual junctions are derived from lane continuity rather than raw same-family adjacency. Parallel lanes beside each other are not intersections.
 - Dirty topology resolves only the changed tiles and their neighbors.
 
 ## Rules
@@ -23,5 +25,5 @@ Use this guide when changing road placement, topology resolution, road render da
 
 ## Checks
 - Place local streets and elevated highways, then pan away and back.
-- Verify corners, tees, crosses, dead ends, and arrows resolve correctly.
+- Verify lane order, corners, tees, crosses, dead ends, transition caps, and arrows resolve correctly.
 - Confirm ground roads block lots but elevated roads do not use ground occupancy.

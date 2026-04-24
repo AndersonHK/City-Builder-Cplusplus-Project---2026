@@ -29,7 +29,7 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 - Lots render through a separate world-space placeholder prism path and are not chunk-owned yet.
 - Mouse picking now raycasts from the perspective camera onto the ground plane.
 - Arrow-key panning was corrected after the renderer migration so movement now matches the camera-facing directions.
-- `Shift+Enter` toggles GLFW fullscreen on the primary monitor.
+- `Alt+Enter` toggles GLFW fullscreen on the primary monitor.
 - Holding the left mouse button in `Q` pollution mode now continuously paints again.
 - Zoom steps now go down to `32` visible tiles.
 

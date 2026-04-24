@@ -106,7 +106,7 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 - Input:
   - mouse hit testing uses renderer-driven raycasts
   - arrow-key pan semantics now match the current fixed camera heading
-  - `Shift+Enter` toggles fullscreen on the primary monitor
+  - `Alt+Enter` toggles fullscreen on the primary monitor
   - holding left mouse in `Q` mode continuously paints pollution again
   - mouse wheel supports `512 / 256 / 128 / 64 / 32` visible-tile steps
   - `R` drag-places ground streets and `H` drag-places elevated highways

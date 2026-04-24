@@ -13,6 +13,7 @@ out vec2 vTileUv;
 out vec2 vLocalUv;
 out vec3 vLotColor;
 out vec2 vRoadGlyphs;
+out vec2 vRoadMasks;
 out float vSurfaceLift;
 flat out int vRenderMode;
 
@@ -30,6 +31,7 @@ void main()
         vLocalUv = aLocalPosition.xz;
         vLotColor = vec3(0.0);
         vRoadGlyphs = vec2(0.0);
+        vRoadMasks = vec2(0.0);
         vSurfaceLift = tileLift;
     } else if (uRenderMode == 1) {
         vec3 scaledPosition = vec3(
@@ -41,6 +43,7 @@ void main()
         vLocalUv = aLocalPosition.xz;
         vLotColor = aInstanceData1.yzw;
         vRoadGlyphs = vec2(0.0);
+        vRoadMasks = vec2(0.0);
         vSurfaceLift = 0.0;
     } else {
         worldPosition = vec3(
@@ -51,6 +54,7 @@ void main()
         vLocalUv = aLocalPosition.xz;
         vLotColor = vec3(0.0);
         vRoadGlyphs = vec2(aInstanceData0.w, aInstanceData1.x);
+        vRoadMasks = vec2(aInstanceData1.y, aInstanceData1.z);
         vSurfaceLift = 0.0;
     }
 
@@ -73,6 +77,7 @@ in vec2 vTileUv;
 in vec2 vLocalUv;
 in vec3 vLotColor;
 in vec2 vRoadGlyphs;
+in vec2 vRoadMasks;
 in float vSurfaceLift;
 flat in int vRenderMode;
 
@@ -84,8 +89,52 @@ vec4 sampleRoadAtlas(sampler2D atlasTexture, float glyphIndex, vec2 localUv)
 
     vec2 atlasUv = vec2(
         (mod(glyphIndex, uRoadAtlasGrid.x) + clamp(localUv.x, 0.0, 0.9999)) / uRoadAtlasGrid.x,
-        (floor(glyphIndex / uRoadAtlasGrid.x) + clamp(1.0 - localUv.y, 0.0, 0.9999)) / uRoadAtlasGrid.y);
+        (floor(glyphIndex / uRoadAtlasGrid.x) + clamp(localUv.y, 0.0, 0.9999)) / uRoadAtlasGrid.y);
     return texture(atlasTexture, atlasUv);
+}
+
+bool hasMaskBit(float maskValue, int bitValue)
+{
+    int mask = int(floor(maskValue + 0.5));
+    return (mask & bitValue) != 0;
+}
+
+vec3 applyRoadEdgeOverlays(vec3 baseColor, vec2 localUv, float sidewalkMask, float dividerMask)
+{
+    vec3 finalColor = baseColor;
+    vec3 sidewalkColor = vec3(0.74, 0.72, 0.66);
+    vec3 whiteDividerColor = vec3(0.88, 0.84, 0.74);
+    vec3 yellowDividerColor = vec3(0.93, 0.86, 0.32);
+
+    if (hasMaskBit(sidewalkMask, 1) && localUv.y < 0.16) {
+        finalColor = sidewalkColor;
+    }
+    if (hasMaskBit(sidewalkMask, 2) && localUv.x > 0.84) {
+        finalColor = sidewalkColor;
+    }
+    if (hasMaskBit(sidewalkMask, 4) && localUv.y > 0.84) {
+        finalColor = sidewalkColor;
+    }
+    if (hasMaskBit(sidewalkMask, 8) && localUv.x < 0.16) {
+        finalColor = sidewalkColor;
+    }
+
+    int divider = int(floor(dividerMask + 0.5));
+    int whiteMask = divider & 15;
+    int yellowMask = (divider >> 4) & 15;
+    bool northDivider = ((whiteMask | yellowMask) & 1) != 0 && localUv.y < 0.035;
+    bool eastDivider = ((whiteMask | yellowMask) & 2) != 0 && localUv.x > 0.965;
+    bool southDivider = ((whiteMask | yellowMask) & 4) != 0 && localUv.y > 0.965;
+    bool westDivider = ((whiteMask | yellowMask) & 8) != 0 && localUv.x < 0.035;
+    if (northDivider || eastDivider || southDivider || westDivider) {
+        bool yellow = ((yellowMask & 1) != 0 && northDivider) ||
+            ((yellowMask & 2) != 0 && eastDivider) ||
+            ((yellowMask & 4) != 0 && southDivider) ||
+            ((yellowMask & 8) != 0 && westDivider);
+        finalColor = yellow ? yellowDividerColor : whiteDividerColor;
+    }
+
+    return finalColor;
 }
 
 void main()
@@ -94,10 +143,13 @@ void main()
         vec2 tileState = clamp(vec2(0.5) + texture(uTileStateTexture, vTileUv).rg * 0.5, vec2(0.0), vec2(1.0));
         vec3 finalColor = vec3(tileState.r, tileState.g, 0.18 + vSurfaceLift * 4.0);
 
-        vec2 packedRoadState = floor(texture(uGroundRoadStateTexture, vTileUv).rg * 255.0 + 0.5);
+        vec4 packedRoadState = floor(texture(uGroundRoadStateTexture, vTileUv).rgba * 255.0 + 0.5);
         vec4 roadBase = sampleRoadAtlas(uRoadBaseAtlasTexture, packedRoadState.x, vLocalUv);
         vec4 roadArrow = sampleRoadAtlas(uRoadArrowAtlasTexture, packedRoadState.y, vLocalUv);
         finalColor = mix(finalColor, roadBase.rgb, roadBase.a);
+        if (roadBase.a > 0.001) {
+            finalColor = applyRoadEdgeOverlays(finalColor, vLocalUv, packedRoadState.z, packedRoadState.w);
+        }
         finalColor = mix(finalColor, roadArrow.rgb, roadArrow.a);
         color = vec4(finalColor, 1.0);
         return;
@@ -106,7 +158,8 @@ void main()
     if (vRenderMode == 2) {
         vec4 roadBase = sampleRoadAtlas(uRoadBaseAtlasTexture, vRoadGlyphs.x, vLocalUv);
         vec4 roadArrow = sampleRoadAtlas(uRoadArrowAtlasTexture, vRoadGlyphs.y, vLocalUv);
-        vec3 finalColor = mix(roadBase.rgb, roadArrow.rgb, roadArrow.a);
+        vec3 finalColor = applyRoadEdgeOverlays(roadBase.rgb, vLocalUv, vRoadMasks.x, vRoadMasks.y);
+        finalColor = mix(finalColor, roadArrow.rgb, roadArrow.a);
         float finalAlpha = max(roadBase.a, roadArrow.a);
         if (finalAlpha <= 0.001) {
             discard;

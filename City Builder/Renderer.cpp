@@ -158,8 +158,8 @@ struct RoadInstanceData {
     float lift;
     float baseGlyph;
     float arrowGlyph;
-    float unused0;
-    float unused1;
+    float sidewalkMask;
+    float dividerMask;
 };
 
 struct TileChunkRenderCache {
@@ -299,7 +299,7 @@ public:
         (void)scancode;
         RendererCallbacks* callbacks = reinterpret_cast<RendererCallbacks*>(glfwGetWindowUserPointer(window));
         if (callbacks != 0) {
-            if ((key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER) && action == GLFW_PRESS && (mods & GLFW_MOD_SHIFT) != 0) {
+            if ((key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER) && action == GLFW_PRESS && (mods & GLFW_MOD_ALT) != 0) {
                 callbacks->toggleFullscreen(window);
                 return;
             }
@@ -833,7 +833,7 @@ void PaintRoadBaseGlyph(std::vector<std::uint8_t>& pixels, int textureWidth, int
     }
 
     const std::uint8_t junctionMask = BaseGlyphJunctionMask(glyph);
-    const std::uint8_t sidewalkMask = family == RoadFamily::LocalStreet ? static_cast<std::uint8_t>((~junctionMask) & 0x0F) : 0;
+    const std::uint8_t sidewalkMask = 0;
     const Vec4 roadColor = family == RoadFamily::LocalStreet ? Vec4(0.22f, 0.23f, 0.24f, 1.0f) : Vec4(0.16f, 0.19f, 0.25f, 1.0f);
     const Vec4 sidewalkColor(0.74f, 0.72f, 0.66f, 1.0f);
     const Vec4 markingColor = family == RoadFamily::LocalStreet ? Vec4(0.88f, 0.84f, 0.74f, 1.0f) : Vec4(0.93f, 0.86f, 0.32f, 1.0f);
@@ -1144,8 +1144,8 @@ std::vector<RoadInstanceData> BuildRoadChunkInstances(const PublishedWorldSnapsh
             instance.lift = RoadLayerLift(layer);
             instance.baseGlyph = static_cast<float>(roadCell.baseGlyph);
             instance.arrowGlyph = static_cast<float>(roadCell.arrowGlyph);
-            instance.unused0 = 0.0f;
-            instance.unused1 = 0.0f;
+            instance.sidewalkMask = static_cast<float>(roadCell.sidewalkMask);
+            instance.dividerMask = static_cast<float>(roadCell.dividerMask);
             instances.push_back(instance);
         }
     }
@@ -1349,7 +1349,7 @@ void UpdateGroundRoadChunkTexture(GLuint textureId, const PublishedWorldSnapshot
         chunkRect.startY,
         chunkRect.width,
         chunkRect.height,
-        GL_RG,
+        GL_RGBA,
         GL_UNSIGNED_BYTE,
         &(*snapshot.groundRoadRenderState)[startOffset]);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
@@ -1512,11 +1512,11 @@ int Renderer::run() {
     glTexImage2D(
         GL_TEXTURE_2D,
         0,
-        GL_RG8,
+        GL_RGBA8,
         simulationRuntime_.mapWidth(),
         simulationRuntime_.mapHeight(),
         0,
-        GL_RG,
+        GL_RGBA,
         GL_UNSIGNED_BYTE,
         0);
 

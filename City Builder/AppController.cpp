@@ -16,10 +16,16 @@ const int kKeyQ = 81;
 const int kKeyW = 87;
 const int kKeyE = 69;
 const int kKeyR = 82;
+const int kKeyO = 79;
 const int kKeyH = 72;
 const int kKeyT = 84;
 const int kKeyY = 89;
 const int kKeyA = 65;
+const int kKeyC = 67;
+const int kKeyLeftBracket = 91;
+const int kKeyRightBracket = 93;
+const int kMinimumRoadLaneCount = 1;
+const int kMaximumRoadLaneCount = 4;
 
 // Returns the human-readable label used when the active tool changes.
 const char* ActiveToolName(ActiveTool activeTool) {
@@ -63,6 +69,37 @@ const char* RoadFamilyName(RoadFamily family) {
 
         default:
             return "none";
+    }
+}
+
+// Formats traffic side for console status.
+const char* RoadTrafficSideName(RoadTrafficSide trafficSide) {
+    switch (trafficSide) {
+        case RoadTrafficSide::RightHand:
+            return "right-hand";
+
+        case RoadTrafficSide::LeftHand:
+            return "left-hand";
+
+        default:
+            return "unknown";
+    }
+}
+
+// Formats road direction mode for console status.
+const char* RoadDirectionModeName(RoadDirectionMode directionMode) {
+    switch (directionMode) {
+        case RoadDirectionMode::TwoWay:
+            return "two-way";
+
+        case RoadDirectionMode::OneWayForward:
+            return "one-way forward";
+
+        case RoadDirectionMode::OneWayReverse:
+            return "one-way reverse";
+
+        default:
+            return "unknown";
     }
 }
 
@@ -256,10 +293,12 @@ void AppController::onKeyPressed(int key, int action) {
 
         case kKeyR:
             setActiveTool(ActiveTool::RoadStreet);
+            printRoadTemplate();
             return;
 
         case kKeyH:
             setActiveTool(ActiveTool::RoadHighway);
+            printRoadTemplate();
             return;
 
         case kKeyT:
@@ -272,6 +311,32 @@ void AppController::onKeyPressed(int key, int action) {
 
         case kKeyA:
             setActiveTool(ActiveTool::Query);
+            return;
+
+        case kKeyLeftBracket:
+            viewState_.roadLaneCount = std::max(kMinimumRoadLaneCount, viewState_.roadLaneCount - 1);
+            printRoadTemplate();
+            return;
+
+        case kKeyRightBracket:
+            viewState_.roadLaneCount = std::min(kMaximumRoadLaneCount, viewState_.roadLaneCount + 1);
+            printRoadTemplate();
+            return;
+
+        case kKeyC:
+            viewState_.roadTrafficSide = viewState_.roadTrafficSide == RoadTrafficSide::RightHand ? RoadTrafficSide::LeftHand : RoadTrafficSide::RightHand;
+            printRoadTemplate();
+            return;
+
+        case kKeyO:
+            if (viewState_.roadDirectionMode == RoadDirectionMode::TwoWay) {
+                viewState_.roadDirectionMode = RoadDirectionMode::OneWayForward;
+            } else if (viewState_.roadDirectionMode == RoadDirectionMode::OneWayForward) {
+                viewState_.roadDirectionMode = RoadDirectionMode::OneWayReverse;
+            } else {
+                viewState_.roadDirectionMode = RoadDirectionMode::TwoWay;
+            }
+            printRoadTemplate();
             return;
     }
 }
@@ -354,12 +419,39 @@ void AppController::commitRoadDrag(int tileX, int tileY) {
     Int2 cornerTile = std::abs(deltaX) >= std::abs(deltaY) ? Int2(endTile.x, startTile.y) : Int2(startTile.x, endTile.y);
 
     if (viewState_.activeTool == ActiveTool::RoadStreet) {
-        simulationRuntime_.queuePlaceStreetRoad(startTile, cornerTile, endTile);
+        RoadStrokeCommand roadStrokeCommand;
+        roadStrokeCommand.startTile = startTile;
+        roadStrokeCommand.cornerTile = cornerTile;
+        roadStrokeCommand.endTile = endTile;
+        roadStrokeCommand.family = RoadFamily::LocalStreet;
+        roadStrokeCommand.layer = TransportLayerId::Ground;
+        roadStrokeCommand.roadTemplate = currentRoadTemplate(roadStrokeCommand.family, roadStrokeCommand.layer);
+        simulationRuntime_.queuePlaceRoadStroke(roadStrokeCommand);
     } else if (viewState_.activeTool == ActiveTool::RoadHighway) {
-        simulationRuntime_.queuePlaceHighwayRoad(startTile, cornerTile, endTile);
+        RoadStrokeCommand roadStrokeCommand;
+        roadStrokeCommand.startTile = startTile;
+        roadStrokeCommand.cornerTile = cornerTile;
+        roadStrokeCommand.endTile = endTile;
+        roadStrokeCommand.family = RoadFamily::Highway;
+        roadStrokeCommand.layer = TransportLayerId::Elevated;
+        roadStrokeCommand.roadTemplate = currentRoadTemplate(roadStrokeCommand.family, roadStrokeCommand.layer);
+        simulationRuntime_.queuePlaceRoadStroke(roadStrokeCommand);
     }
 
     viewState_.roadDragActive = false;
+}
+
+// Builds the currently selected modular road template for a placement command.
+RoadTemplate AppController::currentRoadTemplate(RoadFamily family, TransportLayerId layer) const {
+    return TransportNetwork::makeRoadTemplate(family, layer, viewState_.roadLaneCount, viewState_.roadTrafficSide, viewState_.roadDirectionMode);
+}
+
+// Prints active road-template settings whenever the lightweight controls change.
+void AppController::printRoadTemplate() const {
+    std::cout << "Road template: lanes=" << viewState_.roadLaneCount
+        << " traffic=" << RoadTrafficSideName(viewState_.roadTrafficSide)
+        << " mode=" << RoadDirectionModeName(viewState_.roadDirectionMode)
+        << std::endl;
 }
 
 // Returns a copy of the input/view state for renderer-side camera work.
@@ -412,6 +504,8 @@ void AppController::printQueryResult() const {
             const ResolvedRoadCell& roadCell = queryResult.roads[roadIndex];
             std::cout
                 << " | road[" << TransportLayerName(queryResult.roadLayers[roadIndex]) << "] family=" << RoadFamilyName(static_cast<RoadFamily>(roadCell.family))
+                << " lanes=" << static_cast<int>(roadCell.laneCount)
+                << " elements=" << static_cast<int>(roadCell.elementMask)
                 << " exits=" << DirectionMaskToString(roadCell.exitMask)
                 << " sidewalks=" << DirectionMaskToString(roadCell.sidewalkMask)
                 << " junction=" << DirectionMaskToString(roadCell.junctionMask)

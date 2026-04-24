@@ -30,6 +30,9 @@ struct ViewState {
     int roadDragStartY;
     int roadDragCurrentX;
     int roadDragCurrentY;
+    int roadLaneCount;
+    RoadTrafficSide roadTrafficSide;
+    RoadDirectionMode roadDirectionMode;
 
     // Initializes the default camera span and active tool for a new session.
     ViewState()
@@ -48,7 +51,10 @@ struct ViewState {
           roadDragStartX(0),
           roadDragStartY(0),
           roadDragCurrentX(0),
-          roadDragCurrentY(0) {
+          roadDragCurrentY(0),
+          roadLaneCount(1),
+          roadTrafficSide(RoadTrafficSide::RightHand),
+          roadDirectionMode(RoadDirectionMode::TwoWay) {
     }
 };
 
@@ -76,6 +82,8 @@ private:
     bool activeToolIsRoad() const;
     void beginRoadDrag(int tileX, int tileY);
     void commitRoadDrag(int tileX, int tileY);
+    RoadTemplate currentRoadTemplate(RoadFamily family, TransportLayerId layer) const;
+    void printRoadTemplate() const;
     void printQueryResult() const;
 
     static const int kMinimumVisibleTiles = 32;

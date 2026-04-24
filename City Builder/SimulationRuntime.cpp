@@ -242,6 +242,7 @@ void SimulationRuntime::queuePlaceStreetRoad(const Int2& startTile, const Int2& 
     roadStrokeCommand.endTile = endTile;
     roadStrokeCommand.family = RoadFamily::LocalStreet;
     roadStrokeCommand.layer = TransportLayerId::Ground;
+    roadStrokeCommand.roadTemplate = TransportNetwork::makeRoadTemplate(roadStrokeCommand.family, roadStrokeCommand.layer, 1, RoadTrafficSide::RightHand, RoadDirectionMode::TwoWay);
     queuePlaceRoadStroke(roadStrokeCommand);
 }
 
@@ -253,6 +254,7 @@ void SimulationRuntime::queuePlaceHighwayRoad(const Int2& startTile, const Int2&
     roadStrokeCommand.endTile = endTile;
     roadStrokeCommand.family = RoadFamily::Highway;
     roadStrokeCommand.layer = TransportLayerId::Elevated;
+    roadStrokeCommand.roadTemplate = TransportNetwork::makeRoadTemplate(roadStrokeCommand.family, roadStrokeCommand.layer, 1, RoadTrafficSide::RightHand, RoadDirectionMode::TwoWay);
     queuePlaceRoadStroke(roadStrokeCommand);
 }
 

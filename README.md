@@ -20,13 +20,16 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
 ## Controls
 - Arrow keys: pan the camera-relative view
 - Mouse wheel: zoom in and out across `512 / 256 / 128 / 64 / 32` visible-tile steps
-- `Shift+Enter`: enter or exit fullscreen mode
+- `Alt+Enter`: enter or exit fullscreen mode
 - Left mouse in `Q` mode: continuously paint pollution while held
 - `Q`: pollution brush
 - `W`: place smokestack lot
 - `E`: place park lot
 - `R`: drag-place a ground local street
 - `H`: drag-place an elevated highway
+- `[` / `]`: decrease / increase road lane count for new road strokes
+- `C`: toggle right-hand / left-hand road traffic side
+- `O`: cycle road direction mode between two-way, one-way forward, and one-way reverse
 - `T`: add park module to an adjacent lot footprint
 - `Y`: remove the module under the hovered tile
 - `A`: query hovered tile
