@@ -16,12 +16,20 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - per-chunk render revisions
   - transport network publication
   - per-pass timing
+- `City Builder/TransportTypes.h`
+- `City Builder/RoadLane.h`
+- `City Builder/Road.h`
+- `City Builder/TransportTile.h`
+- `City Builder/RoadRenderState.h`
 - `City Builder/TransportNetwork.h`
 - `City Builder/TransportNetwork.cpp`
-  - multi-layer road placement/state
-  - road topology resolution
-  - packed ground-road render-state derivation
+  - shared transport enums/snapshot masks
+  - lane-owned road placement/state
+  - per-tile lane merge validation and local topology resolution
+  - lane graphic/crosswalk render-state derivation
   - split ground/elevated road chunk revisions
+- `City Builder/TransportNetworkTests.vcxproj`
+  - standalone non-graphics transport topology tests
 - `City Builder/Renderer.h`
 - `City Builder/Renderer.cpp`
   - GLFW window/context ownership

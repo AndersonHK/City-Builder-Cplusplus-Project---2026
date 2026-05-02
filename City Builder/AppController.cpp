@@ -509,7 +509,7 @@ void AppController::printQueryResult() const {
                 << " surfaces=" << static_cast<int>(roadCell.surfaceMask)
                 << " travel=" << DirectionMaskToString(roadCell.travelMask)
                 << " exits=" << DirectionMaskToString(roadCell.exitMask)
-                << " surfaceEdges=" << DirectionMaskToString(roadCell.surfaceEdgeMask)
+                << " laneGraphics=" << DirectionMaskToString(roadCell.surfaceEdgeMask)
                 << " junction=" << DirectionMaskToString(roadCell.junctionMask)
                 << " variant=" << RoadRenderVariantName(static_cast<RoadRenderVariant>(roadCell.renderVariant))
                 << " costs(car/ped/bike/bus)="

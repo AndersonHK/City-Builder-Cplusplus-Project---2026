@@ -1,45 +1,52 @@
 # Transport Network Design Notes
 
-Use this guide when changing road placement, topology resolution, road render data, or transport layers.
+Use this guide when changing road placement, lane topology, road render data, or transport layers.
 
 ## Intent
 - Roads live outside `Tile` so scalar simulation data stays compact.
-- Ground and elevated roads share the same resolved road model, even though they render through different upload paths.
-- Road rendering should express topology without making transport objects the simulation source of truth.
+- `TransportNetwork` is the storage, dirty-resolution, and publication shell; it should not own lane behavior.
+- Roads are containers of lanes. Lanes own type, flow, side span, traversal cost, and render-graphic triggers.
+- Transport tiles self-resolve from their own lanes plus the four cardinal neighbor tiles.
+- Ground and elevated roads share the same lane and resolved-cell model, even though they render through different upload paths.
 
 ## Current Shape
-- `TransportNetwork` owns authored build cells, resolved road cells, packed ground-road render bytes, and per-layer chunk revisions.
-- Ground roads render as tile overlays from packed base/arrow glyph ids.
-- Elevated roads render as separate chunked instance buffers.
-- Road strokes are two axis-aligned legs that carry a modular road template.
-- A road template is an ordered cross-section of lanes. Sidewalks and crosswalks are pedestrian lanes with different `RoadLaneSurface` values, not separate commuter policies. See `RoadLaneTypeId`, `RoadLaneSurface`, and `RoadTemplateElement` in `City Builder/TransportNetwork.h:45`, `City Builder/TransportNetwork.h:53`, and `City Builder/TransportNetwork.h:157`.
-- Seams are the only relationship primitive between adjacent template members. `RoadTemplateSeamBetween` (`City Builder/TransportNetwork.cpp:277`) decides whether adjacent lanes get no seam, a same-direction divider, or an opposing-flow divider.
-- `ResolvedRoadCell` stores aggregate lane type, surface, travel, exit, divider, junction, and per-lane-type cost data for tile-level pathfinding and rendering (`City Builder/TransportNetwork.h:224`).
-- Visual junctions are derived from lane continuity rather than raw same-family adjacency. Parallel lanes beside each other are not intersections.
-- Dirty topology resolves only the changed tiles and their neighbors.
+- `TransportTypes.h` owns shared enums, direction bits, masks, and snapshot structs such as `ResolvedRoadCell`.
+- `RoadLane` owns lane behavior and emitted lane placements. Each placement carries a road axis, tile-local side span, lane type, flow, and lane-owned graphic/divider hints.
+- `Road` owns road-template construction and stroke expansion. It converts the current tool inputs into clipped per-tile lane placements.
+- `TransportTile` owns the authored lanes on one tile/layer and validates merge/replay rules locally.
+- `RoadRenderState` owns base glyph, arrow glyph, lane graphic mask, and divider packing.
+- `TransportNetwork` owns layer storage, lot-occupancy rejection, dirty tile neighborhoods, chunk revisions, resolved-cell publication, and packed ground-road bytes.
 
-## Road Template Pipeline
-- Template construction happens in `TransportNetwork::makeRoadTemplate` (`City Builder/TransportNetwork.cpp:727`). Ground local streets currently build pedestrian edge lanes plus car lanes; elevated highways use the same template machinery but only car lanes by default.
-- Layout happens in `BuildLayoutWidths` and `BuildCrossSectionTiles` (`City Builder/TransportNetwork.cpp:340` and `City Builder/TransportNetwork.cpp:421`). The pass chooses a whole-tile footprint, flexes lane widths within min/max constraints, assigns lane flow, and aggregates lane type/surface masks into tile slots.
-- Stroke expansion happens in `appendLegPlacements` (`City Builder/TransportNetwork.cpp:796`). It lays the cross-section across the chosen footprint and records axis and cross-section-slot metadata so validation can distinguish true replay from shifted body overlap.
-- Placement validation happens before mutation in `canMergePlacement` (`City Builder/TransportNetwork.cpp:927`). Empty tiles accept, exact same-template replay accepts, adapter-friendly perpendicular overlaps become intersections, and same-axis incompatible overlaps are rejected by lane slot/type/surface/flow compatibility.
-- Resolution happens in `resolveDirtyTile` (`City Builder/TransportNetwork.cpp:963`). It computes lane exits, junction variants, lane type/surface masks, crosswalk surface conversion for eligible pedestrian edge lanes at intersections, divider suppression at intersections, per-type costs, and packed ground render bytes.
-- Publication still flows through `SimulationRuntime::refreshPublishedRoadSnapshot` so rendering reads immutable road state only.
+## Lane Rules
+- Sidewalks are pedestrian lanes. Crosswalks are not authored lanes; they are pedestrian lane graphics chosen during tile resolution.
+- `RoadLaneSurface` is a default graphic surface, not pathing truth. Lane type and flow decide traversal.
+- Same-axis overlap is lane-span validated. Exact replay is accepted; incompatible shifted road bodies are rejected.
+- Perpendicular overlap is allowed as lane coexistence inside the same transport tile. Intersection behavior is resolved afterward from lane adjacency.
+- A resolved tile aggregates lane type masks, surface masks, costs, travel, exits, junction glyphs, lane graphics, and dividers for renderer/query consumers.
 
-## Rules
-- Keep lanes generic. Car, pedestrian, bike, bus, and future lane types should use the same template, placement, seam, resolution, and cost-table path.
-- Keep surfaces semantic but not path-defining. `Sidewalk` and `Crosswalk` are pedestrian lane surface variants; `Asphalt` is a car-lane surface today.
-- Reject ground-road placement on occupied lot tiles.
-- Reject same-axis template body overlap unless the incoming placement is an exact replay of the same cross-section slots.
-- Preserve packed render-state compatibility with `Basic.shader` and road atlas generation. Ground render channel 2 is now a surface-edge mask: sidewalk edges in the low nibble and crosswalk surface edges in the high nibble.
-- Track upload freshness per chunk in the renderer so hidden stale chunks update when visible.
+## Crosswalk Rule
+A pedestrian lane renders as a crosswalk only when all of these are true:
+
+- The pedestrian lane has a sidewalk graphic edge on this tile.
+- The pedestrian lane overlaps a perpendicular car lane in the same tile.
+- The perpendicular car lane has car-road continuation on both cardinal ends of its axis.
+- The pedestrian lane has pedestrian continuation on both cardinal ends of its own axis.
+
+Otherwise the same pedestrian lane remains a sidewalk. This keeps T-section endpoints from painting half-crosswalks and prevents isolated intersection tiles from inventing crosswalks where pedestrian lanes do not continue through the crossing.
+
+## Render Contract
+- Ground road channel 0 is the base glyph.
+- Ground road channel 1 is the arrow glyph.
+- Ground road channel 2 is the lane graphic mask: sidewalk edges in the low nibble, crosswalk edges in the high nibble.
+- Ground road channel 3 is the divider mask: same-direction dividers in the low nibble, opposing-flow dividers in the high nibble.
+- Elevated roads consume the same resolved glyph and mask fields through chunked instances.
+- Renderer code must consume these masks as presentation data. Lane/crosswalk policy belongs in transport resolution, not shaders.
 
 ## Checks
-- Place local streets and elevated highways, then pan away and back.
-- Verify lane order, corners, tees, crosses, dead ends, transition caps, crosswalk surfaces, and arrows resolve correctly.
-- Place two same-axis two-way streets within an incompatible offset; the placement should reject rather than merge lanes into bidirectional tiles.
-- Query representative tiles and confirm lane type masks, surface masks, exits, junction variant, surface edges, and lane-type costs.
-- Confirm ground roads block lots but elevated roads do not use ground occupancy.
+- Build `x64 Release`.
+- Build and run `TransportNetworkTests.vcxproj`.
+- Verify straight one-way and two-way local streets, elevated highways, corners, tees, crosses, same-axis overlap rejection, exact replay revision stability, and lot-road occupancy rejection.
+- In game, pan away and back after road edits to confirm deferred chunk uploads still catch up when visible.
 
 ## Related Guides
 - `README.md` indexes the project and controls.

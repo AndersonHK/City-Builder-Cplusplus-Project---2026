@@ -14,15 +14,16 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Tile scalar color comes from a persistent full-map `GL_RG16_SNORM` texture updated only for visible stale chunks.
 - Lot occupancy lift comes from a persistent full-map `GL_R8` mask texture updated only for visible stale chunks.
 - Ground roads render in the tile pass from packed road-state bytes and generated road atlases. The ground-road upload path is `UpdateGroundRoadChunkTexture` (`City Builder/Renderer.cpp:1333`).
-- Elevated roads use separate per-chunk instance buffers and rebuild lazily for visible stale chunks. They consume the same resolved road glyph, surface-edge, and divider masks through `BuildRoadChunkInstances` (`City Builder/Renderer.cpp:1120`).
+- Elevated roads use separate per-chunk instance buffers and rebuild lazily for visible stale chunks. They consume the same resolved road glyph, lane graphic, and divider masks through `BuildRoadChunkInstances` (`City Builder/Renderer.cpp:1120`).
 - Lots still render through one global placeholder-prism instance buffer keyed by lot revision.
 
 ## Road Render Data
-- The road simulation owns topology, lane type masks, surface masks, and path masks; rendering only consumes `ResolvedRoadCell` snapshots.
-- Ground road channel 0 is the base glyph, channel 1 is the arrow glyph, channel 2 packs surface-edge masks, and channel 3 packs white/yellow divider edges.
-- Channel 2 low nibble is sidewalk surface edges and high nibble is crosswalk surface edges. This is a visualization of resolved lane surfaces, not a renderer-owned pedestrian policy.
-- Elevated road instances carry the same base/arrow glyphs and packed surface-edge/divider masks as instance attributes (`City Builder/Renderer.cpp:1147`).
-- `Basic.shader` unpacks surface-edge and divider masks in `applyRoadEdgeOverlays` (`City Builder/Basic.shader:102`).
+- The road simulation owns lane topology, lane type masks, graphic masks, and path masks; rendering only consumes published road snapshots.
+- Ground road channel 0 is the base glyph, channel 1 is the arrow glyph, channel 2 packs lane graphic masks, and channel 3 packs divider masks.
+- Channel 2 low nibble is sidewalk edges and high nibble is crosswalk edges. These values are produced by `RoadRenderState` from lane-owned transport resolution.
+- Crosswalk policy is not shader-owned. A crosswalk is a pedestrian lane graphic selected only when the lane overlaps a perpendicular car lane and both lane systems continue through the crossing.
+- Elevated road instances carry the same base/arrow glyphs and packed lane-graphic/divider masks as instance attributes (`City Builder/Renderer.cpp:1147`).
+- `Basic.shader` unpacks the lane graphic and divider masks in `applyRoadEdgeOverlays` (`City Builder/Basic.shader:102`).
 
 ## Rules
 - Calculate visible chunks before upload work, then upload only visible stale chunks.
@@ -37,7 +38,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Compare the status line at `32`, `64`, `128`, `256`, and `512` visible-tile zoom.
 - Verify `tileStateChunks`, `tileStateTiles`, and `tileStateBytes` scale with visible chunks.
 - Pan after road or lot edits to confirm deferred chunks update before drawing.
-- Verify local-street crosswalk surfaces appear only at intersections and elevated highways render without pedestrian lane surfaces by default.
+- Verify local-street crosswalk graphics appear only where pedestrian and car lanes both continue through the crossing, and elevated highways render without pedestrian lane graphics by default.
 
 ## Related Guides
 - `docs/design/transport-network.md` owns road template placement, overlap validation, and resolved road-cell meaning.

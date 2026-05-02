@@ -46,6 +46,14 @@ This shell environment may need the process `PATH` entry cleared before invoking
 
 If link fails with `LNK1104` on `City Builder.exe`, stop any running copy of the game and rebuild.
 
+Transport topology has a standalone non-graphics test target:
+
+```powershell
+[System.Environment]::SetEnvironmentVariable('PATH', $null, 'Process')
+& 'D:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe' 'City Builder/TransportNetworkTests.vcxproj' /p:Configuration=Release /p:Platform=x64 /m
+& 'City Builder/x64/Release/TransportNetworkTests.exe'
+```
+
 ## Architecture notes
 - Simulation remains tile-statistical and authoritative.
 - Rendering consumes published immutable snapshots only.
@@ -59,8 +67,8 @@ If link fails with `LNK1104` on `City Builder.exe`, stop any running copy of the
 - Lot/module archetypes load from XML under `City Builder/Data`.
 
 ## Design guides
-- `docs/design/transport-network.md` - atomic road lanes, surfaces, seams, template layout, overlap validation, packed road state, and layer revisions. Main code anchors: `RoadLaneTypeId` (`City Builder/TransportNetwork.h:45`), `RoadTemplateSeamBetween` (`City Builder/TransportNetwork.cpp:277`), `TransportNetwork::makeRoadTemplate` (`City Builder/TransportNetwork.cpp:727`), and `TransportNetwork::resolveDirtyTile` (`City Builder/TransportNetwork.cpp:963`).
-- `docs/design/renderer.md` - renderer upload, culling, texture, shader decisions, packed surface-edge masks, and shared ground/elevated road render data. Main code anchors: `BuildRoadChunkInstances` (`City Builder/Renderer.cpp:1120`), `UpdateGroundRoadChunkTexture` (`City Builder/Renderer.cpp:1333`), and `applyRoadEdgeOverlays` (`City Builder/Basic.shader:102`).
+- `docs/design/transport-network.md` - lane-owned road placement, transport tile self-resolution, crosswalk graphic rules, packed road state, and layer revisions. Main code anchors: `TransportTypes.h`, `RoadLane.h`, `Road.h`, `TransportTile.h`, `RoadRenderState.h`, and `TransportNetwork.h`.
+- `docs/design/renderer.md` - renderer upload, culling, texture, shader decisions, packed lane graphic masks, and shared ground/elevated road render data. Main code anchors: `BuildRoadChunkInstances` (`City Builder/Renderer.cpp:1120`), `UpdateGroundRoadChunkTexture` (`City Builder/Renderer.cpp:1333`), and `applyRoadEdgeOverlays` (`City Builder/Basic.shader:102`).
 - `docs/design/simulation-threading.md` - tile passes, triple buffering, chunk worker rules, and published snapshot ownership.
 - `docs/design/lots.md` - lot/module placement, occupancy, effects, and render snapshots.
 - `docs/design/xml-assets.md` - strict XML archetype loading and validation.

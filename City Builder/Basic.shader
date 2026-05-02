@@ -99,7 +99,7 @@ bool hasMaskBit(float maskValue, int bitValue)
     return (mask & bitValue) != 0;
 }
 
-vec3 applyRoadEdgeOverlays(vec3 baseColor, vec2 localUv, float surfaceEdgeMask, float dividerMask)
+vec3 applyRoadEdgeOverlays(vec3 baseColor, vec2 localUv, float laneGraphicMask, float dividerMask)
 {
     vec3 finalColor = baseColor;
     vec3 sidewalkColor = vec3(0.74, 0.72, 0.66);
@@ -107,9 +107,9 @@ vec3 applyRoadEdgeOverlays(vec3 baseColor, vec2 localUv, float surfaceEdgeMask, 
     vec3 whiteDividerColor = vec3(0.88, 0.84, 0.74);
     vec3 yellowDividerColor = vec3(0.93, 0.86, 0.32);
 
-    int surfaceEdges = int(floor(surfaceEdgeMask + 0.5));
-    int sidewalkEdges = surfaceEdges & 15;
-    int crosswalkEdges = (surfaceEdges >> 4) & 15;
+    int laneGraphics = int(floor(laneGraphicMask + 0.5));
+    int sidewalkEdges = laneGraphics & 15;
+    int crosswalkEdges = (laneGraphics >> 4) & 15;
     bool crosswalkStripe = fract((localUv.x + localUv.y) * 10.0) < 0.52;
 
     if ((sidewalkEdges & 1) != 0 && localUv.y < 0.16) {
