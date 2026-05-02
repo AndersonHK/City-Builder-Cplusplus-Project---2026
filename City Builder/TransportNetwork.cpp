@@ -1,6 +1,7 @@
 #include "TransportNetwork.h"
 
 #include <algorithm>
+#include <cstddef>
 
 namespace {
 struct PendingTileUpdate {
@@ -124,6 +125,7 @@ bool TransportNetwork::placeRoadStroke(const RoadStrokeCommand& roadStrokeComman
 
     std::vector<int> dirtyTileIndices;
     markDirtyNeighborhood(placements, dirtyTileIndices);
+    pruneInvalidPedestrianLanes(roadStrokeCommand.layer, dirtyTileIndices);
 
     std::size_t dirtyIndex = 0;
     for (; dirtyIndex < dirtyTileIndices.size(); ++dirtyIndex) {
@@ -400,6 +402,43 @@ void TransportNetwork::bumpDirtyChunkRevisions(TransportLayerId layer, const std
     }
 }
 
+bool TransportNetwork::pruneInvalidPedestrianLanes(TransportLayerId layer, const std::vector<int>& dirtyTileIndices) {
+    bool removedAnyLane = false;
+    bool removedThisPass = true;
+    int passIndex = 0;
+    for (; removedThisPass && passIndex < 8; ++passIndex) {
+        removedThisPass = false;
+        std::size_t dirtyIndex = 0;
+        for (; dirtyIndex < dirtyTileIndices.size(); ++dirtyIndex) {
+            const int dirtyTileIndex = dirtyTileIndices[dirtyIndex];
+            const int tileY = dirtyTileIndex / width_;
+            const int tileX = dirtyTileIndex - (tileY * width_);
+            TransportTile* tile = tileAt(layer, tileX, tileY);
+            if (tile == 0 || tile->empty()) {
+                continue;
+            }
+
+            std::vector<RoadLanePlacement>& lanes = tile->lanesForMutation();
+            std::size_t laneIndex = 0;
+            while (laneIndex < lanes.size()) {
+                const RoadLanePlacement lane = lanes[laneIndex];
+                if (lane.isPedestrian() &&
+                    !pedestrianLaneBordersEmptyTile(layer, tileX, tileY, lane) &&
+                    !hasPedestrianThroughBothEnds(layer, tileX, tileY, lane)) {
+                    lanes.erase(lanes.begin() + static_cast<std::ptrdiff_t>(laneIndex));
+                    removedThisPass = true;
+                    removedAnyLane = true;
+                    continue;
+                }
+
+                ++laneIndex;
+            }
+        }
+    }
+
+    return removedAnyLane;
+}
+
 const TransportTile* TransportNetwork::tileAt(TransportLayerId layer, int tileX, int tileY) const {
     if (!isTileInsideMap(tileX, tileY)) {
         return 0;
@@ -422,7 +461,7 @@ bool TransportNetwork::hasCompatibleNeighborLane(TransportLayerId layer, int til
         return false;
     }
 
-    return neighborTile->hasCompatibleLane(lanePlacement.family, lanePlacement.laneType, lanePlacement.axis, roadDirection);
+    return neighborTile->hasCompatibleLane(lanePlacement, roadDirection);
 }
 
 bool TransportNetwork::hasCarThroughBothEnds(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& carLane) const {
@@ -434,8 +473,8 @@ bool TransportNetwork::hasCarThroughBothEnds(TransportLayerId layer, int tileX, 
         secondNeighbor != 0 &&
         firstNeighbor->family() == carLane.family &&
         secondNeighbor->family() == carLane.family &&
-        firstNeighbor->hasCarAxis(carLane.axis) &&
-        secondNeighbor->hasCarAxis(carLane.axis);
+        firstNeighbor->hasMatchingLaneBody(carLane) &&
+        secondNeighbor->hasMatchingLaneBody(carLane);
 }
 
 bool TransportNetwork::hasPedestrianThroughBothEnds(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& pedestrianLane) const {
@@ -443,6 +482,22 @@ bool TransportNetwork::hasPedestrianThroughBothEnds(TransportLayerId layer, int 
     const std::uint8_t secondDirection = OppositeCardinal(firstDirection);
     return hasCompatibleNeighborLane(layer, tileX, tileY, pedestrianLane, firstDirection) &&
         hasCompatibleNeighborLane(layer, tileX, tileY, pedestrianLane, secondDirection);
+}
+
+bool TransportNetwork::pedestrianLaneBordersEmptyTile(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& pedestrianLane) const {
+    for (std::size_t directionIndex = 0; directionIndex < sizeof(kCardinalDirections) / sizeof(kCardinalDirections[0]); ++directionIndex) {
+        const std::uint8_t direction = kCardinalDirections[directionIndex];
+        if ((pedestrianLane.sidewalkEdgeMask & direction) == 0) {
+            continue;
+        }
+
+        const TransportTile* neighborTile = tileAt(layer, tileX + DeltaXForDirection(direction), tileY + DeltaYForDirection(direction));
+        if (neighborTile == 0 || neighborTile->empty()) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 bool TransportNetwork::pedestrianLaneShouldRenderCrosswalk(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& pedestrianLane, const TransportTile& tile) const {

@@ -43,12 +43,14 @@ private:
     void resolveDirtyTile(TransportLayerId layer, int tileX, int tileY);
     void markDirtyNeighborhood(const std::vector<RoadTilePlacement>& placements, std::vector<int>& dirtyTileIndices) const;
     void bumpDirtyChunkRevisions(TransportLayerId layer, const std::vector<int>& dirtyTileIndices);
+    bool pruneInvalidPedestrianLanes(TransportLayerId layer, const std::vector<int>& dirtyTileIndices);
 
     const TransportTile* tileAt(TransportLayerId layer, int tileX, int tileY) const;
     TransportTile* tileAt(TransportLayerId layer, int tileX, int tileY);
     bool hasCompatibleNeighborLane(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const;
     bool hasCarThroughBothEnds(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& carLane) const;
     bool hasPedestrianThroughBothEnds(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& pedestrianLane) const;
+    bool pedestrianLaneBordersEmptyTile(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& pedestrianLane) const;
     bool pedestrianLaneShouldRenderCrosswalk(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& pedestrianLane, const TransportTile& tile) const;
     std::uint8_t buildExitMask(TransportLayerId layer, int tileX, int tileY, const TransportTile& tile) const;
     std::uint8_t buildJunctionMask(TransportLayerId layer, int tileX, int tileY, const TransportTile& tile, std::uint8_t exitMask) const;

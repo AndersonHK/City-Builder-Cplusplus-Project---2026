@@ -16,11 +16,13 @@ public:
     bool empty() const;
     RoadFamily family() const;
     const std::vector<RoadLanePlacement>& lanes() const;
+    std::vector<RoadLanePlacement>& lanesForMutation();
 
     bool hasLaneType(RoadLaneTypeId laneType) const;
     bool hasAxis(RoadAxis axis) const;
     bool hasCarAxis(RoadAxis axis) const;
-    bool hasCompatibleLane(RoadFamily family, RoadLaneTypeId laneType, RoadAxis axis, std::uint8_t roadDirection) const;
+    bool hasCompatibleLane(const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const;
+    bool hasMatchingLaneBody(const RoadLanePlacement& lanePlacement) const;
     bool hasLaneContinuation(const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const;
     bool hasCarLaneThrough(std::uint8_t roadDirection) const;
 

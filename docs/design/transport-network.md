@@ -20,6 +20,7 @@ Use this guide when changing road placement, lane topology, road render data, or
 ## Lane Rules
 - Sidewalks are pedestrian lanes. Crosswalks are not authored lanes; they are pedestrian lane graphics chosen during tile resolution.
 - `RoadLaneSurface` is a default graphic surface, not pathing truth. Lane type and flow decide traversal.
+- Pedestrian lanes are pruned from authored tiles unless they either border empty terrain or continue as the same side/span on both ends of their axis.
 - Same-axis overlap is lane-span validated. Exact replay is accepted; incompatible shifted road bodies are rejected.
 - Perpendicular overlap is allowed as lane coexistence inside the same transport tile. Intersection behavior is resolved afterward from lane adjacency.
 - A resolved tile aggregates lane type masks, surface masks, costs, travel, exits, junction glyphs, lane graphics, and dividers for renderer/query consumers.

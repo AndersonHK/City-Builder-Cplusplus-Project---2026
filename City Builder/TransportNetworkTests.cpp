@@ -122,9 +122,49 @@ void TestTSectionDoesNotPaintHalfCrosswalk(TestRunner& runner) {
     runner.expect(Place(network, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "t-section horizontal street placement succeeds");
     runner.expect(Place(network, MakeStroke(Int2(5, 2), Int2(5, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "t-section vertical street placement succeeds");
     const ResolvedRoadCell& teeCell = CellAt(network, TransportLayerId::Ground, 5, 5);
+    const ResolvedRoadCell& teeCellEast = CellAt(network, TransportLayerId::Ground, 6, 5);
+    const ResolvedRoadCell& mainSouthCell = CellAt(network, TransportLayerId::Ground, 5, 6);
+    const ResolvedRoadCell& mainSouthEastCell = CellAt(network, TransportLayerId::Ground, 6, 6);
 
     runner.expect(CrosswalkEdges(teeCell) == 0, "t-section endpoint does not render half crosswalk");
-    runner.expect((SidewalkEdges(teeCell) & (kRoadDirectionNorth | kRoadDirectionWest)) != 0, "t-section endpoint keeps pedestrian graphics as sidewalks");
+    runner.expect(CrosswalkEdges(teeCellEast) == 0, "t-section adjacent endpoint tile does not render half crosswalk");
+    runner.expect(CrosswalkEdges(mainSouthCell) == 0, "t-section main-road second body tile stays sidewalk");
+    runner.expect(CrosswalkEdges(mainSouthEastCell) == 0, "t-section main-road second adjacent body tile stays sidewalk");
+    runner.expect((SidewalkEdges(teeCell) & kRoadDirectionWest) == 0, "t-section does not create west sidewalk halfway across main road");
+    runner.expect((SidewalkEdges(teeCellEast) & kRoadDirectionEast) == 0, "t-section does not create east sidewalk halfway across main road");
+    runner.expect((SidewalkEdges(teeCell) & kRoadDirectionNorth) != 0, "t-section keeps through main-road sidewalk");
+}
+
+void TestJoggedSidewalkDoesNotBecomeCrosswalk(TestRunner& runner) {
+    TransportNetwork network = MakeNetwork(14, 14);
+    std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(network, MakeStroke(Int2(2, 5), Int2(5, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "jogged west horizontal street placement succeeds");
+    runner.expect(Place(network, MakeStroke(Int2(6, 4), Int2(10, 4), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "jogged east horizontal street placement succeeds");
+    runner.expect(Place(network, MakeStroke(Int2(5, 2), Int2(5, 8), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "jogged vertical crossing street placement succeeds");
+
+    const ResolvedRoadCell& jogCell = CellAt(network, TransportLayerId::Ground, 5, 5);
+    runner.expect((SidewalkEdges(jogCell) & kRoadDirectionNorth) == 0, "jogged same-axis sidewalk is not created across occupied road edge");
+    runner.expect((CrosswalkEdges(jogCell) & kRoadDirectionNorth) == 0, "jogged opposite-side sidewalk is not treated as through crosswalk");
+}
+
+void TestCornerDoesNotRenderCrosswalks(TestRunner& runner) {
+    TransportNetwork network = MakeNetwork(12, 12);
+    std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
+
+    RoadStrokeCommand command;
+    command.startTile = Int2(2, 5);
+    command.cornerTile = Int2(5, 5);
+    command.endTile = Int2(5, 8);
+    command.family = RoadFamily::LocalStreet;
+    command.layer = TransportLayerId::Ground;
+    command.roadTemplate = TransportNetwork::makeRoadTemplate(command.family, command.layer, 1, RoadTrafficSide::RightHand, RoadDirectionMode::TwoWay);
+    runner.expect(Place(network, command, lotOccupancy), "corner road stroke placement succeeds");
+
+    runner.expect(CrosswalkEdges(CellAt(network, TransportLayerId::Ground, 5, 5)) == 0, "corner northwest tile has no crosswalk");
+    runner.expect(CrosswalkEdges(CellAt(network, TransportLayerId::Ground, 6, 5)) == 0, "corner northeast tile has no crosswalk");
+    runner.expect(CrosswalkEdges(CellAt(network, TransportLayerId::Ground, 5, 6)) == 0, "corner southwest tile has no crosswalk");
+    runner.expect(CrosswalkEdges(CellAt(network, TransportLayerId::Ground, 6, 6)) == 0, "corner southeast tile has no crosswalk");
 }
 
 void TestSameAxisOffsetRejects(TestRunner& runner) {
@@ -172,6 +212,8 @@ int main() {
     TestOneWayLocalStreet(runner);
     TestPerpendicularCrosswalkRequiresLaneContinuation(runner);
     TestTSectionDoesNotPaintHalfCrosswalk(runner);
+    TestJoggedSidewalkDoesNotBecomeCrosswalk(runner);
+    TestCornerDoesNotRenderCrosswalks(runner);
     TestSameAxisOffsetRejects(runner);
     TestExactReplayDoesNotAdvanceRevision(runner);
     TestElevatedHighwayHasNoPedestrianGraphics(runner);
