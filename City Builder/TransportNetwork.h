@@ -47,7 +47,10 @@ private:
 
     const TransportTile* tileAt(TransportLayerId layer, int tileX, int tileY) const;
     TransportTile* tileAt(TransportLayerId layer, int tileX, int tileY);
-    bool hasCompatibleNeighborLane(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const;
+    bool hasCompatibleNeighborLane(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection, bool includeInactiveLanes) const;
+    bool hasCompatibleCarNeighborLane(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const;
+    bool hasNeighborLaneBody(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const;
+    bool laneConnectionRequiresSameStroke(const TransportTile& currentTile, const TransportTile& neighborTile, const RoadLanePlacement& lanePlacement) const;
     bool hasCarThroughBothEnds(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& carLane) const;
     bool hasPedestrianThroughBothEnds(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& pedestrianLane) const;
     bool pedestrianLaneBordersEmptyTile(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& pedestrianLane) const;
@@ -68,4 +71,5 @@ private:
     std::vector<std::uint64_t> groundChunkRevisions_;
     std::vector<std::uint64_t> elevatedChunkRevisions_;
     std::uint64_t revision_;
+    std::uint32_t nextRoadStrokeId_;
 };

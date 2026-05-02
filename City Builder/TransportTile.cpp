@@ -33,10 +33,24 @@ RoadTileLaneAddResult TransportTile::tryAddLane(const RoadLanePlacement& lanePla
 }
 
 bool TransportTile::empty() const {
-    return lanes_.empty();
+    std::size_t laneIndex = 0;
+    for (; laneIndex < lanes_.size(); ++laneIndex) {
+        if (lanes_[laneIndex].active) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 RoadFamily TransportTile::family() const {
+    std::size_t laneIndex = 0;
+    for (; laneIndex < lanes_.size(); ++laneIndex) {
+        if (lanes_[laneIndex].active) {
+            return lanes_[laneIndex].family;
+        }
+    }
+
     return lanes_.empty() ? RoadFamily::None : lanes_.front().family;
 }
 
@@ -51,7 +65,7 @@ std::vector<RoadLanePlacement>& TransportTile::lanesForMutation() {
 bool TransportTile::hasLaneType(RoadLaneTypeId laneType) const {
     std::size_t laneIndex = 0;
     for (; laneIndex < lanes_.size(); ++laneIndex) {
-        if (lanes_[laneIndex].laneType == laneType) {
+        if (lanes_[laneIndex].active && lanes_[laneIndex].laneType == laneType) {
             return true;
         }
     }
@@ -62,7 +76,7 @@ bool TransportTile::hasLaneType(RoadLaneTypeId laneType) const {
 bool TransportTile::hasAxis(RoadAxis axis) const {
     std::size_t laneIndex = 0;
     for (; laneIndex < lanes_.size(); ++laneIndex) {
-        if (lanes_[laneIndex].axis == axis) {
+        if (lanes_[laneIndex].active && lanes_[laneIndex].axis == axis) {
             return true;
         }
     }
@@ -73,7 +87,7 @@ bool TransportTile::hasAxis(RoadAxis axis) const {
 bool TransportTile::hasCarAxis(RoadAxis axis) const {
     std::size_t laneIndex = 0;
     for (; laneIndex < lanes_.size(); ++laneIndex) {
-        if (lanes_[laneIndex].isCar() && lanes_[laneIndex].axis == axis) {
+        if (lanes_[laneIndex].active && lanes_[laneIndex].isCar() && lanes_[laneIndex].axis == axis) {
             return true;
         }
     }
@@ -81,11 +95,12 @@ bool TransportTile::hasCarAxis(RoadAxis axis) const {
     return false;
 }
 
-bool TransportTile::hasCompatibleLane(const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const {
+bool TransportTile::hasCompatibleLane(const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection, bool includeInactiveLanes) const {
     std::size_t laneIndex = 0;
     for (; laneIndex < lanes_.size(); ++laneIndex) {
         const RoadLanePlacement& lane = lanes_[laneIndex];
-        if (lane.family == lanePlacement.family &&
+        if ((includeInactiveLanes || lane.active) &&
+            lane.family == lanePlacement.family &&
             lane.laneType == lanePlacement.laneType &&
             lane.axis == lanePlacement.axis &&
             lane.laneIndex == lanePlacement.laneIndex &&
@@ -102,7 +117,26 @@ bool TransportTile::hasMatchingLaneBody(const RoadLanePlacement& lanePlacement) 
     std::size_t laneIndex = 0;
     for (; laneIndex < lanes_.size(); ++laneIndex) {
         const RoadLanePlacement& lane = lanes_[laneIndex];
-        if (lane.family == lanePlacement.family &&
+        if (lane.active &&
+            lane.family == lanePlacement.family &&
+            lane.laneType == lanePlacement.laneType &&
+            lane.axis == lanePlacement.axis &&
+            lane.laneIndex == lanePlacement.laneIndex &&
+            lane.sideOverlaps(lanePlacement)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool TransportTile::hasMatchingLaneBodyFromStroke(const RoadLanePlacement& lanePlacement) const {
+    std::size_t laneIndex = 0;
+    for (; laneIndex < lanes_.size(); ++laneIndex) {
+        const RoadLanePlacement& lane = lanes_[laneIndex];
+        if (lane.active &&
+            lane.strokeId == lanePlacement.strokeId &&
+            lane.family == lanePlacement.family &&
             lane.laneType == lanePlacement.laneType &&
             lane.axis == lanePlacement.axis &&
             lane.laneIndex == lanePlacement.laneIndex &&
@@ -115,13 +149,13 @@ bool TransportTile::hasMatchingLaneBody(const RoadLanePlacement& lanePlacement) 
 }
 
 bool TransportTile::hasLaneContinuation(const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const {
-    return hasCompatibleLane(lanePlacement, roadDirection);
+    return hasCompatibleLane(lanePlacement, roadDirection, false);
 }
 
 bool TransportTile::hasCarLaneThrough(std::uint8_t roadDirection) const {
     std::size_t laneIndex = 0;
     for (; laneIndex < lanes_.size(); ++laneIndex) {
-        if (lanes_[laneIndex].isCar() && lanes_[laneIndex].hasTravelDirection(roadDirection)) {
+        if (lanes_[laneIndex].active && lanes_[laneIndex].isCar() && lanes_[laneIndex].hasTravelDirection(roadDirection)) {
             return true;
         }
     }

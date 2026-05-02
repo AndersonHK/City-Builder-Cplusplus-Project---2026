@@ -91,6 +91,7 @@ RoadLanePlacement::RoadLanePlacement()
       family(RoadFamily::None),
       layer(TransportLayerId::Ground),
       templateId(0),
+      strokeId(0),
       laneIndex(0),
       axis(RoadAxis::None),
       crossSectionMask(0),
@@ -103,7 +104,8 @@ RoadLanePlacement::RoadLanePlacement()
       sideMax(1.0f),
       sidewalkEdgeMask(0),
       sameDirectionDividerMask(0),
-      opposingDirectionDividerMask(0) {
+      opposingDirectionDividerMask(0),
+      active(true) {
 }
 
 bool RoadLanePlacement::isCar() const {

@@ -115,6 +115,21 @@ void TestPerpendicularCrosswalkRequiresLaneContinuation(TestRunner& runner) {
     runner.expect((crossingCell.surfaceMask & kRoadSurfaceCrosswalk) != 0, "full crossing advertises crosswalk graphic surface");
 }
 
+void TestPerpendicularCrosswalkIsOrderIndependent(TestRunner& runner) {
+    TransportNetwork network = MakeNetwork(12, 12);
+    std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(network, MakeStroke(Int2(5, 2), Int2(5, 8), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "reverse cross vertical street placement succeeds first");
+    runner.expect(Place(network, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "reverse cross horizontal street placement succeeds second");
+    const ResolvedRoadCell& crossingCell = CellAt(network, TransportLayerId::Ground, 5, 5);
+    const ResolvedRoadCell& crossingCellEast = CellAt(network, TransportLayerId::Ground, 6, 5);
+
+    runner.expect((CrosswalkEdges(crossingCell) & kRoadDirectionNorth) != 0, "reverse cross horizontal pedestrian lane renders north crosswalk");
+    runner.expect((CrosswalkEdges(crossingCell) & kRoadDirectionWest) != 0, "reverse cross vertical pedestrian lane renders west crosswalk");
+    runner.expect((CrosswalkEdges(crossingCellEast) & kRoadDirectionEast) != 0, "reverse cross preserves right-side pedestrian crosswalk from first-built road");
+    runner.expect((crossingCell.surfaceMask & kRoadSurfaceCrosswalk) != 0, "reverse cross advertises crosswalk surface");
+}
+
 void TestTSectionDoesNotPaintHalfCrosswalk(TestRunner& runner) {
     TransportNetwork network = MakeNetwork(12, 12);
     std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
@@ -167,6 +182,22 @@ void TestCornerDoesNotRenderCrosswalks(TestRunner& runner) {
     runner.expect(CrosswalkEdges(CellAt(network, TransportLayerId::Ground, 6, 6)) == 0, "corner southeast tile has no crosswalk");
 }
 
+void TestOpposingStubsDoNotConnectAcrossTwoLaneRoad(TestRunner& runner) {
+    TransportNetwork network = MakeNetwork(12, 12);
+    std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(network, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "middle road placement succeeds");
+    runner.expect(Place(network, MakeStroke(Int2(5, 2), Int2(5, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "north stub placement succeeds");
+    runner.expect(Place(network, MakeStroke(Int2(5, 6), Int2(5, 9), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "south stub placement succeeds");
+
+    const ResolvedRoadCell& northStubEnd = CellAt(network, TransportLayerId::Ground, 5, 5);
+    const ResolvedRoadCell& southStubEnd = CellAt(network, TransportLayerId::Ground, 5, 6);
+    runner.expect((northStubEnd.exitMask & kRoadDirectionSouth) == 0, "north stub does not exit south across middle road body");
+    runner.expect((southStubEnd.exitMask & kRoadDirectionNorth) == 0, "south stub does not exit north across middle road body");
+    runner.expect(CrosswalkEdges(northStubEnd) == 0, "north stub end has no crosswalk across middle road body");
+    runner.expect(CrosswalkEdges(southStubEnd) == 0, "south stub end has no crosswalk across middle road body");
+}
+
 void TestSameAxisOffsetRejects(TestRunner& runner) {
     TransportNetwork network = MakeNetwork(12, 12);
     std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
@@ -211,9 +242,11 @@ int main() {
     TestStraightTwoWayLocalStreet(runner);
     TestOneWayLocalStreet(runner);
     TestPerpendicularCrosswalkRequiresLaneContinuation(runner);
+    TestPerpendicularCrosswalkIsOrderIndependent(runner);
     TestTSectionDoesNotPaintHalfCrosswalk(runner);
     TestJoggedSidewalkDoesNotBecomeCrosswalk(runner);
     TestCornerDoesNotRenderCrosswalks(runner);
+    TestOpposingStubsDoNotConnectAcrossTwoLaneRoad(runner);
     TestSameAxisOffsetRejects(runner);
     TestExactReplayDoesNotAdvanceRevision(runner);
     TestElevatedHighwayHasNoPedestrianGraphics(runner);
