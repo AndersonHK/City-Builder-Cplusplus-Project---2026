@@ -375,6 +375,35 @@ void AppController::setHoveredTile(int tileX, int tileY, bool isValid) {
     viewState_.hoveredTileY = std::max(0, std::min(tileY, simulationRuntime_.mapHeight() - 1));
 }
 
+// Builds a renderer-only preview command for the active road drag.
+bool AppController::roadPreviewStroke(RoadStrokeCommand& roadStrokeCommand) const {
+    if (!viewState_.roadDragActive || !activeToolIsRoad()) {
+        return false;
+    }
+
+    const Int2 startTile(viewState_.roadDragStartX, viewState_.roadDragStartY);
+    const Int2 endTile(viewState_.roadDragCurrentX, viewState_.roadDragCurrentY);
+    const int deltaX = endTile.x - startTile.x;
+    const int deltaY = endTile.y - startTile.y;
+    const Int2 cornerTile = std::abs(deltaX) >= std::abs(deltaY) ? Int2(endTile.x, startTile.y) : Int2(startTile.x, endTile.y);
+
+    roadStrokeCommand = RoadStrokeCommand();
+    roadStrokeCommand.startTile = startTile;
+    roadStrokeCommand.cornerTile = cornerTile;
+    roadStrokeCommand.endTile = endTile;
+
+    if (viewState_.activeTool == ActiveTool::RoadStreet) {
+        roadStrokeCommand.family = RoadFamily::LocalStreet;
+        roadStrokeCommand.layer = TransportLayerId::Ground;
+    } else {
+        roadStrokeCommand.family = RoadFamily::Highway;
+        roadStrokeCommand.layer = TransportLayerId::Elevated;
+    }
+
+    roadStrokeCommand.roadTemplate = currentRoadTemplate(roadStrokeCommand.family, roadStrokeCommand.layer);
+    return true;
+}
+
 // Keeps the camera span inside the map after pan or zoom changes.
 void AppController::clampCameraToMap() {
     viewState_.cameraX = std::max(0, std::min(viewState_.cameraX, simulationRuntime_.mapWidth() - viewState_.visibleTiles));

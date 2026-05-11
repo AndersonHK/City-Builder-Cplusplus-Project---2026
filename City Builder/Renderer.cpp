@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "RoadRenderState.h"
 #include "ShaderProgram.h"
 
 namespace {
@@ -24,6 +25,7 @@ const int kRoadAtlasColumns = 8;
 const int kRoadAtlasRows = 8;
 const int kRoadAtlasTileSize = 32;
 const float kTileStateScalarScale = 640000.0f;
+const float kRoadGhostAlpha = 0.46f;
 const std::uint8_t kOccupiedTileLiftMask = 255u;
 
 struct Vec3 {
@@ -162,6 +164,32 @@ struct RoadInstanceData {
     float dividerMask;
 };
 
+struct RoadPreviewAxisKey {
+    int tileX;
+    int tileY;
+    RoadAxis axis;
+};
+
+struct RoadPreviewCell {
+    int tileX;
+    int tileY;
+    std::uint8_t junctionMask;
+    std::uint8_t arrowIntentMask;
+    std::uint8_t sidewalkEdges;
+    std::uint8_t sameDirectionDividerEdges;
+    std::uint8_t opposingDirectionDividerEdges;
+
+    RoadPreviewCell()
+        : tileX(0),
+          tileY(0),
+          junctionMask(0),
+          arrowIntentMask(0),
+          sidewalkEdges(0),
+          sameDirectionDividerEdges(0),
+          opposingDirectionDividerEdges(0) {
+    }
+};
+
 struct TileChunkRenderCache {
     ChunkRect chunkRect;
     Aabb worldBounds;
@@ -208,9 +236,11 @@ struct RendererFrameMetrics {
     long long tileLiftUploadMicros;
     long long groundRoadUploadMicros;
     long long elevatedRoadUploadMicros;
+    long long roadGhostUploadMicros;
     long long lotUploadMicros;
     long long tileDrawMicros;
     long long elevatedRoadDrawMicros;
+    long long roadGhostDrawMicros;
     long long lotDrawMicros;
     long long tileStateUploadedTileCount;
     long long tileStateUploadedBytes;
@@ -227,6 +257,7 @@ struct RendererFrameMetrics {
     int deferredGroundRoadChunkCount;
     int dirtyElevatedRoadChunkCount;
     int deferredElevatedRoadChunkCount;
+    int roadGhostInstanceCount;
 
     // Initializes all per-frame renderer metrics to zero.
     RendererFrameMetrics()
@@ -237,9 +268,11 @@ struct RendererFrameMetrics {
           tileLiftUploadMicros(0),
           groundRoadUploadMicros(0),
           elevatedRoadUploadMicros(0),
+          roadGhostUploadMicros(0),
           lotUploadMicros(0),
           tileDrawMicros(0),
           elevatedRoadDrawMicros(0),
+          roadGhostDrawMicros(0),
           lotDrawMicros(0),
           tileStateUploadedTileCount(0),
           tileStateUploadedBytes(0),
@@ -255,7 +288,8 @@ struct RendererFrameMetrics {
           dirtyGroundRoadChunkCount(0),
           deferredGroundRoadChunkCount(0),
           dirtyElevatedRoadChunkCount(0),
-          deferredElevatedRoadChunkCount(0) {
+          deferredElevatedRoadChunkCount(0),
+          roadGhostInstanceCount(0) {
     }
 };
 
@@ -1116,6 +1150,113 @@ float RoadLayerLift(TransportLayerId layer) {
     }
 }
 
+bool RoadPreviewAxisKeyLess(const RoadPreviewAxisKey& left, const RoadPreviewAxisKey& right) {
+    if (left.tileY != right.tileY) {
+        return left.tileY < right.tileY;
+    }
+    if (left.tileX != right.tileX) {
+        return left.tileX < right.tileX;
+    }
+    return static_cast<int>(left.axis) < static_cast<int>(right.axis);
+}
+
+bool HasRoadPreviewAxisPlacement(const std::vector<RoadPreviewAxisKey>& axisKeys, int tileX, int tileY, RoadAxis axis) {
+    RoadPreviewAxisKey key;
+    key.tileX = tileX;
+    key.tileY = tileY;
+    key.axis = axis;
+    return std::binary_search(axisKeys.begin(), axisKeys.end(), key, RoadPreviewAxisKeyLess);
+}
+
+std::uint8_t RoadPreviewConnectionMask(const RoadLanePlacement& lanePlacement, const std::vector<RoadPreviewAxisKey>& axisKeys) {
+    std::uint8_t connectionMask = 0;
+    if (lanePlacement.axis == RoadAxis::Horizontal) {
+        if (HasRoadPreviewAxisPlacement(axisKeys, lanePlacement.tileX - 1, lanePlacement.tileY, RoadAxis::Horizontal)) {
+            connectionMask |= kRoadDirectionWest;
+        }
+        if (HasRoadPreviewAxisPlacement(axisKeys, lanePlacement.tileX + 1, lanePlacement.tileY, RoadAxis::Horizontal)) {
+            connectionMask |= kRoadDirectionEast;
+        }
+    } else if (lanePlacement.axis == RoadAxis::Vertical) {
+        if (HasRoadPreviewAxisPlacement(axisKeys, lanePlacement.tileX, lanePlacement.tileY - 1, RoadAxis::Vertical)) {
+            connectionMask |= kRoadDirectionNorth;
+        }
+        if (HasRoadPreviewAxisPlacement(axisKeys, lanePlacement.tileX, lanePlacement.tileY + 1, RoadAxis::Vertical)) {
+            connectionMask |= kRoadDirectionSouth;
+        }
+    }
+
+    return connectionMask;
+}
+
+std::vector<RoadInstanceData> BuildRoadPreviewInstances(const RoadStrokeCommand& roadStrokeCommand, int mapWidth, int mapHeight) {
+    std::vector<RoadInstanceData> instances;
+    if (roadStrokeCommand.family == RoadFamily::None) {
+        return instances;
+    }
+
+    std::vector<RoadTilePlacement> placements;
+    placements.reserve(4096);
+    Road road(roadStrokeCommand.roadTemplate);
+    if (!road.appendStrokePlacements(roadStrokeCommand.startTile, roadStrokeCommand.cornerTile, roadStrokeCommand.endTile, mapWidth, mapHeight, placements)) {
+        return instances;
+    }
+    if (placements.empty()) {
+        return instances;
+    }
+
+    std::vector<RoadPreviewAxisKey> axisKeys;
+    axisKeys.reserve(placements.size());
+    std::size_t placementIndex = 0;
+    for (; placementIndex < placements.size(); ++placementIndex) {
+        RoadPreviewAxisKey key;
+        key.tileX = placements[placementIndex].tileX;
+        key.tileY = placements[placementIndex].tileY;
+        key.axis = placements[placementIndex].lanePlacement.axis;
+        axisKeys.push_back(key);
+    }
+    std::sort(axisKeys.begin(), axisKeys.end(), RoadPreviewAxisKeyLess);
+
+    std::sort(placements.begin(), placements.end(), [](const RoadTilePlacement& left, const RoadTilePlacement& right) {
+        if (left.tileIndex != right.tileIndex) {
+            return left.tileIndex < right.tileIndex;
+        }
+        return left.lanePlacement.laneIndex < right.lanePlacement.laneIndex;
+    });
+
+    instances.reserve(placements.size());
+    placementIndex = 0;
+    while (placementIndex < placements.size()) {
+        const int tileIndex = placements[placementIndex].tileIndex;
+        RoadPreviewCell cell;
+        cell.tileX = placements[placementIndex].tileX;
+        cell.tileY = placements[placementIndex].tileY;
+
+        while (placementIndex < placements.size() && placements[placementIndex].tileIndex == tileIndex) {
+            const RoadLanePlacement& lanePlacement = placements[placementIndex].lanePlacement;
+            cell.junctionMask |= RoadPreviewConnectionMask(lanePlacement, axisKeys);
+            cell.arrowIntentMask |= lanePlacement.arrowTravelMask;
+            cell.sidewalkEdges |= lanePlacement.sidewalkEdgeMask;
+            cell.sameDirectionDividerEdges |= lanePlacement.sameDirectionDividerMask;
+            cell.opposingDirectionDividerEdges |= lanePlacement.opposingDirectionDividerMask;
+            ++placementIndex;
+        }
+
+        const RoadRenderVariant renderVariant = ChooseRenderVariant(cell.junctionMask);
+        RoadInstanceData instance;
+        instance.originX = static_cast<float>(cell.tileX);
+        instance.originZ = static_cast<float>(cell.tileY);
+        instance.lift = RoadLayerLift(roadStrokeCommand.layer);
+        instance.baseGlyph = static_cast<float>(ChooseBaseGlyph(roadStrokeCommand.family, renderVariant, cell.junctionMask));
+        instance.arrowGlyph = static_cast<float>(ChooseArrowGlyph(cell.arrowIntentMask));
+        instance.surfaceEdgeMask = static_cast<float>(PackLaneGraphicMask(cell.sidewalkEdges, 0));
+        instance.dividerMask = static_cast<float>(PackDividerMask(cell.sameDirectionDividerEdges, cell.opposingDirectionDividerEdges));
+        instances.push_back(instance);
+    }
+
+    return instances;
+}
+
 // Builds elevated-road instances for a visible dirty chunk.
 std::vector<RoadInstanceData> BuildRoadChunkInstances(const PublishedWorldSnapshot& snapshot, const ChunkRect& chunkRect) {
     std::vector<RoadInstanceData> instances;
@@ -1550,6 +1691,12 @@ int Renderer::run() {
         ConfigureRoadChunkVertexArray(roadChunkCaches[chunkIndex].vertexArrayId, tileVertexBufferId, roadChunkCaches[chunkIndex].instanceBufferId);
     }
 
+    GLuint roadGhostVertexArrayId = 0;
+    GLuint roadGhostInstanceBufferId = 0;
+    glGenVertexArrays(1, &roadGhostVertexArrayId);
+    glGenBuffers(1, &roadGhostInstanceBufferId);
+    ConfigureRoadChunkVertexArray(roadGhostVertexArrayId, tileVertexBufferId, roadGhostInstanceBufferId);
+
     GLuint lotVertexArrayId = 0;
     GLuint lotInstanceBufferId = 0;
     glGenVertexArrays(1, &lotVertexArrayId);
@@ -1560,6 +1707,8 @@ int Renderer::run() {
     if (!shaderProgram.loadFromFile(BuildShaderPath())) {
         DestroyTileChunkCaches(chunkCaches);
         DestroyRoadChunkCaches(roadChunkCaches);
+        glDeleteBuffers(1, &roadGhostInstanceBufferId);
+        glDeleteVertexArrays(1, &roadGhostVertexArrayId);
         glDeleteBuffers(1, &lotInstanceBufferId);
         glDeleteVertexArrays(1, &lotVertexArrayId);
         glDeleteTextures(1, &roadArrowAtlasTextureId);
@@ -1583,16 +1732,23 @@ int Renderer::run() {
     const GLint roadBaseAtlasTextureLocation = glGetUniformLocation(shaderProgram.programId(), "uRoadBaseAtlasTexture");
     const GLint roadArrowAtlasTextureLocation = glGetUniformLocation(shaderProgram.programId(), "uRoadArrowAtlasTexture");
     const GLint roadAtlasGridLocation = glGetUniformLocation(shaderProgram.programId(), "uRoadAtlasGrid");
+    const GLint roadAlphaScaleLocation = glGetUniformLocation(shaderProgram.programId(), "uRoadAlphaScale");
+    const GLint roadTintColorLocation = glGetUniformLocation(shaderProgram.programId(), "uRoadTintColor");
+    const GLint roadTintStrengthLocation = glGetUniformLocation(shaderProgram.programId(), "uRoadTintStrength");
     glUniform1i(tileTextureLocation, 0);
     glUniform1i(groundRoadStateTextureLocation, 1);
     glUniform1i(roadBaseAtlasTextureLocation, 2);
     glUniform1i(roadArrowAtlasTextureLocation, 3);
     glUniform1i(tileLiftTextureLocation, 4);
     glUniform2f(roadAtlasGridLocation, static_cast<float>(kRoadAtlasColumns), static_cast<float>(kRoadAtlasRows));
+    glUniform1f(roadAlphaScaleLocation, 1.0f);
+    glUniform3f(roadTintColorLocation, 1.0f, 1.0f, 1.0f);
+    glUniform1f(roadTintStrengthLocation, 0.0f);
 
     std::vector<GLshort> tileStateChunkPixels;
     std::vector<std::uint8_t> tileLiftChunkPixels;
     std::vector<LotInstanceData> lotInstances;
+    std::vector<RoadInstanceData> roadGhostInstances;
     std::uint64_t lastUploadedLotRevision = std::numeric_limits<std::uint64_t>::max();
     std::vector<std::uint64_t> lastUploadedGroundRoadChunkRevisions(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
 
@@ -1624,6 +1780,22 @@ int Renderer::run() {
 
         RendererFrameMetrics frameMetrics;
         frameMetrics.totalChunkCount = static_cast<int>(chunkCaches.size());
+
+        RoadStrokeCommand roadGhostCommand;
+        if (appController_.roadPreviewStroke(roadGhostCommand)) {
+            const std::chrono::steady_clock::time_point roadGhostUploadStart = std::chrono::steady_clock::now();
+            roadGhostInstances = BuildRoadPreviewInstances(roadGhostCommand, simulationRuntime_.mapWidth(), simulationRuntime_.mapHeight());
+            glBindBuffer(GL_ARRAY_BUFFER, roadGhostInstanceBufferId);
+            glBufferData(
+                GL_ARRAY_BUFFER,
+                static_cast<GLsizeiptr>(roadGhostInstances.size() * sizeof(RoadInstanceData)),
+                roadGhostInstances.empty() ? 0 : &roadGhostInstances[0],
+                GL_DYNAMIC_DRAW);
+            frameMetrics.roadGhostUploadMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - roadGhostUploadStart).count();
+            frameMetrics.roadGhostInstanceCount = static_cast<int>(roadGhostInstances.size());
+        } else {
+            roadGhostInstances.clear();
+        }
 
         if (snapshot.tiles != 0 && snapshot.chunkRevisions != 0) {
             const std::chrono::steady_clock::time_point cullStart = std::chrono::steady_clock::now();
@@ -1784,6 +1956,9 @@ int Renderer::run() {
             frameMetrics.tileDrawMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - tileDrawStart).count();
 
             glUniform1i(renderModeLocation, 2);
+            glUniform1f(roadAlphaScaleLocation, 1.0f);
+            glUniform3f(roadTintColorLocation, 1.0f, 1.0f, 1.0f);
+            glUniform1f(roadTintStrengthLocation, 0.0f);
             const std::chrono::steady_clock::time_point elevatedRoadDrawStart = std::chrono::steady_clock::now();
             for (visibleIndex = 0; visibleIndex < visibleChunkIndices.size(); ++visibleIndex) {
                 const RoadChunkRenderCache& roadCache = roadChunkCaches[visibleChunkIndices[visibleIndex]];
@@ -1796,6 +1971,21 @@ int Renderer::run() {
                 ++frameMetrics.visibleElevatedRoadChunkCount;
             }
             frameMetrics.elevatedRoadDrawMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - elevatedRoadDrawStart).count();
+
+            if (!roadGhostInstances.empty()) {
+                glUniform1f(roadAlphaScaleLocation, kRoadGhostAlpha);
+                glUniform3f(roadTintColorLocation, 0.55f, 0.82f, 1.0f);
+                glUniform1f(roadTintStrengthLocation, 0.38f);
+                glDepthMask(GL_FALSE);
+                const std::chrono::steady_clock::time_point roadGhostDrawStart = std::chrono::steady_clock::now();
+                glBindVertexArray(roadGhostVertexArrayId);
+                glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(roadGhostInstances.size()));
+                frameMetrics.roadGhostDrawMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - roadGhostDrawStart).count();
+                glDepthMask(GL_TRUE);
+                glUniform1f(roadAlphaScaleLocation, 1.0f);
+                glUniform3f(roadTintColorLocation, 1.0f, 1.0f, 1.0f);
+                glUniform1f(roadTintStrengthLocation, 0.0f);
+            }
 
             if (!lotInstances.empty()) {
                 glUniform1i(renderModeLocation, 1);
@@ -1839,12 +2029,15 @@ int Renderer::run() {
                 << " liftBytes=" << lastFrameMetrics.tileLiftUploadedBytes
                 << " groundRoadUp=" << lastFrameMetrics.groundRoadUploadMicros
                 << " elevRoadUp=" << lastFrameMetrics.elevatedRoadUploadMicros
+                << " roadGhostUp=" << lastFrameMetrics.roadGhostUploadMicros
                 << " lotUp=" << lastFrameMetrics.lotUploadMicros
                 << " tileDraw=" << lastFrameMetrics.tileDrawMicros
                 << " elevRoadDraw=" << lastFrameMetrics.elevatedRoadDrawMicros
+                << " roadGhostDraw=" << lastFrameMetrics.roadGhostDrawMicros
                 << " lotDraw=" << lastFrameMetrics.lotDrawMicros
                 << " chunks=" << lastFrameMetrics.visibleChunkCount << "/" << lastFrameMetrics.totalChunkCount
                 << " elevChunks=" << lastFrameMetrics.visibleElevatedRoadChunkCount
+                << " roadGhostInstances=" << lastFrameMetrics.roadGhostInstanceCount
                 << " dirtyGround=" << lastFrameMetrics.dirtyGroundRoadChunkCount << " deferGround=" << lastFrameMetrics.deferredGroundRoadChunkCount
                 << " dirtyElev=" << lastFrameMetrics.dirtyElevatedRoadChunkCount << " deferElev=" << lastFrameMetrics.deferredElevatedRoadChunkCount
                 << std::endl;
@@ -1855,6 +2048,8 @@ int Renderer::run() {
 
     DestroyTileChunkCaches(chunkCaches);
     DestroyRoadChunkCaches(roadChunkCaches);
+    glDeleteBuffers(1, &roadGhostInstanceBufferId);
+    glDeleteVertexArrays(1, &roadGhostVertexArrayId);
     glDeleteBuffers(1, &lotInstanceBufferId);
     glDeleteVertexArrays(1, &lotVertexArrayId);
     glDeleteTextures(1, &roadArrowAtlasTextureId);

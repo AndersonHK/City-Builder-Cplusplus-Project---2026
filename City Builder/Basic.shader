@@ -72,6 +72,9 @@ uniform sampler2D uGroundRoadStateTexture;
 uniform sampler2D uRoadBaseAtlasTexture;
 uniform sampler2D uRoadArrowAtlasTexture;
 uniform vec2 uRoadAtlasGrid;
+uniform float uRoadAlphaScale;
+uniform vec3 uRoadTintColor;
+uniform float uRoadTintStrength;
 
 in vec2 vTileUv;
 in vec2 vLocalUv;
@@ -178,7 +181,8 @@ void main()
         vec4 roadArrow = sampleRoadAtlas(uRoadArrowAtlasTexture, vRoadGlyphs.y, vLocalUv);
         vec3 finalColor = applyRoadEdgeOverlays(roadBase.rgb, vLocalUv, vRoadMasks.x, vRoadMasks.y);
         finalColor = mix(finalColor, roadArrow.rgb, roadArrow.a);
-        float finalAlpha = max(roadBase.a, roadArrow.a);
+        finalColor = mix(finalColor, uRoadTintColor, clamp(uRoadTintStrength, 0.0, 1.0));
+        float finalAlpha = max(roadBase.a, roadArrow.a) * clamp(uRoadAlphaScale, 0.0, 1.0);
         if (finalAlpha <= 0.001) {
             discard;
         }

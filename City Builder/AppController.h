@@ -70,6 +70,7 @@ public:
     void onScroll(double yOffset);
     void setFramebufferSize(int framebufferWidth, int framebufferHeight);
     void setHoveredTile(int tileX, int tileY, bool isValid);
+    bool roadPreviewStroke(RoadStrokeCommand& roadStrokeCommand) const;
 
     ViewState viewState() const;
 
