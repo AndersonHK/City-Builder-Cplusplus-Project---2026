@@ -13,7 +13,7 @@ Use this guide when changing road placement, lane topology, road render data, or
 - `TransportTypes.h` owns shared enums, direction bits, masks, and snapshot structs such as `ResolvedRoadCell`.
 - `RoadLane` owns lane behavior and emitted lane placements. Each placement carries a road axis, tile-local side span, lane type, flow, and lane-owned graphic/divider hints.
 - `Road` owns road-template construction and stroke expansion. It converts the current tool inputs into clipped per-tile lane placements.
-- `TransportTile` owns the authored lanes on one tile/layer and validates merge/replay rules locally.
+- `TransportTile` owns the authored lanes on one tile/layer and validates merge/replay rules locally, including replayed stroke identity updates during upgrades.
 - `RoadRenderState` owns base glyph, arrow glyph, lane graphic mask, and divider packing.
 - `TransportNetwork` owns layer storage, lot-occupancy rejection, dirty tile neighborhoods, chunk revisions, resolved-cell publication, and packed ground-road bytes.
 
@@ -21,7 +21,7 @@ Use this guide when changing road placement, lane topology, road render data, or
 - Sidewalks are pedestrian lanes. Crosswalks are not authored lanes; they are pedestrian lane graphics chosen during tile resolution.
 - `RoadLaneSurface` is a default graphic surface, not pathing truth. Lane type and flow decide traversal.
 - Pedestrian lanes are candidate-authored and active only when they either border empty terrain or continue as the same side/span on both ends of their axis. Inactive candidates stay stored so later road strokes can make first-built sidewalks valid without order dependence.
-- Lane connections across an occupied perpendicular road body require matching stroke identity; two opposite stubs may touch opposite halves of the road body without becoming one through lane.
+- Lane connections across an occupied perpendicular road body require matching stroke identity; two opposite stubs may touch opposite halves of the road body without becoming one through lane. When a later stroke both adds new lanes and exactly replays old lanes, the contiguous lanes from that replayed old stroke adopt the later stroke identity so corner-to-four-way upgrades resolve the same as directly built four-way crossings, even when the player draws only the missing arms.
 - Same-axis overlap is lane-span validated. Exact replay is accepted; incompatible shifted road bodies are rejected.
 - Perpendicular overlap is allowed as lane coexistence inside the same transport tile. Intersection behavior is resolved afterward from lane adjacency.
 - A resolved tile aggregates lane type masks, surface masks, costs, travel, exits, junction glyphs, lane graphics, and dividers for renderer/query consumers.

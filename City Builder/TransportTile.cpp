@@ -130,11 +130,11 @@ bool TransportTile::hasMatchingLaneBody(const RoadLanePlacement& lanePlacement) 
     return false;
 }
 
-bool TransportTile::hasMatchingLaneBodyFromStroke(const RoadLanePlacement& lanePlacement) const {
+bool TransportTile::hasMatchingLaneBodyFromStroke(const RoadLanePlacement& lanePlacement, bool includeInactiveLanes) const {
     std::size_t laneIndex = 0;
     for (; laneIndex < lanes_.size(); ++laneIndex) {
         const RoadLanePlacement& lane = lanes_[laneIndex];
-        if (lane.active &&
+        if ((includeInactiveLanes || lane.active) &&
             lane.strokeId == lanePlacement.strokeId &&
             lane.family == lanePlacement.family &&
             lane.laneType == lanePlacement.laneType &&

@@ -23,7 +23,7 @@ public:
     bool hasCarAxis(RoadAxis axis) const;
     bool hasCompatibleLane(const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection, bool includeInactiveLanes) const;
     bool hasMatchingLaneBody(const RoadLanePlacement& lanePlacement) const;
-    bool hasMatchingLaneBodyFromStroke(const RoadLanePlacement& lanePlacement) const;
+    bool hasMatchingLaneBodyFromStroke(const RoadLanePlacement& lanePlacement, bool includeInactiveLanes) const;
     bool hasLaneContinuation(const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const;
     bool hasCarLaneThrough(std::uint8_t roadDirection) const;
 

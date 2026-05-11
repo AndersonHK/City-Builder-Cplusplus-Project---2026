@@ -72,6 +72,22 @@ std::uint8_t CrosswalkEdges(const ResolvedRoadCell& cell) {
     return (cell.surfaceEdgeMask >> kRoadSurfaceCrosswalkShift) & kRoadSurfaceSidewalkEdgeMask;
 }
 
+bool SameResolvedCell(const ResolvedRoadCell& first, const ResolvedRoadCell& second) {
+    return first.family == second.family &&
+        first.baseGlyph == second.baseGlyph &&
+        first.arrowGlyph == second.arrowGlyph &&
+        first.laneTypeMask == second.laneTypeMask &&
+        first.surfaceMask == second.surfaceMask &&
+        first.travelMask == second.travelMask &&
+        first.laneCount == second.laneCount &&
+        first.surfaceEdgeMask == second.surfaceEdgeMask &&
+        first.dividerMask == second.dividerMask &&
+        first.exitMask == second.exitMask &&
+        first.junctionMask == second.junctionMask &&
+        first.renderVariant == second.renderVariant &&
+        first.laneTypeCosts == second.laneTypeCosts;
+}
+
 void TestStraightTwoWayLocalStreet(TestRunner& runner) {
     TransportNetwork network = MakeNetwork(12, 12);
     std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
@@ -182,6 +198,82 @@ void TestCornerDoesNotRenderCrosswalks(TestRunner& runner) {
     runner.expect(CrosswalkEdges(CellAt(network, TransportLayerId::Ground, 6, 6)) == 0, "corner southeast tile has no crosswalk");
 }
 
+void TestCornerUpgradeMatchesDirectFourWay(TestRunner& runner) {
+    TransportNetwork directNetwork = MakeNetwork(12, 12);
+    TransportNetwork upgradedNetwork = MakeNetwork(12, 12);
+    std::vector<int> directLotOccupancy(directNetwork.totalTileCount(), kInvalidLotId);
+    std::vector<int> upgradedLotOccupancy(upgradedNetwork.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(directNetwork, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), directLotOccupancy), "direct four-way horizontal stroke succeeds");
+    runner.expect(Place(directNetwork, MakeStroke(Int2(5, 2), Int2(5, 8), RoadFamily::LocalStreet, TransportLayerId::Ground), directLotOccupancy), "direct four-way vertical stroke succeeds");
+
+    RoadStrokeCommand cornerCommand;
+    cornerCommand.startTile = Int2(2, 5);
+    cornerCommand.cornerTile = Int2(5, 5);
+    cornerCommand.endTile = Int2(5, 8);
+    cornerCommand.family = RoadFamily::LocalStreet;
+    cornerCommand.layer = TransportLayerId::Ground;
+    cornerCommand.roadTemplate = TransportNetwork::makeRoadTemplate(cornerCommand.family, cornerCommand.layer, 1, RoadTrafficSide::RightHand, RoadDirectionMode::TwoWay);
+    runner.expect(Place(upgradedNetwork, cornerCommand, upgradedLotOccupancy), "upgraded four-way initial corner succeeds");
+    runner.expect(Place(upgradedNetwork, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), upgradedLotOccupancy), "upgraded four-way horizontal replay stroke succeeds");
+    runner.expect(Place(upgradedNetwork, MakeStroke(Int2(5, 2), Int2(5, 8), RoadFamily::LocalStreet, TransportLayerId::Ground), upgradedLotOccupancy), "upgraded four-way vertical replay stroke succeeds");
+
+    const int testTiles[][2] = {
+        {5, 5},
+        {6, 5},
+        {5, 6},
+        {6, 6}
+    };
+
+    std::size_t testTileIndex = 0;
+    for (; testTileIndex < sizeof(testTiles) / sizeof(testTiles[0]); ++testTileIndex) {
+        const int tileX = testTiles[testTileIndex][0];
+        const int tileY = testTiles[testTileIndex][1];
+        const ResolvedRoadCell& directCell = CellAt(directNetwork, TransportLayerId::Ground, tileX, tileY);
+        const ResolvedRoadCell& upgradedCell = CellAt(upgradedNetwork, TransportLayerId::Ground, tileX, tileY);
+        runner.expect(SameResolvedCell(directCell, upgradedCell), "corner upgrade resolved tile matches direct four-way");
+        runner.expect(CrosswalkEdges(upgradedCell) == CrosswalkEdges(directCell), "corner upgrade crosswalk graphics match direct four-way");
+    }
+}
+
+void TestCornerUpgradeWithOnlyMissingArmsMatchesDirectFourWay(TestRunner& runner) {
+    TransportNetwork directNetwork = MakeNetwork(12, 12);
+    TransportNetwork upgradedNetwork = MakeNetwork(12, 12);
+    std::vector<int> directLotOccupancy(directNetwork.totalTileCount(), kInvalidLotId);
+    std::vector<int> upgradedLotOccupancy(upgradedNetwork.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(directNetwork, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), directLotOccupancy), "direct missing-arm baseline horizontal stroke succeeds");
+    runner.expect(Place(directNetwork, MakeStroke(Int2(5, 2), Int2(5, 8), RoadFamily::LocalStreet, TransportLayerId::Ground), directLotOccupancy), "direct missing-arm baseline vertical stroke succeeds");
+
+    RoadStrokeCommand cornerCommand;
+    cornerCommand.startTile = Int2(2, 5);
+    cornerCommand.cornerTile = Int2(5, 5);
+    cornerCommand.endTile = Int2(5, 8);
+    cornerCommand.family = RoadFamily::LocalStreet;
+    cornerCommand.layer = TransportLayerId::Ground;
+    cornerCommand.roadTemplate = TransportNetwork::makeRoadTemplate(cornerCommand.family, cornerCommand.layer, 1, RoadTrafficSide::RightHand, RoadDirectionMode::TwoWay);
+    runner.expect(Place(upgradedNetwork, cornerCommand, upgradedLotOccupancy), "missing-arm upgrade initial corner succeeds");
+    runner.expect(Place(upgradedNetwork, MakeStroke(Int2(5, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), upgradedLotOccupancy), "missing-arm upgrade east arm succeeds");
+    runner.expect(Place(upgradedNetwork, MakeStroke(Int2(5, 2), Int2(5, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), upgradedLotOccupancy), "missing-arm upgrade north arm succeeds");
+
+    const int testTiles[][2] = {
+        {5, 5},
+        {6, 5},
+        {5, 6},
+        {6, 6}
+    };
+
+    std::size_t testTileIndex = 0;
+    for (; testTileIndex < sizeof(testTiles) / sizeof(testTiles[0]); ++testTileIndex) {
+        const int tileX = testTiles[testTileIndex][0];
+        const int tileY = testTiles[testTileIndex][1];
+        const ResolvedRoadCell& directCell = CellAt(directNetwork, TransportLayerId::Ground, tileX, tileY);
+        const ResolvedRoadCell& upgradedCell = CellAt(upgradedNetwork, TransportLayerId::Ground, tileX, tileY);
+        runner.expect(SameResolvedCell(directCell, upgradedCell), "missing-arm corner upgrade resolved tile matches direct four-way");
+        runner.expect(CrosswalkEdges(upgradedCell) == CrosswalkEdges(directCell), "missing-arm corner upgrade crosswalk graphics match direct four-way");
+    }
+}
+
 void TestOpposingStubsDoNotConnectAcrossTwoLaneRoad(TestRunner& runner) {
     TransportNetwork network = MakeNetwork(12, 12);
     std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
@@ -196,6 +288,37 @@ void TestOpposingStubsDoNotConnectAcrossTwoLaneRoad(TestRunner& runner) {
     runner.expect((southStubEnd.exitMask & kRoadDirectionNorth) == 0, "south stub does not exit north across middle road body");
     runner.expect(CrosswalkEdges(northStubEnd) == 0, "north stub end has no crosswalk across middle road body");
     runner.expect(CrosswalkEdges(southStubEnd) == 0, "south stub end has no crosswalk across middle road body");
+}
+
+void TestOneSidedExtensionCarriesPedestrianLaneAcrossRoad(TestRunner& runner) {
+    TransportNetwork directNetwork = MakeNetwork(12, 12);
+    TransportNetwork extendedNetwork = MakeNetwork(12, 12);
+    std::vector<int> directLotOccupancy(directNetwork.totalTileCount(), kInvalidLotId);
+    std::vector<int> extendedLotOccupancy(extendedNetwork.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(directNetwork, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), directLotOccupancy), "direct extension baseline horizontal stroke succeeds");
+    runner.expect(Place(directNetwork, MakeStroke(Int2(5, 2), Int2(5, 8), RoadFamily::LocalStreet, TransportLayerId::Ground), directLotOccupancy), "direct extension baseline vertical stroke succeeds");
+
+    runner.expect(Place(extendedNetwork, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), extendedLotOccupancy), "one-sided extension horizontal stroke succeeds");
+    runner.expect(Place(extendedNetwork, MakeStroke(Int2(5, 2), Int2(5, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), extendedLotOccupancy), "one-sided extension initial north stub succeeds");
+    runner.expect(Place(extendedNetwork, MakeStroke(Int2(5, 5), Int2(5, 8), RoadFamily::LocalStreet, TransportLayerId::Ground), extendedLotOccupancy), "one-sided extension through-stroke succeeds");
+
+    const int testTiles[][2] = {
+        {5, 5},
+        {6, 5},
+        {5, 6},
+        {6, 6}
+    };
+
+    std::size_t testTileIndex = 0;
+    for (; testTileIndex < sizeof(testTiles) / sizeof(testTiles[0]); ++testTileIndex) {
+        const int tileX = testTiles[testTileIndex][0];
+        const int tileY = testTiles[testTileIndex][1];
+        const ResolvedRoadCell& directCell = CellAt(directNetwork, TransportLayerId::Ground, tileX, tileY);
+        const ResolvedRoadCell& extendedCell = CellAt(extendedNetwork, TransportLayerId::Ground, tileX, tileY);
+        runner.expect(SameResolvedCell(directCell, extendedCell), "one-sided extension resolved tile matches direct crossing");
+        runner.expect(CrosswalkEdges(extendedCell) == CrosswalkEdges(directCell), "one-sided extension crosswalk graphics match direct crossing");
+    }
 }
 
 void TestSameAxisOffsetRejects(TestRunner& runner) {
@@ -246,7 +369,10 @@ int main() {
     TestTSectionDoesNotPaintHalfCrosswalk(runner);
     TestJoggedSidewalkDoesNotBecomeCrosswalk(runner);
     TestCornerDoesNotRenderCrosswalks(runner);
+    TestCornerUpgradeMatchesDirectFourWay(runner);
+    TestCornerUpgradeWithOnlyMissingArmsMatchesDirectFourWay(runner);
     TestOpposingStubsDoNotConnectAcrossTwoLaneRoad(runner);
+    TestOneSidedExtensionCarriesPedestrianLaneAcrossRoad(runner);
     TestSameAxisOffsetRejects(runner);
     TestExactReplayDoesNotAdvanceRevision(runner);
     TestElevatedHighwayHasNoPedestrianGraphics(runner);

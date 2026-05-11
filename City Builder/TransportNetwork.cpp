@@ -132,6 +132,8 @@ bool TransportNetwork::placeRoadStroke(const RoadStrokeCommand& roadStrokeComman
         return true;
     }
 
+    mergeReplayStrokeIds(roadStrokeCommand.layer, placements);
+
     std::vector<int> dirtyTileIndices;
     markDirtyNeighborhood(placements, dirtyTileIndices);
     pruneInvalidPedestrianLanes(roadStrokeCommand.layer, dirtyTileIndices);
@@ -273,6 +275,92 @@ bool TransportNetwork::validateAndApplyPlacements(TransportLayerId layer, const 
     }
 
     return true;
+}
+
+bool TransportNetwork::mergeReplayStrokeIds(TransportLayerId layer, const std::vector<RoadTilePlacement>& placements) {
+    bool changed = false;
+    std::size_t placementIndex = 0;
+    for (; placementIndex < placements.size(); ++placementIndex) {
+        const RoadTilePlacement& placement = placements[placementIndex];
+        const TransportTile* tile = tileAt(layer, placement.tileX, placement.tileY);
+        if (tile == 0) {
+            continue;
+        }
+
+        const std::vector<RoadLanePlacement>& lanes = tile->lanes();
+        std::size_t laneIndex = 0;
+        for (; laneIndex < lanes.size(); ++laneIndex) {
+            if (lanes[laneIndex].isExactReplayOf(placement.lanePlacement) &&
+                lanes[laneIndex].strokeId != placement.lanePlacement.strokeId &&
+                mergeConnectedReplayStrokeId(layer, placement.lanePlacement, lanes[laneIndex].strokeId)) {
+                changed = true;
+            }
+        }
+    }
+
+    return changed;
+}
+
+bool TransportNetwork::mergeConnectedReplayStrokeId(TransportLayerId layer, const RoadLanePlacement& lanePlacement, std::uint32_t oldStrokeId) {
+    if (oldStrokeId == 0 || oldStrokeId == lanePlacement.strokeId) {
+        return false;
+    }
+
+    bool changed = false;
+    std::vector<int> pendingTileIndices;
+    std::vector<bool> visited(totalTileCount_, false);
+    pendingTileIndices.push_back(lanePlacement.tileIndex);
+
+    while (!pendingTileIndices.empty()) {
+        const int currentTileIndex = pendingTileIndices.back();
+        pendingTileIndices.pop_back();
+        if (currentTileIndex < 0 || currentTileIndex >= static_cast<int>(totalTileCount_)) {
+            continue;
+        }
+
+        if (visited[static_cast<std::size_t>(currentTileIndex)]) {
+            continue;
+        }
+        visited[static_cast<std::size_t>(currentTileIndex)] = true;
+
+        const int tileY = currentTileIndex / width_;
+        const int tileX = currentTileIndex - (tileY * width_);
+        TransportTile* tile = tileAt(layer, tileX, tileY);
+        if (tile == 0) {
+            continue;
+        }
+
+        bool mergedLaneOnTile = false;
+        std::vector<RoadLanePlacement>& lanes = tile->lanesForMutation();
+        std::size_t laneIndex = 0;
+        for (; laneIndex < lanes.size(); ++laneIndex) {
+            RoadLanePlacement& lane = lanes[laneIndex];
+            if (lane.strokeId == oldStrokeId && lane.isExactReplayOf(lanePlacement)) {
+                lane.strokeId = lanePlacement.strokeId;
+                mergedLaneOnTile = true;
+                changed = true;
+            }
+        }
+
+        if (!mergedLaneOnTile) {
+            continue;
+        }
+
+        const std::uint8_t firstDirection = lanePlacement.axis == RoadAxis::Horizontal ? kRoadDirectionEast : kRoadDirectionNorth;
+        const std::uint8_t secondDirection = OppositeCardinal(firstDirection);
+        const int firstX = tileX + DeltaXForDirection(firstDirection);
+        const int firstY = tileY + DeltaYForDirection(firstDirection);
+        const int secondX = tileX + DeltaXForDirection(secondDirection);
+        const int secondY = tileY + DeltaYForDirection(secondDirection);
+        if (isTileInsideMap(firstX, firstY)) {
+            pendingTileIndices.push_back(tileIndex(firstX, firstY));
+        }
+        if (isTileInsideMap(secondX, secondY)) {
+            pendingTileIndices.push_back(tileIndex(secondX, secondY));
+        }
+    }
+
+    return changed;
 }
 
 void TransportNetwork::resolveDirtyTile(TransportLayerId layer, int tileX, int tileY) {
@@ -481,7 +569,7 @@ bool TransportNetwork::hasCompatibleNeighborLane(TransportLayerId layer, int til
     }
 
     if (laneConnectionRequiresSameStroke(*currentTile, *neighborTile, lanePlacement)) {
-        return neighborTile->hasMatchingLaneBodyFromStroke(lanePlacement);
+        return neighborTile->hasMatchingLaneBodyFromStroke(lanePlacement, includeInactiveLanes);
     }
 
     return true;
@@ -499,7 +587,7 @@ bool TransportNetwork::hasNeighborLaneBody(TransportLayerId layer, int tileX, in
     }
 
     if (laneConnectionRequiresSameStroke(*currentTile, *neighborTile, lanePlacement)) {
-        return neighborTile->hasMatchingLaneBodyFromStroke(lanePlacement);
+        return neighborTile->hasMatchingLaneBodyFromStroke(lanePlacement, false);
     }
 
     return true;
