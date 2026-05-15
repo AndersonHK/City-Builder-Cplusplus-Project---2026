@@ -1,5 +1,7 @@
 #include "CityParameters.h"
 
+#include "CrashLogger.h"
+
 #include <stdexcept>
 
 CityParameterRegistry::CityParameterRegistry()
@@ -32,6 +34,7 @@ std::size_t CityParameterRegistry::count() const {
 
 const CityParameterDefinition& CityParameterRegistry::definition(int parameterIdValue) const {
     if (parameterIdValue < 0 || parameterIdValue >= static_cast<int>(definitions_.size())) {
+        LogError("CityParameterRegistry::definition", "City parameter id is out of range.");
         throw std::out_of_range("City parameter id is out of range.");
     }
 
@@ -60,10 +63,12 @@ int CityParameterRegistry::satisfactionDirtyIndustryStaffingId() const {
 
 int CityParameterRegistry::addParameter(const std::string& id, CityParameterKind kind) {
     if (id.empty()) {
+        LogError("CityParameterRegistry::addParameter", "City parameter id cannot be empty.");
         throw std::runtime_error("City parameter id cannot be empty.");
     }
 
     if (indexById_.find(id) != indexById_.end()) {
+        LogError("CityParameterRegistry::addParameter", "Duplicate city parameter id: " + id);
         throw std::runtime_error("Duplicate city parameter id: " + id);
     }
 
@@ -80,6 +85,7 @@ void CityParameterRegistry::addImpact(const std::string& sourceId, const std::st
     const int sourceParameterId = parameterId(sourceId);
     const int targetParameterId = parameterId(targetId);
     if (sourceParameterId < 0 || targetParameterId < 0) {
+        LogError("CityParameterRegistry::addImpact", "City parameter impact references an unknown parameter.");
         throw std::runtime_error("City parameter impact references an unknown parameter.");
     }
 
@@ -88,4 +94,3 @@ void CityParameterRegistry::addImpact(const std::string& sourceId, const std::st
     impact.multiplier = multiplier;
     definitions_[sourceParameterId].impacts.push_back(impact);
 }
-

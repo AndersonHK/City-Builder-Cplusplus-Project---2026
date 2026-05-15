@@ -23,6 +23,18 @@ This plan covers a full migration from the current OpenGL renderer to Vulkan. Th
   - road atlases and region previews: RGBA8 sampled images.
 - The renderer's visible-dirty chunk upload model should survive the migration. Vulkan should replace `glTexSubImage2D`/`glBufferData` with explicit staging uploads and image/buffer copies, not change the simulation handoff contract.
 - `City Builder/City Builder.vcxproj` still depends on local legacy OpenGL paths and copies `glew32.dll`/`glfw3.dll`. That should be cleaned up as part of the renderer migration rather than dragged forward.
+- Local Vulkan tooling is not installed yet: `VULKAN_SDK`, `glslc`, and `glslangValidator` were not available during the first implementation pass. That blocks a buildable Vulkan backend, validation layers, and shader compilation.
+
+## Implementation Status
+
+As of May 15, 2026, the first migration slice has started without changing visible OpenGL behavior:
+
+- `RendererAlgorithms.*` extracts renderer-critical CPU packing and UI quad generation out of `Renderer.cpp`.
+- `RendererTests.vcxproj` mirrors the transport-network test executable pattern and covers tile-state packing, chunk texture packing, tile-lift packing, UTF-8 decoding, and query-window quad generation.
+- `Renderer.cpp` now calls the extracted backend-neutral functions, which gives Vulkan a tested contract for several sensitive upload/UI paths.
+- Crash logging is available through `CrashLogger.*`, writes to `Data\Logs\city_builder.log`, mirrors messages to the CLI, and shows a Windows crash dialog for fatal top-level errors.
+
+Next implementation step: install Vulkan SDK/tooling, then add a compile-only Vulkan backend that creates an instance under validation layers while the OpenGL backend remains runnable.
 
 ## External References Checked
 
@@ -225,6 +237,7 @@ The safest first slice is not Vulkan code. First split `Renderer.cpp` into backe
 
 - Build `x64 Release`.
 - Build and run `TransportNetworkTests.vcxproj`.
+- Build and run `RendererTests.vcxproj`.
 - Launch with validation layers enabled.
 - Confirm no Vulkan validation errors during startup, resize, city mode, region mode, and shutdown.
 - Check zoom levels `32`, `64`, `128`, `256`, and `512`.

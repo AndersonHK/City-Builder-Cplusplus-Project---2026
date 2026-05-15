@@ -18,7 +18,9 @@
 #include <vector>
 
 #include "City.h"
+#include "CrashLogger.h"
 #include "InGameWindow.h"
+#include "RendererAlgorithms.h"
 #include "RoadRenderState.h"
 #include "ShaderProgram.h"
 
@@ -233,17 +235,6 @@ struct RegionPreviewTextureCache {
           textureId(0),
           previewRevision(std::numeric_limits<std::uint64_t>::max()) {
     }
-};
-
-struct UiQuadInstanceData {
-    float x;
-    float y;
-    float width;
-    float height;
-    float colorR;
-    float colorG;
-    float colorB;
-    float colorA;
 };
 
 struct RoadPreviewAxisKey {
@@ -1253,50 +1244,7 @@ const char* const* GlyphRows(std::uint32_t codepoint) {
 }
 
 bool NextUtf8Codepoint(const std::string& text, std::size_t& byteIndex, std::uint32_t& codepoint) {
-    if (byteIndex >= text.size()) {
-        return false;
-    }
-
-    const unsigned char first = static_cast<unsigned char>(text[byteIndex++]);
-    if (first < 0x80u) {
-        codepoint = first;
-        return true;
-    }
-
-    int continuationCount = 0;
-    std::uint32_t value = 0u;
-    if ((first & 0xE0u) == 0xC0u) {
-        continuationCount = 1;
-        value = first & 0x1Fu;
-    } else if ((first & 0xF0u) == 0xE0u) {
-        continuationCount = 2;
-        value = first & 0x0Fu;
-    } else if ((first & 0xF8u) == 0xF0u) {
-        continuationCount = 3;
-        value = first & 0x07u;
-    } else {
-        codepoint = '?';
-        return true;
-    }
-
-    int continuationIndex = 0;
-    for (; continuationIndex < continuationCount; ++continuationIndex) {
-        if (byteIndex >= text.size()) {
-            codepoint = '?';
-            return true;
-        }
-
-        const unsigned char next = static_cast<unsigned char>(text[byteIndex++]);
-        if ((next & 0xC0u) != 0x80u) {
-            codepoint = '?';
-            return true;
-        }
-
-        value = (value << 6) | static_cast<std::uint32_t>(next & 0x3Fu);
-    }
-
-    codepoint = value;
-    return true;
+    return RendererNextUtf8Codepoint(text, byteIndex, codepoint);
 }
 
 void AddUiQuad(std::vector<UiQuadInstanceData>& quads, float x, float y, float width, float height, const Vec4& color) {
@@ -1353,28 +1301,7 @@ void BuildTextQuads(const TextFieldElement& field, float windowX, float windowY,
 }
 
 std::vector<UiQuadInstanceData> BuildWindowQuads(const InGameWindow& window) {
-    std::vector<UiQuadInstanceData> quads;
-    if (!window.visible()) {
-        return quads;
-    }
-
-    const float x = static_cast<float>(window.x());
-    const float y = static_cast<float>(window.y());
-    const float width = static_cast<float>(window.width());
-    const float height = static_cast<float>(window.height());
-    AddUiQuad(quads, x, y, width, height, Vec4(0.035f, 0.047f, 0.058f, 0.90f));
-    AddUiQuad(quads, x, y, width, 2.0f, Vec4(0.36f, 0.52f, 0.47f, 0.92f));
-    AddUiQuad(quads, x, y + height - 2.0f, width, 2.0f, Vec4(0.13f, 0.18f, 0.19f, 0.92f));
-    AddUiQuad(quads, x, y, 2.0f, height, Vec4(0.22f, 0.31f, 0.30f, 0.92f));
-    AddUiQuad(quads, x + width - 2.0f, y, 2.0f, height, Vec4(0.13f, 0.18f, 0.19f, 0.92f));
-
-    const std::vector<TextFieldElement>& textFields = window.textFields();
-    std::size_t fieldIndex = 0;
-    for (; fieldIndex < textFields.size(); ++fieldIndex) {
-        BuildTextQuads(textFields[fieldIndex], x, y, quads);
-    }
-
-    return quads;
+    return RendererBuildWindowQuads(window);
 }
 
 // Wires static tile vertices and per-tile instance data for a chunk VAO.
@@ -1837,12 +1764,7 @@ bool TryPickGroundTile(const ViewState& viewState, const CameraState& cameraStat
 
 // Packs a signed tile scalar into the normalized texture format.
 GLshort PackTileStateScalar(int value) {
-    const float normalizedValue = std::max(-1.0f, std::min(static_cast<float>(value) / kTileStateScalarScale, 1.0f));
-    if (normalizedValue <= -1.0f) {
-        return static_cast<GLshort>(-32768);
-    }
-
-    return static_cast<GLshort>(std::lround(normalizedValue * 32767.0f));
+    return static_cast<GLshort>(RendererPackTileStateScalar(value));
 }
 
 // Packs air pollution and land value for one visible chunk.
@@ -1851,22 +1773,7 @@ void FillTileStateChunkPixels(const PublishedWorldSnapshot& snapshot, const Chun
         return;
     }
 
-    const std::size_t chunkTileCount = static_cast<std::size_t>(chunkRect.width) * static_cast<std::size_t>(chunkRect.height);
-    if (texturePixels.size() != chunkTileCount * 2u) {
-        texturePixels.resize(chunkTileCount * 2u, 0);
-    }
-
-    std::size_t writeIndex = 0;
-    int tileY = chunkRect.startY;
-    for (; tileY < chunkRect.startY + chunkRect.height; ++tileY) {
-        int tileX = chunkRect.startX;
-        for (; tileX < chunkRect.startX + chunkRect.width; ++tileX) {
-            const std::size_t sourceIndex = static_cast<std::size_t>(tileY) * static_cast<std::size_t>(snapshot.width) + static_cast<std::size_t>(tileX);
-            const Tile& tile = (*snapshot.tiles)[sourceIndex];
-            texturePixels[writeIndex++] = PackTileStateScalar(tile.airPollution);
-            texturePixels[writeIndex++] = PackTileStateScalar(tile.landValue);
-        }
-    }
+    RendererFillTileStateChunkPixels(*snapshot.tiles, snapshot.width, chunkRect, texturePixels);
 }
 
 // Uploads one packed tile-state chunk into the persistent map texture.
@@ -1903,15 +1810,7 @@ void FillTileLiftChunkPixels(const PublishedWorldSnapshot& snapshot, const Chunk
         return;
     }
 
-    std::size_t writeIndex = 0;
-    int tileY = chunkRect.startY;
-    for (; tileY < chunkRect.startY + chunkRect.height; ++tileY) {
-        int tileX = chunkRect.startX;
-        for (; tileX < chunkRect.startX + chunkRect.width; ++tileX) {
-            const std::size_t sourceIndex = static_cast<std::size_t>(tileY) * static_cast<std::size_t>(snapshot.width) + static_cast<std::size_t>(tileX);
-            texturePixels[writeIndex++] = (*snapshot.lotOccupancy)[sourceIndex] < 0 ? 0u : kOccupiedTileLiftMask;
-        }
-    }
+    RendererFillTileLiftChunkPixels(*snapshot.lotOccupancy, snapshot.width, chunkRect, texturePixels);
 }
 
 // Uploads one tile-lift mask chunk into the persistent map texture.
@@ -2230,8 +2129,10 @@ Renderer::Renderer(GameSession& gameSession, AppController& appController)
 
 // Owns the GLFW/OpenGL frame loop, uploads, culling, drawing, and status metrics.
 int Renderer::run() {
+    CrashScope crashScope("Renderer::run");
+
     if (glfwInit() == GLFW_FALSE) {
-        std::cerr << "GLFW initialization failed." << std::endl;
+        LogError("Renderer::run", "GLFW initialization failed.");
         return 1;
     }
 
@@ -2242,7 +2143,7 @@ int Renderer::run() {
     GLFWwindow* window = glfwCreateWindow(2048, 2048, "Project Prime", 0, 0);
     if (window == 0) {
         glfwTerminate();
-        std::cerr << "Window creation failed." << std::endl;
+        LogError("Renderer::run", "Window creation failed.");
         return 1;
     }
 
@@ -2251,7 +2152,7 @@ int Renderer::run() {
 
     glewExperimental = GL_TRUE;
     if (glewInit() != GLEW_OK) {
-        std::cerr << "GLEW initialization failed." << std::endl;
+        LogError("Renderer::run", "GLEW initialization failed.");
         glfwDestroyWindow(window);
         glfwTerminate();
         return 1;
@@ -2462,7 +2363,7 @@ int Renderer::run() {
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, cityPreviewDepthRenderbufferId);
     const bool cityPreviewFramebufferComplete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
     if (!cityPreviewFramebufferComplete) {
-        std::cerr << "City preview framebuffer is incomplete." << std::endl;
+        LogError("Renderer::run", "City preview framebuffer is incomplete.");
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 

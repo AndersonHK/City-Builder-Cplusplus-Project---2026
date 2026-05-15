@@ -1,6 +1,7 @@
 #include "SimulationRuntime.h"
 
 #include "AssetLoader.h"
+#include "CrashLogger.h"
 
 #include <algorithm>
 #include <chrono>
@@ -521,8 +522,10 @@ CitySaveState SimulationRuntime::exportCitySaveState() const {
 }
 
 void SimulationRuntime::importCitySaveState(const CitySaveState& saveState) {
+    CrashScope crashScope("SimulationRuntime::importCitySaveState");
     const std::size_t totalTileCount = static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight);
     if (saveState.width != kMapWidth || saveState.height != kMapHeight || saveState.tiles.size() != totalTileCount) {
+        LogError("SimulationRuntime::importCitySaveState", "City save dimensions do not match the current runtime.");
         throw std::runtime_error("City save dimensions do not match the current runtime.");
     }
 
@@ -724,9 +727,11 @@ RuntimeTimingSnapshot SimulationRuntime::timingSnapshot() const {
 
 // Loads XML lot/module archetypes from the executable data directory.
 void SimulationRuntime::loadAssets() {
+    CrashScope crashScope("SimulationRuntime::loadAssets");
     LoadedGameAssets loadedAssets;
     std::string errorMessage;
     if (!LoadGameAssets(GetExecutableDirectory() + "\\Data", cityParameterRegistry_, loadedAssets, errorMessage)) {
+        LogError("SimulationRuntime::loadAssets", errorMessage);
         throw std::runtime_error(errorMessage);
     }
 

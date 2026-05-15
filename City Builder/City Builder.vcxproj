@@ -143,6 +143,7 @@ if exist "$(OutDir)Data\Saves" rmdir /S /Q "$(OutDir)Data\Saves"</Command>
     <ClCompile Include="AppController.cpp" />
     <ClCompile Include="City.cpp" />
     <ClCompile Include="CityParameters.cpp" />
+    <ClCompile Include="CrashLogger.cpp" />
     <ClCompile Include="GameSession.cpp" />
     <ClCompile Include="InGameWindow.cpp" />
     <ClCompile Include="ChunkConfig.cpp" />
@@ -150,6 +151,7 @@ if exist "$(OutDir)Data\Saves" rmdir /S /Q "$(OutDir)Data\Saves"</Command>
     <ClCompile Include="Road.cpp" />
     <ClCompile Include="RoadLane.cpp" />
     <ClCompile Include="RoadRenderState.cpp" />
+    <ClCompile Include="RendererAlgorithms.cpp" />
     <ClCompile Include="Renderer.cpp" />
     <ClCompile Include="ShaderProgram.cpp" />
     <ClCompile Include="SimulationRuntime.cpp" />
@@ -179,6 +181,7 @@ if exist "$(OutDir)Data\Saves" rmdir /S /Q "$(OutDir)Data\Saves"</Command>
     <ClInclude Include="AppController.h" />
     <ClInclude Include="City.h" />
     <ClInclude Include="CityParameters.h" />
+    <ClInclude Include="CrashLogger.h" />
     <ClInclude Include="GameSession.h" />
     <ClInclude Include="InGameWindow.h" />
     <ClInclude Include="ChunkConfig.h" />
@@ -188,6 +191,7 @@ if exist "$(OutDir)Data\Saves" rmdir /S /Q "$(OutDir)Data\Saves"</Command>
     <ClInclude Include="Road.h" />
     <ClInclude Include="RoadLane.h" />
     <ClInclude Include="RoadRenderState.h" />
+    <ClInclude Include="RendererAlgorithms.h" />
     <ClInclude Include="Renderer.h" />
     <ClInclude Include="ShaderProgram.h" />
     <ClInclude Include="SimulationRuntime.h" />

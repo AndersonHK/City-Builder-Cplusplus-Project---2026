@@ -11,8 +11,8 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{6B425DF1-6DE4-4012-8E6A-3D6A3AE89E03}</ProjectGuid>
-    <RootNamespace>CityBuilderTransportNetworkTests</RootNamespace>
+    <ProjectGuid>{9B54D581-C787-4300-BC4E-FE85374D519E}</ProjectGuid>
+    <RootNamespace>CityBuilderRendererTests</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -43,11 +43,11 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <OutDir>$(ProjectDir)x64\$(Configuration)\</OutDir>
-    <IntDir>$(ProjectDir)x64\$(Configuration)\TransportNetworkTests\</IntDir>
+    <IntDir>$(ProjectDir)x64\$(Configuration)\RendererTests\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <OutDir>$(ProjectDir)x64\$(Configuration)\</OutDir>
-    <IntDir>$(ProjectDir)x64\$(Configuration)\TransportNetworkTests\</IntDir>
+    <IntDir>$(ProjectDir)x64\$(Configuration)\RendererTests\</IntDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -71,34 +71,15 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="AssetLoader.cpp" />
-    <ClCompile Include="CityParameters.cpp" />
-    <ClCompile Include="CrashLogger.cpp" />
-    <ClCompile Include="Lot.cpp" />
-    <ClCompile Include="Road.cpp" />
-    <ClCompile Include="RoadLane.cpp" />
-    <ClCompile Include="RoadRenderState.cpp" />
-    <ClCompile Include="TransportCostMap.cpp" />
-    <ClCompile Include="TransportNetwork.cpp" />
-    <ClCompile Include="TransportNetworkTests.cpp" />
-    <ClCompile Include="TransportTile.cpp" />
-    <ClCompile Include="TransportTypes.cpp" />
+    <ClCompile Include="InGameWindow.cpp" />
+    <ClCompile Include="RendererAlgorithms.cpp" />
+    <ClCompile Include="RendererTests.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="AssetLoader.h" />
-    <ClInclude Include="CityParameters.h" />
     <ClInclude Include="ChunkConfig.h" />
-    <ClInclude Include="CommuteTypes.h" />
-    <ClInclude Include="CrashLogger.h" />
-    <ClInclude Include="Lot.h" />
-    <ClInclude Include="LotModule.h" />
-    <ClInclude Include="Road.h" />
-    <ClInclude Include="RoadLane.h" />
-    <ClInclude Include="RoadRenderState.h" />
-    <ClInclude Include="TransportCostMap.h" />
-    <ClInclude Include="TransportNetwork.h" />
-    <ClInclude Include="TransportTile.h" />
-    <ClInclude Include="TransportTypes.h" />
+    <ClInclude Include="InGameWindow.h" />
+    <ClInclude Include="RendererAlgorithms.h" />
+    <ClInclude Include="Tile.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

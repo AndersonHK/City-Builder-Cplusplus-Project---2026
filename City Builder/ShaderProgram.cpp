@@ -1,9 +1,10 @@
 #include "ShaderProgram.h"
 
+#include "CrashLogger.h"
+
 #include <GL/glew.h>
 
 #include <fstream>
-#include <iostream>
 #include <sstream>
 #include <stdexcept>
 
@@ -17,6 +18,7 @@ struct ShaderSources {
 ShaderSources LoadShaderSources(const std::string& shaderFilePath) {
     std::ifstream shaderStream(shaderFilePath.c_str());
     if (!shaderStream.is_open()) {
+        LogError("ShaderProgram::LoadShaderSources", "Unable to open shader file: " + shaderFilePath);
         throw std::runtime_error("Unable to open shader file: " + shaderFilePath);
     }
 
@@ -66,6 +68,7 @@ ShaderProgram::~ShaderProgram() {
 
 // Compiles and links a shader program from the combined shader file.
 bool ShaderProgram::loadFromFile(const std::string& shaderFilePath) {
+    CrashScope crashScope("ShaderProgram::loadFromFile");
     const ShaderSources shaderSources = LoadShaderSources(shaderFilePath);
     const unsigned int vertexShaderId = compileShader(GL_VERTEX_SHADER, shaderSources.vertexSource);
     const unsigned int fragmentShaderId = compileShader(GL_FRAGMENT_SHADER, shaderSources.fragmentSource);
@@ -84,6 +87,7 @@ unsigned int ShaderProgram::programId() const {
 
 // Compiles one shader stage and prints compiler diagnostics on failure.
 unsigned int ShaderProgram::compileShader(unsigned int shaderType, const std::string& source) const {
+    CrashScope crashScope("ShaderProgram::compileShader");
     const unsigned int shaderId = glCreateShader(shaderType);
     const char* sourcePointer = source.c_str();
     glShaderSource(shaderId, 1, &sourcePointer, 0);
@@ -101,13 +105,14 @@ unsigned int ShaderProgram::compileShader(unsigned int shaderType, const std::st
     glGetShaderInfoLog(shaderId, logLength, &logLength, &compileLog[0]);
 
     const char* shaderName = shaderType == GL_VERTEX_SHADER ? "vertex" : "fragment";
-    std::cerr << "Failed to compile " << shaderName << " shader: " << compileLog << std::endl;
+    LogError("ShaderProgram::compileShader", std::string("Failed to compile ") + shaderName + " shader: " + compileLog);
     glDeleteShader(shaderId);
     return 0;
 }
 
 // Links compiled shader stages into the owned program object.
 bool ShaderProgram::linkProgram(unsigned int vertexShaderId, unsigned int fragmentShaderId) {
+    CrashScope crashScope("ShaderProgram::linkProgram");
     if (vertexShaderId == 0 || fragmentShaderId == 0) {
         return false;
     }
@@ -130,7 +135,7 @@ bool ShaderProgram::linkProgram(unsigned int vertexShaderId, unsigned int fragme
         glGetProgramiv(programId_, GL_INFO_LOG_LENGTH, &logLength);
         std::string linkLog(static_cast<std::size_t>(logLength), '\0');
         glGetProgramInfoLog(programId_, logLength, &logLength, &linkLog[0]);
-        std::cerr << "Failed to link shader program: " << linkLog << std::endl;
+        LogError("ShaderProgram::linkProgram", "Failed to link shader program: " + linkLog);
         glDeleteProgram(programId_);
         programId_ = 0;
     }
