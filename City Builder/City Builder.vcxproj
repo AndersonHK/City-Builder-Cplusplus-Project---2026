@@ -158,10 +158,13 @@ copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\
     <None Include="Data\Lots\house_lot.xml" />
     <None Include="Data\Lots\park_lot.xml" />
     <None Include="Data\Lots\smokestack_lot.xml" />
+    <None Include="Data\Modules\driveway_module.xml" />
+    <None Include="Data\Modules\garden_module.xml" />
     <None Include="Data\Modules\house_module.xml" />
     <None Include="Data\Modules\park_module.xml" />
     <None Include="Data\Modules\smokestack_module.xml" />
     <None Include="Data\Modules\warehouse_module.xml" />
+    <None Include="Data\TransportNetwork\congestion.xml" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AssetLoader.h" />

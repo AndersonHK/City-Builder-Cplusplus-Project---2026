@@ -25,6 +25,8 @@ const int kKeyT = 84;
 const int kKeyY = 89;
 const int kKeyA = 65;
 const int kKeyC = 67;
+const int kKeyComma = 44;
+const int kKeyPeriod = 46;
 const int kKeyLeftBracket = 91;
 const int kKeyRightBracket = 93;
 const int kMinimumRoadLaneCount = 1;
@@ -40,6 +42,19 @@ const char* OverlayModeName(OverlayMode overlayMode) {
     }
 
     return "unknown";
+}
+
+const char* RotationDirectionName(int rotationSteps) {
+    switch (((rotationSteps % 4) + 4) % 4) {
+        case 1:
+            return "east";
+        case 2:
+            return "south";
+        case 3:
+            return "west";
+        default:
+            return "north";
+    }
 }
 
 // Returns the human-readable label used when the active tool changes.
@@ -77,6 +92,25 @@ const char* ActiveToolName(ActiveTool activeTool) {
     }
 
     return "unknown";
+}
+
+const char* LotAssetIdForTool(ActiveTool activeTool) {
+    switch (activeTool) {
+        case ActiveTool::SmokestackLot:
+            return "smokestack_lot";
+
+        case ActiveTool::ParkLot:
+            return "park_lot";
+
+        case ActiveTool::FactoryLot:
+            return "factory_lot";
+
+        case ActiveTool::HouseLot:
+            return "house_lot";
+
+        default:
+            return 0;
+    }
 }
 
 // Formats a road family for query output.
@@ -227,19 +261,19 @@ void AppController::onLeftMouseButtonPressed() {
             break;
 
         case ActiveTool::SmokestackLot:
-            simulationRuntime_.queuePlaceSmokestack(tileX, tileY);
+            simulationRuntime_.queuePlaceSmokestack(tileX, tileY, viewState_.lotRotationSteps);
             break;
 
         case ActiveTool::ParkLot:
-            simulationRuntime_.queuePlacePark(tileX, tileY);
+            simulationRuntime_.queuePlacePark(tileX, tileY, viewState_.lotRotationSteps);
             break;
 
         case ActiveTool::FactoryLot:
-            simulationRuntime_.queuePlaceFactory(tileX, tileY);
+            simulationRuntime_.queuePlaceFactory(tileX, tileY, viewState_.lotRotationSteps);
             break;
 
         case ActiveTool::HouseLot:
-            simulationRuntime_.queuePlaceHouse(tileX, tileY);
+            simulationRuntime_.queuePlaceHouse(tileX, tileY, viewState_.lotRotationSteps);
             break;
 
         case ActiveTool::RoadStreet:
@@ -354,6 +388,14 @@ void AppController::onKeyPressed(int key, int action) {
             setActiveTool(ActiveTool::Query);
             return;
 
+        case kKeyComma:
+            rotatePlacement(-1);
+            return;
+
+        case kKeyPeriod:
+            rotatePlacement(1);
+            return;
+
         case kKeyLeftBracket:
             viewState_.roadLaneCount = std::max(kMinimumRoadLaneCount, viewState_.roadLaneCount - 1);
             printRoadTemplate();
@@ -445,6 +487,20 @@ bool AppController::roadPreviewStroke(RoadStrokeCommand& roadStrokeCommand) cons
     return true;
 }
 
+// Builds a renderer-only preview request for the active lot placement tool.
+bool AppController::lotPreviewRequest(std::string& lotAssetId, int& tileX, int& tileY, int& rotationSteps) const {
+    const char* activeLotAssetId = LotAssetIdForTool(viewState_.activeTool);
+    if (activeLotAssetId == 0 || !viewState_.hasHoveredTile) {
+        return false;
+    }
+
+    lotAssetId = activeLotAssetId;
+    tileX = viewState_.hoveredTileX;
+    tileY = viewState_.hoveredTileY;
+    rotationSteps = viewState_.lotRotationSteps;
+    return true;
+}
+
 // Keeps the camera span inside the map after pan or zoom changes.
 void AppController::clampCameraToMap() {
     viewState_.cameraX = std::max(0, std::min(viewState_.cameraX, simulationRuntime_.mapWidth() - viewState_.visibleTiles));
@@ -468,6 +524,11 @@ void AppController::setActiveTool(ActiveTool activeTool) {
 void AppController::toggleTrafficOverlay() {
     viewState_.overlayMode = viewState_.overlayMode == OverlayMode::TrafficCapacity ? OverlayMode::None : OverlayMode::TrafficCapacity;
     std::cout << "Overlay: " << OverlayModeName(viewState_.overlayMode) << std::endl;
+}
+
+void AppController::rotatePlacement(int deltaSteps) {
+    viewState_.lotRotationSteps = ((viewState_.lotRotationSteps + deltaSteps) % 4 + 4) % 4;
+    std::cout << "Lot placement front: " << RotationDirectionName(viewState_.lotRotationSteps) << std::endl;
 }
 
 // Reports whether the active tool uses the road drag workflow.

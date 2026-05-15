@@ -32,6 +32,19 @@ struct LotRenderInstance {
     }
 };
 
+struct LotAccessDefinition {
+    Int2 localTile;
+    std::uint8_t direction;
+    std::uint8_t modeMask;
+
+    // Defaults to a north-facing, inactive declaration until XML fills it.
+    LotAccessDefinition()
+        : localTile(0, 0),
+          direction(kRoadDirectionNorth),
+          modeMask(0) {
+    }
+};
+
 struct LotAsset {
     std::string id;
     Int2 anchor;
@@ -39,7 +52,10 @@ struct LotAsset {
     int footprintWidth;
     int footprintHeight;
     Int2 renderOrigin;
+    std::uint8_t frontDirection;
+    bool hasFrontDirection;
     std::vector<LotModulePlacementDefinition> initialModules;
+    std::vector<LotAccessDefinition> accessDefinitions;
 
     // Starts an unloaded lot archetype with a zero anchor.
     LotAsset()
@@ -47,19 +63,22 @@ struct LotAsset {
           footprintOrigin(0, 0),
           footprintWidth(0),
           footprintHeight(0),
-          renderOrigin(0, 0) {
+          renderOrigin(0, 0),
+          frontDirection(kRoadDirectionNorth),
+          hasFrontDirection(false) {
     }
 };
 
 class Lot {
 public:
     Lot();
-    Lot(int lotId, const std::string& assetId, int anchorTileX, int anchorTileY);
+    Lot(int lotId, const std::string& assetId, int anchorTileX, int anchorTileY, int rotationSteps = 0);
 
     int id() const;
     const std::string& assetId() const;
     int anchorTileX() const;
     int anchorTileY() const;
+    int rotationSteps() const;
     const std::vector<LotModulePlacement>& modules() const;
     const std::vector<Int2>& occupiedOffsets() const;
     const std::vector<int>& occupiedTileIndices() const;
@@ -92,6 +111,7 @@ private:
     std::string assetId_;
     int anchorTileX_;
     int anchorTileY_;
+    int rotationSteps_;
     int nextModuleInstanceId_;
     std::vector<LotModulePlacement> modules_;
     std::vector<Int2> explicitFootprintOffsets_;

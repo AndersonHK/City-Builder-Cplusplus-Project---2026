@@ -5,6 +5,7 @@
 
 namespace {
 const float kLaneSpanEpsilon = 0.0001f;
+const std::uint16_t kTravelCostScale = 1000u;
 }
 
 RoadLane::RoadLane()
@@ -72,13 +73,13 @@ bool RoadLane::usesDirectedFlow() const {
 std::uint16_t RoadLane::traversalCost(RoadFamily family) const {
     switch (element_.laneType) {
         case RoadLaneTypeId::Car:
-            return family == RoadFamily::Highway ? 4 : 10;
+            return family == RoadFamily::Highway ? kTravelCostScale / 14u : kTravelCostScale / 10u;
         case RoadLaneTypeId::Pedestrian:
-            return 12;
+            return kTravelCostScale / 1u;
         case RoadLaneTypeId::Bike:
-            return 8;
+            return kTravelCostScale / 4u;
         case RoadLaneTypeId::Bus:
-            return family == RoadFamily::Highway ? 4 : 7;
+            return family == RoadFamily::Highway ? kTravelCostScale / 14u : kTravelCostScale / 8u;
         default:
             return 0;
     }

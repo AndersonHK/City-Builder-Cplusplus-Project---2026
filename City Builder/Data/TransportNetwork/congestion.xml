@@ -1,0 +1,8 @@
+<congestion>
+  <point utilization="0.0" speedMultiplier="1.0" />
+  <point utilization="1.0" speedMultiplier="1.0" />
+  <point utilization="1.25" speedMultiplier="0.75" />
+  <point utilization="1.5" speedMultiplier="0.50" />
+  <point utilization="2.0" speedMultiplier="0.25" />
+  <point utilization="3.0" speedMultiplier="0.10" />
+</congestion>

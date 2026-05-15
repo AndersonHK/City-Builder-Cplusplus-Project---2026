@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 #include "SimulationRuntime.h"
 
 enum class ActiveTool {
@@ -40,6 +42,7 @@ struct ViewState {
     int roadLaneCount;
     RoadTrafficSide roadTrafficSide;
     RoadDirectionMode roadDirectionMode;
+    int lotRotationSteps;
     OverlayMode overlayMode;
     int queriedLotId;
     std::uint64_t queryRouteRevision;
@@ -66,6 +69,7 @@ struct ViewState {
           roadLaneCount(1),
           roadTrafficSide(RoadTrafficSide::RightHand),
           roadDirectionMode(RoadDirectionMode::TwoWay),
+          lotRotationSteps(0),
           overlayMode(OverlayMode::None),
           queriedLotId(-1),
           queryRouteRevision(0) {
@@ -85,6 +89,7 @@ public:
     void setFramebufferSize(int framebufferWidth, int framebufferHeight);
     void setHoveredTile(int tileX, int tileY, bool isValid);
     bool roadPreviewStroke(RoadStrokeCommand& roadStrokeCommand) const;
+    bool lotPreviewRequest(std::string& lotAssetId, int& tileX, int& tileY, int& rotationSteps) const;
 
     ViewState viewState() const;
 
@@ -95,6 +100,7 @@ private:
     void panCamera(int deltaX, int deltaY);
     void setActiveTool(ActiveTool activeTool);
     void toggleTrafficOverlay();
+    void rotatePlacement(int deltaSteps);
     bool activeToolIsRoad() const;
     void beginRoadDrag(int tileX, int tileY);
     void commitRoadDrag(int tileX, int tileY);

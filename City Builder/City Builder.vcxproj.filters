@@ -71,10 +71,31 @@
     <None Include="Data\Lots\smokestack_lot.xml">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="Data\Lots\factory_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\house_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\driveway_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\garden_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\house_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
     <None Include="Data\Modules\park_module.xml">
       <Filter>Resource Files</Filter>
     </None>
     <None Include="Data\Modules\smokestack_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\warehouse_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\TransportNetwork\congestion.xml">
       <Filter>Resource Files</Filter>
     </None>
   </ItemGroup>

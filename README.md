@@ -13,6 +13,7 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
   - packed ground-road overlay texture updates in the tile pass
   - lazy visible-chunk elevated-road rendering for stacked highways
   - alpha-tinted ghost road preview while a road stroke is being dragged
+  - alpha-tinted ghost lot preview while a lot placement tool is active
   - separate lot prism instancing
   - chunk frustum culling
   - ground-plane mouse picking
@@ -24,10 +25,11 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
 - `Alt+Enter`: enter or exit fullscreen mode
 - Left mouse in `Q` mode: continuously paint pollution while held
 - `Q`: pollution brush
-- `W`: place smokestack lot
-- `E`: place park lot
-- `F`: place factory lot
-- `G`: place house lot
+- `W`: place smokestack lot with a ghost preview
+- `E`: place park lot with a ghost preview
+- `F`: place factory lot with a ghost preview
+- `G`: place house lot with a ghost preview
+- `,` / `.`: rotate the active lot placement counter-clockwise / clockwise
 - `R`: drag-place a ground local street with a ghost preview while dragging
 - `H`: drag-place an elevated highway with a ghost preview while dragging
 - `[` / `]`: decrease / increase road lane count for new road strokes
@@ -36,7 +38,7 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
 - `T`: toggle the traffic capacity overlay
 - `M`: add park module to an adjacent lot footprint
 - `Y`: remove the module under the hovered tile
-- `A`: query hovered tile; queried lots show their accepted commute route as green arrows
+- `A`: query hovered tile; queried lots show accepted commute routes as green car arrows and pink pedestrian arrows
 
 ## Build
 Primary target: `x64 Release`
@@ -68,14 +70,16 @@ Transport topology has a standalone non-graphics test target:
 - Ground-road and elevated-road uploads are dirty visible-chunk only, and stale hidden chunks stay deferred until visible.
 - Traffic overlays use the same visible-dirty chunk upload pattern and draw above roads and lots as a presentation tint.
 - Road drag previews are renderer-only transient instances tinted with alpha; committed road topology still arrives through published snapshots.
+- Lot placement previews are renderer-only transient instances built from the same XML-backed lot candidate geometry used by committed placement.
 - The renderer timing print breaks out tile-state packing/upload bytes, lift uploads, ground-road uploads, elevated-road uploads, and draw costs.
 - Lots are not chunk-owned yet; they still use a separate renderer path for now.
-- Lot/module archetypes load from XML under `City Builder/Data`.
+- Lot/module archetypes load from XML under `City Builder/Data`; lot XML can declare a front and explicit mode-specific access tiles.
+- Transport congestion speed curves load from `City Builder/Data/TransportNetwork/congestion.xml`.
 - Factory/house XML assets are the first driver-backed lots: houses emit low-wealth resident demand, factories emit dirty-industry jobs, and the commute pass assigns accepted low-wealth commutes through the directional transport cost map into road load.
 
 ## Design guides
 - `docs/design/transport-network.md` - lane-owned road placement, directional cost maps, pathfinding, crosswalk graphic rules, packed road state, and layer revisions. Main code anchors: `TransportTypes.h`, `TransportCostMap.h`, `RoadLane.h`, `Road.h`, `TransportTile.h`, `RoadRenderState.h`, and `TransportNetwork.h`.
-- `docs/design/renderer.md` - renderer upload, culling, texture, shader decisions, packed lane graphic masks, shared ground/elevated road render data, and road ghost previews. Main code anchors: `BuildRoadPreviewInstances` (`City Builder/Renderer.cpp:1192`), `BuildRoadChunkInstances` (`City Builder/Renderer.cpp:1261`), `UpdateGroundRoadChunkTexture` (`City Builder/Renderer.cpp:1474`), and `applyRoadEdgeOverlays` (`City Builder/Basic.shader:105`).
+- `docs/design/renderer.md` - renderer upload, culling, texture, shader decisions, packed lane graphic masks, shared ground/elevated road render data, and placement ghost previews. Main code anchors: `BuildLotInstance` (`City Builder/Renderer.cpp:1153`), `BuildRoadPreviewInstances` (`City Builder/Renderer.cpp:1276`), `BuildRoadChunkInstances` (`City Builder/Renderer.cpp:1345`), `UpdateGroundRoadChunkTexture` (`City Builder/Renderer.cpp:1558`), and `applyRoadEdgeOverlays` (`City Builder/Basic.shader:131`).
 - `docs/design/simulation-threading.md` - tile passes, triple buffering, chunk worker rules, and published snapshot ownership.
 - `docs/design/lots.md` - lot/module placement, occupancy, effects, and render snapshots.
 - `docs/design/xml-assets.md` - strict XML archetype loading and validation.

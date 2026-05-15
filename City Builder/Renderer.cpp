@@ -26,6 +26,7 @@ const int kRoadAtlasRows = 8;
 const int kRoadAtlasTileSize = 32;
 const float kTileStateScalarScale = 640000.0f;
 const float kRoadGhostAlpha = 0.46f;
+const float kLotGhostAlpha = 0.42f;
 const std::uint8_t kOccupiedTileLiftMask = 255u;
 
 struct Vec3 {
@@ -173,6 +174,10 @@ struct RouteArrowInstanceData {
     float directionZ;
     float lift;
     float alpha;
+    float colorR;
+    float colorG;
+    float colorB;
+    float colorPadding;
 };
 
 struct RoadPreviewAxisKey {
@@ -250,11 +255,13 @@ struct RendererFrameMetrics {
     long long roadGhostUploadMicros;
     long long tileOverlayUploadMicros;
     long long lotUploadMicros;
+    long long lotGhostUploadMicros;
     long long tileDrawMicros;
     long long elevatedRoadDrawMicros;
     long long roadGhostDrawMicros;
     long long tileOverlayDrawMicros;
     long long lotDrawMicros;
+    long long lotGhostDrawMicros;
     long long tileStateUploadedTileCount;
     long long tileStateUploadedBytes;
     long long tileLiftUploadedTileCount;
@@ -273,6 +280,7 @@ struct RendererFrameMetrics {
     int dirtyElevatedRoadChunkCount;
     int deferredElevatedRoadChunkCount;
     int roadGhostInstanceCount;
+    int lotGhostInstanceCount;
 
     // Initializes all per-frame renderer metrics to zero.
     RendererFrameMetrics()
@@ -286,11 +294,13 @@ struct RendererFrameMetrics {
           roadGhostUploadMicros(0),
           tileOverlayUploadMicros(0),
           lotUploadMicros(0),
+          lotGhostUploadMicros(0),
           tileDrawMicros(0),
           elevatedRoadDrawMicros(0),
           roadGhostDrawMicros(0),
           tileOverlayDrawMicros(0),
           lotDrawMicros(0),
+          lotGhostDrawMicros(0),
           tileStateUploadedTileCount(0),
           tileStateUploadedBytes(0),
           tileLiftUploadedTileCount(0),
@@ -308,7 +318,8 @@ struct RendererFrameMetrics {
           deferredGroundRoadChunkCount(0),
           dirtyElevatedRoadChunkCount(0),
           deferredElevatedRoadChunkCount(0),
-          roadGhostInstanceCount(0) {
+          roadGhostInstanceCount(0),
+          lotGhostInstanceCount(0) {
     }
 };
 
@@ -1107,6 +1118,7 @@ void ConfigureRouteArrowVertexArray(GLuint vertexArrayId, GLuint tileVertexBuffe
     glBindBuffer(GL_ARRAY_BUFFER, instanceBufferId);
     SetupInstanceAttribute(1, 4, sizeof(RouteArrowInstanceData), 0);
     SetupInstanceAttribute(2, 4, sizeof(RouteArrowInstanceData), sizeof(float) * 4);
+    SetupInstanceAttribute(3, 4, sizeof(RouteArrowInstanceData), sizeof(float) * 8);
 
     glBindVertexArray(0);
 }
@@ -1143,6 +1155,19 @@ std::vector<TileInstanceData> BuildTileChunkInstances(int mapWidth, int mapHeigh
     return instances;
 }
 
+LotInstanceData BuildLotInstance(const LotRenderInstance& lot) {
+    LotInstanceData instance;
+    instance.originX = static_cast<float>(lot.originX);
+    instance.originZ = static_cast<float>(lot.originY);
+    instance.sizeX = static_cast<float>(lot.width);
+    instance.sizeZ = static_cast<float>(lot.height);
+    instance.height = lot.renderHeight;
+    instance.colorR = lot.colorR;
+    instance.colorG = lot.colorG;
+    instance.colorB = lot.colorB;
+    return instance;
+}
+
 // Converts published lot render records into instanced box payloads.
 std::vector<LotInstanceData> BuildLotInstances(const std::vector<LotRenderInstance>& lots) {
     std::vector<LotInstanceData> instances;
@@ -1150,18 +1175,7 @@ std::vector<LotInstanceData> BuildLotInstances(const std::vector<LotRenderInstan
 
     std::size_t lotIndex = 0;
     for (; lotIndex < lots.size(); ++lotIndex) {
-        const LotRenderInstance& lot = lots[lotIndex];
-
-        LotInstanceData instance;
-        instance.originX = static_cast<float>(lot.originX);
-        instance.originZ = static_cast<float>(lot.originY);
-        instance.sizeX = static_cast<float>(lot.width);
-        instance.sizeZ = static_cast<float>(lot.height);
-        instance.height = lot.renderHeight;
-        instance.colorR = lot.colorR;
-        instance.colorG = lot.colorG;
-        instance.colorB = lot.colorB;
-        instances.push_back(instance);
+        instances.push_back(BuildLotInstance(lots[lotIndex]));
     }
 
     return instances;
@@ -1202,6 +1216,16 @@ std::vector<RouteArrowInstanceData> BuildRouteArrowInstances(const std::vector<C
         instance.directionZ = static_cast<float>(directionY);
         instance.lift = RoadLayerLift(segment.layer) + 0.09f;
         instance.alpha = 0.88f;
+        if (segment.mode == TransportMode::Pedestrian) {
+            instance.colorR = 1.0f;
+            instance.colorG = 0.22f;
+            instance.colorB = 0.66f;
+        } else {
+            instance.colorR = 0.08f;
+            instance.colorG = 0.95f;
+            instance.colorB = 0.26f;
+        }
+        instance.colorPadding = 0.0f;
 
         const int minX = std::min(segment.startTileX, segment.endTileX);
         const int minY = std::min(segment.startTileY, segment.endTileY);
@@ -1827,6 +1851,12 @@ int Renderer::run() {
     glGenBuffers(1, &lotInstanceBufferId);
     ConfigureLotVertexArray(lotVertexArrayId, lotVertexBufferId, lotInstanceBufferId);
 
+    GLuint lotGhostVertexArrayId = 0;
+    GLuint lotGhostInstanceBufferId = 0;
+    glGenVertexArrays(1, &lotGhostVertexArrayId);
+    glGenBuffers(1, &lotGhostInstanceBufferId);
+    ConfigureLotVertexArray(lotGhostVertexArrayId, lotVertexBufferId, lotGhostInstanceBufferId);
+
     ShaderProgram shaderProgram;
     if (!shaderProgram.loadFromFile(BuildShaderPath())) {
         DestroyTileChunkCaches(chunkCaches);
@@ -1835,6 +1865,8 @@ int Renderer::run() {
         glDeleteVertexArrays(1, &roadGhostVertexArrayId);
         glDeleteBuffers(1, &routeArrowInstanceBufferId);
         glDeleteVertexArrays(1, &routeArrowVertexArrayId);
+        glDeleteBuffers(1, &lotGhostInstanceBufferId);
+        glDeleteVertexArrays(1, &lotGhostVertexArrayId);
         glDeleteBuffers(1, &lotInstanceBufferId);
         glDeleteVertexArrays(1, &lotVertexArrayId);
         glDeleteTextures(1, &roadArrowAtlasTextureId);
@@ -1863,6 +1895,9 @@ int Renderer::run() {
     const GLint roadAlphaScaleLocation = glGetUniformLocation(shaderProgram.programId(), "uRoadAlphaScale");
     const GLint roadTintColorLocation = glGetUniformLocation(shaderProgram.programId(), "uRoadTintColor");
     const GLint roadTintStrengthLocation = glGetUniformLocation(shaderProgram.programId(), "uRoadTintStrength");
+    const GLint lotAlphaScaleLocation = glGetUniformLocation(shaderProgram.programId(), "uLotAlphaScale");
+    const GLint lotTintColorLocation = glGetUniformLocation(shaderProgram.programId(), "uLotTintColor");
+    const GLint lotTintStrengthLocation = glGetUniformLocation(shaderProgram.programId(), "uLotTintStrength");
     glUniform1i(tileTextureLocation, 0);
     glUniform1i(groundRoadStateTextureLocation, 1);
     glUniform1i(roadBaseAtlasTextureLocation, 2);
@@ -1873,10 +1908,14 @@ int Renderer::run() {
     glUniform1f(roadAlphaScaleLocation, 1.0f);
     glUniform3f(roadTintColorLocation, 1.0f, 1.0f, 1.0f);
     glUniform1f(roadTintStrengthLocation, 0.0f);
+    glUniform1f(lotAlphaScaleLocation, 1.0f);
+    glUniform3f(lotTintColorLocation, 1.0f, 1.0f, 1.0f);
+    glUniform1f(lotTintStrengthLocation, 0.0f);
 
     std::vector<GLshort> tileStateChunkPixels;
     std::vector<std::uint8_t> tileLiftChunkPixels;
     std::vector<LotInstanceData> lotInstances;
+    std::vector<LotInstanceData> lotGhostInstances;
     std::vector<RoadInstanceData> roadGhostInstances;
     std::vector<RouteArrowInstanceData> routeArrowInstances;
     std::uint64_t lastUploadedLotRevision = std::numeric_limits<std::uint64_t>::max();
@@ -1927,6 +1966,29 @@ int Renderer::run() {
             frameMetrics.roadGhostInstanceCount = static_cast<int>(roadGhostInstances.size());
         } else {
             roadGhostInstances.clear();
+        }
+
+        std::string lotGhostAssetId;
+        int lotGhostTileX = 0;
+        int lotGhostTileY = 0;
+        int lotGhostRotationSteps = 0;
+        if (appController_.lotPreviewRequest(lotGhostAssetId, lotGhostTileX, lotGhostTileY, lotGhostRotationSteps)) {
+            const std::chrono::steady_clock::time_point lotGhostUploadStart = std::chrono::steady_clock::now();
+            LotRenderInstance lotGhostRenderInstance;
+            lotGhostInstances.clear();
+            if (simulationRuntime_.buildLotPreviewInstance(lotGhostAssetId, lotGhostTileX, lotGhostTileY, lotGhostRotationSteps, lotGhostRenderInstance)) {
+                lotGhostInstances.push_back(BuildLotInstance(lotGhostRenderInstance));
+            }
+            glBindBuffer(GL_ARRAY_BUFFER, lotGhostInstanceBufferId);
+            glBufferData(
+                GL_ARRAY_BUFFER,
+                static_cast<GLsizeiptr>(lotGhostInstances.size() * sizeof(LotInstanceData)),
+                lotGhostInstances.empty() ? 0 : &lotGhostInstances[0],
+                GL_DYNAMIC_DRAW);
+            frameMetrics.lotGhostUploadMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - lotGhostUploadStart).count();
+            frameMetrics.lotGhostInstanceCount = static_cast<int>(lotGhostInstances.size());
+        } else {
+            lotGhostInstances.clear();
         }
 
         if (viewState.queryRouteRevision != lastUploadedQueryRouteRevision) {
@@ -2152,8 +2214,27 @@ int Renderer::run() {
                 glUniform1f(roadTintStrengthLocation, 0.0f);
             }
 
+            if (!lotGhostInstances.empty()) {
+                glUniform1i(renderModeLocation, 1);
+                glUniform1f(lotAlphaScaleLocation, kLotGhostAlpha);
+                glUniform3f(lotTintColorLocation, 0.76f, 1.0f, 0.58f);
+                glUniform1f(lotTintStrengthLocation, 0.42f);
+                glDepthMask(GL_FALSE);
+                const std::chrono::steady_clock::time_point lotGhostDrawStart = std::chrono::steady_clock::now();
+                glBindVertexArray(lotGhostVertexArrayId);
+                glDrawArraysInstanced(GL_TRIANGLES, 0, 36, static_cast<GLsizei>(lotGhostInstances.size()));
+                frameMetrics.lotGhostDrawMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - lotGhostDrawStart).count();
+                glDepthMask(GL_TRUE);
+                glUniform1f(lotAlphaScaleLocation, 1.0f);
+                glUniform3f(lotTintColorLocation, 1.0f, 1.0f, 1.0f);
+                glUniform1f(lotTintStrengthLocation, 0.0f);
+            }
+
             if (!lotInstances.empty()) {
                 glUniform1i(renderModeLocation, 1);
+                glUniform1f(lotAlphaScaleLocation, 1.0f);
+                glUniform3f(lotTintColorLocation, 1.0f, 1.0f, 1.0f);
+                glUniform1f(lotTintStrengthLocation, 0.0f);
                 const std::chrono::steady_clock::time_point lotDrawStart = std::chrono::steady_clock::now();
                 glBindVertexArray(lotVertexArrayId);
                 glDrawArraysInstanced(GL_TRIANGLES, 0, 36, static_cast<GLsizei>(lotInstances.size()));
@@ -2223,14 +2304,17 @@ int Renderer::run() {
                 << " elevRoadUp=" << lastFrameMetrics.elevatedRoadUploadMicros
                 << " roadGhostUp=" << lastFrameMetrics.roadGhostUploadMicros
                 << " lotUp=" << lastFrameMetrics.lotUploadMicros
+                << " lotGhostUp=" << lastFrameMetrics.lotGhostUploadMicros
                 << " tileDraw=" << lastFrameMetrics.tileDrawMicros
                 << " elevRoadDraw=" << lastFrameMetrics.elevatedRoadDrawMicros
                 << " roadGhostDraw=" << lastFrameMetrics.roadGhostDrawMicros
                 << " overlayDraw=" << lastFrameMetrics.tileOverlayDrawMicros
                 << " lotDraw=" << lastFrameMetrics.lotDrawMicros
+                << " lotGhostDraw=" << lastFrameMetrics.lotGhostDrawMicros
                 << " chunks=" << lastFrameMetrics.visibleChunkCount << "/" << lastFrameMetrics.totalChunkCount
                 << " elevChunks=" << lastFrameMetrics.visibleElevatedRoadChunkCount
                 << " roadGhostInstances=" << lastFrameMetrics.roadGhostInstanceCount
+                << " lotGhostInstances=" << lastFrameMetrics.lotGhostInstanceCount
                 << " dirtyGround=" << lastFrameMetrics.dirtyGroundRoadChunkCount << " deferGround=" << lastFrameMetrics.deferredGroundRoadChunkCount
                 << " dirtyElev=" << lastFrameMetrics.dirtyElevatedRoadChunkCount << " deferElev=" << lastFrameMetrics.deferredElevatedRoadChunkCount
                 << std::endl;
@@ -2245,6 +2329,8 @@ int Renderer::run() {
     glDeleteVertexArrays(1, &roadGhostVertexArrayId);
     glDeleteBuffers(1, &routeArrowInstanceBufferId);
     glDeleteVertexArrays(1, &routeArrowVertexArrayId);
+    glDeleteBuffers(1, &lotGhostInstanceBufferId);
+    glDeleteVertexArrays(1, &lotGhostVertexArrayId);
     glDeleteBuffers(1, &lotInstanceBufferId);
     glDeleteVertexArrays(1, &lotVertexArrayId);
     glDeleteTextures(1, &roadArrowAtlasTextureId);

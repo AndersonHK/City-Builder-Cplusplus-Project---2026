@@ -1,0 +1,5 @@
+<module id="garden_module">
+  <size width="1" height="1" />
+  <effects airPollution="0" landValue="900" />
+  <render height="0.12" colorR="0.30" colorG="0.58" colorB="0.24" />
+</module>

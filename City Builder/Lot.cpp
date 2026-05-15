@@ -10,6 +10,7 @@ Lot::Lot()
     : lotId_(-1),
       anchorTileX_(0),
       anchorTileY_(0),
+      rotationSteps_(0),
       nextModuleInstanceId_(1),
       commuteDemand_(0),
       commuteSatisfied_(0),
@@ -24,11 +25,12 @@ Lot::Lot()
 }
 
 // Creates a lot instance anchored in world tile coordinates.
-Lot::Lot(int lotId, const std::string& assetId, int anchorTileX, int anchorTileY)
+Lot::Lot(int lotId, const std::string& assetId, int anchorTileX, int anchorTileY, int rotationSteps)
     : lotId_(lotId),
       assetId_(assetId),
       anchorTileX_(anchorTileX),
       anchorTileY_(anchorTileY),
+      rotationSteps_(((rotationSteps % 4) + 4) % 4),
       nextModuleInstanceId_(1),
       commuteDemand_(0),
       commuteSatisfied_(0),
@@ -60,6 +62,11 @@ int Lot::anchorTileX() const {
 // Returns the lot anchor's y tile.
 int Lot::anchorTileY() const {
     return anchorTileY_;
+}
+
+// Returns clockwise quarter-turns from the lot archetype orientation.
+int Lot::rotationSteps() const {
+    return rotationSteps_;
 }
 
 // Exposes placed modules for tooling and effects.
@@ -183,6 +190,9 @@ int Lot::moduleInstanceIdAtLocalTile(const Int2& localTile) const {
 // Moves the anchor to the minimum occupied tile after footprint shrinkage.
 void Lot::rebaseAnchorToMinimumTile(int mapWidth) {
     if (occupiedOffsets_.empty()) {
+        return;
+    }
+    if (!explicitFootprintOffsets_.empty()) {
         return;
     }
 

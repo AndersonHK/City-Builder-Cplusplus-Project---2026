@@ -6,6 +6,7 @@
 #include <windows.h>
 
 #include <cstdint>
+#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -168,6 +169,7 @@ std::string MakeTempAssetDirectory(const std::string& name) {
     CreateDirectoryA(root.c_str(), 0);
     CreateDirectoryA((root + "\\Modules").c_str(), 0);
     CreateDirectoryA((root + "\\Lots").c_str(), 0);
+    CreateDirectoryA((root + "\\TransportNetwork").c_str(), 0);
     return root;
 }
 
@@ -466,6 +468,18 @@ void TestDirectionalOneWayCostMap(TestRunner& runner) {
     runner.expect(DirectionCost(pedestrianCell, kRoadDirectionWest) > 0u, "one-way street pedestrian cost exists west");
 }
 
+void TestLocalLaneSpeedCosts(TestRunner& runner) {
+    TransportNetwork network = MakeNetwork(12, 12);
+    std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(network, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground, RoadDirectionMode::OneWayForward), lotOccupancy), "speed cost local street placement succeeds");
+    const TransportCostCell& carCell = CostCellAt(network, TransportLayerId::Ground, TransportMode::Car, 4, 5);
+    const TransportCostCell& pedestrianCell = CostCellAt(network, TransportLayerId::Ground, TransportMode::Pedestrian, 4, 5);
+
+    runner.expect(DirectionCost(carCell, kRoadDirectionEast) == 100u, "local car lane uses 10 tiles per time at capacity");
+    runner.expect(DirectionCost(pedestrianCell, kRoadDirectionEast) == 1000u, "pedestrian lane uses 1 tile per time at capacity");
+}
+
 void TestCostMapLowerCostAndCapacityAccumulation(TestRunner& runner) {
     TransportCostMap costMap;
     costMap.initialize(2, 1);
@@ -477,6 +491,26 @@ void TestCostMapLowerCostAndCapacityAccumulation(TestRunner& runner) {
 
     runner.expect(DirectionCost(cell, kRoadDirectionEast) == 10u, "cost map keeps lower directional cost");
     runner.expect(DirectionCapacity(cell, kRoadDirectionEast) == 30u, "cost map accumulates compatible directional capacity");
+}
+
+void TestCongestionCurveReducesSpeedFromTable(TestRunner& runner) {
+    TransportCostMap costMap;
+    costMap.initialize(2, 1);
+
+    TransportCongestionCurve congestionCurve;
+    congestionCurve.points.clear();
+    congestionCurve.points.push_back(TransportCongestionPoint(0.0f, 1.0f));
+    congestionCurve.points.push_back(TransportCongestionPoint(1.0f, 1.0f));
+    congestionCurve.points.push_back(TransportCongestionPoint(2.0f, 0.5f));
+    costMap.setCongestionCurve(congestionCurve);
+
+    costMap.addDirectionalCost(TransportLayerId::Ground, TransportMode::Car, 0, kRoadDirectionEast, 100u, 10u);
+    costMap.cellForMutation(TransportLayerId::Ground, TransportMode::Car, 0).oldLoads[RoadDirectionIndex(kRoadDirectionEast)] = 20u;
+
+    TransportPathScratch scratch;
+    TransportPathResult result;
+    runner.expect(costMap.findPath(MakePathRequest(costMap.nodeId(TransportLayerId::Ground, TransportMode::Car, 0), costMap.nodeId(TransportLayerId::Ground, TransportMode::Car, 1)), scratch, result), "congestion curve path succeeds");
+    runner.expect(result.totalCost > 199.0f && result.totalCost < 201.0f, "congestion speed multiplier doubles cost at 200 percent use");
 }
 
 void TestHighwayDoesNotExposeBuildingAccess(TestRunner& runner) {
@@ -636,14 +670,18 @@ void TestFactoryHouseAssetsAndParameters(TestRunner& runner) {
 
     const LotModule* warehouseModule = FindModule(assets, "warehouse_module");
     const LotModule* houseModule = FindModule(assets, "house_module");
+    const LotModule* drivewayModule = FindModule(assets, "driveway_module");
+    const LotModule* gardenModule = FindModule(assets, "garden_module");
     const LotAsset* factoryLot = FindLotAsset(assets, "factory_lot");
     const LotAsset* houseLot = FindLotAsset(assets, "house_lot");
 
     runner.expect(warehouseModule != 0, "warehouse module exists");
     runner.expect(houseModule != 0, "house module exists");
+    runner.expect(drivewayModule != 0, "driveway module exists");
+    runner.expect(gardenModule != 0, "garden module exists");
     runner.expect(factoryLot != 0, "factory lot exists");
     runner.expect(houseLot != 0, "house lot exists");
-    if (warehouseModule == 0 || houseModule == 0 || factoryLot == 0 || houseLot == 0) {
+    if (warehouseModule == 0 || houseModule == 0 || drivewayModule == 0 || gardenModule == 0 || factoryLot == 0 || houseLot == 0) {
         return;
     }
 
@@ -651,7 +689,33 @@ void TestFactoryHouseAssetsAndParameters(TestRunner& runner) {
     runner.expect(ModuleParameterAmount(*houseModule, registry.residentsLowWealthId()) == 5.0f, "house contributes five low wealth residents");
     runner.expect(factoryLot->footprintWidth == 2 && factoryLot->footprintHeight == 2, "factory footprint is 2x2");
     runner.expect(houseLot->footprintWidth == 2 && houseLot->footprintHeight == 4, "house footprint is 2x4");
-    runner.expect(!houseLot->initialModules.empty() && houseLot->initialModules[0].localOrigin.x == 0 && houseLot->initialModules[0].localOrigin.y == 1, "house module is centered in footprint rows");
+    runner.expect(factoryLot->accessDefinitions.size() == 4u, "factory declares access on all four warehouse tiles");
+    runner.expect(houseLot->accessDefinitions.size() == 2u, "house declares driveway and garden access");
+    runner.expect(!assets.congestionCurve.points.empty() && assets.congestionCurve.points[0].speedMultiplier > 0.0f, "transport congestion XML loads");
+
+    bool foundHousePlacement = false;
+    bool foundDrivewayAccess = false;
+    bool foundGardenAccess = false;
+    std::size_t placementIndex = 0;
+    for (; placementIndex < houseLot->initialModules.size(); ++placementIndex) {
+        const LotModulePlacementDefinition& placement = houseLot->initialModules[placementIndex];
+        if (placement.moduleId == "house_module" && placement.localOrigin.x == 0 && placement.localOrigin.y == 1) {
+            foundHousePlacement = true;
+        }
+    }
+    std::size_t accessIndex = 0;
+    for (; accessIndex < houseLot->accessDefinitions.size(); ++accessIndex) {
+        const LotAccessDefinition& access = houseLot->accessDefinitions[accessIndex];
+        if (access.localTile.x == 1 && access.localTile.y == 0 && access.direction == kRoadDirectionNorth && access.modeMask == kTransportModeCar) {
+            foundDrivewayAccess = true;
+        }
+        if (access.localTile.x == 0 && access.localTile.y == 0 && access.direction == kRoadDirectionNorth && access.modeMask == kTransportModePedestrian) {
+            foundGardenAccess = true;
+        }
+    }
+    runner.expect(foundHousePlacement, "house module is centered behind the frontage row");
+    runner.expect(foundDrivewayAccess, "driveway exposes car access from front-right tile");
+    runner.expect(foundGardenAccess, "garden exposes pedestrian access from front-left tile");
 
     Lot houseInstance(1, houseLot->id, 10, 10);
     houseInstance.setExplicitFootprint(houseLot->footprintOrigin, houseLot->footprintWidth, houseLot->footprintHeight, 64);
@@ -705,6 +769,15 @@ void TestInvalidAssetValidation(TestRunner& runner) {
         "<modules><moduleRef id=\"missing_module\" x=\"0\" y=\"0\" /></modules>"
         "</lot>";
     runner.expect(InvalidAssetsRejected(validModule, unknownModuleLot, registry), "unknown module ref rejects at load");
+
+    const std::string inwardAccessLot =
+        "<lot id=\"test_lot\">"
+        "<anchor x=\"0\" y=\"0\" />"
+        "<footprint x=\"0\" y=\"0\" width=\"2\" height=\"1\" />"
+        "<modules><moduleRef id=\"test_module\" x=\"0\" y=\"0\" /></modules>"
+        "<access><connection x=\"0\" y=\"0\" direction=\"east\" modes=\"car\" /></access>"
+        "</lot>";
+    runner.expect(InvalidAssetsRejected(validModule, inwardAccessLot, registry), "access direction pointing inside footprint rejects at load");
 }
 }
 
@@ -726,7 +799,9 @@ int main() {
     TestElevatedHighwayHasNoPedestrianGraphics(runner);
     TestGroundRoadRejectsLotOccupancy(runner);
     TestDirectionalOneWayCostMap(runner);
+    TestLocalLaneSpeedCosts(runner);
     TestCostMapLowerCostAndCapacityAccumulation(runner);
+    TestCongestionCurveReducesSpeedFromTable(runner);
     TestHighwayDoesNotExposeBuildingAccess(runner);
     TestBuildingAccessCandidatesFromLocalStreet(runner);
     TestLayerIsolationWithoutTransfer(runner);

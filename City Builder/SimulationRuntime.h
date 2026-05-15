@@ -47,6 +47,7 @@ struct PlayerCommand {
     int tileX;
     int tileY;
     int amount;
+    int rotationSteps;
     std::string assetId;
     RoadStrokeCommand roadStroke;
 
@@ -55,7 +56,8 @@ struct PlayerCommand {
         : type(PlayerCommandType::PaintPollution),
           tileX(0),
           tileY(0),
-          amount(0) {
+          amount(0),
+          rotationSteps(0) {
     }
 };
 
@@ -171,19 +173,20 @@ public:
     void stop();
 
     void queuePaintPollution(int tileX, int tileY, int amount);
-    void queuePlaceLot(const std::string& lotAssetId, int tileX, int tileY);
+    void queuePlaceLot(const std::string& lotAssetId, int tileX, int tileY, int rotationSteps = 0);
     void queueAddModuleAtTile(const std::string& moduleAssetId, int tileX, int tileY);
     void queueRemoveModuleAtTile(int tileX, int tileY);
     void queuePlaceRoadStroke(const RoadStrokeCommand& roadStrokeCommand);
-    void queuePlaceSmokestack(int tileX, int tileY);
-    void queuePlacePark(int tileX, int tileY);
-    void queuePlaceFactory(int tileX, int tileY);
-    void queuePlaceHouse(int tileX, int tileY);
+    void queuePlaceSmokestack(int tileX, int tileY, int rotationSteps = 0);
+    void queuePlacePark(int tileX, int tileY, int rotationSteps = 0);
+    void queuePlaceFactory(int tileX, int tileY, int rotationSteps = 0);
+    void queuePlaceHouse(int tileX, int tileY, int rotationSteps = 0);
     void queueAddSmokestackModule(int tileX, int tileY);
     void queueAddParkModule(int tileX, int tileY);
     void queuePlaceStreetRoad(const Int2& startTile, const Int2& cornerTile, const Int2& endTile);
     void queuePlaceHighwayRoad(const Int2& startTile, const Int2& cornerTile, const Int2& endTile);
 
+    bool buildLotPreviewInstance(const std::string& lotAssetId, int tileX, int tileY, int rotationSteps, LotRenderInstance& renderInstance) const;
     TileQueryResult queryTile(int tileX, int tileY) const;
 
     PublishedWorldSnapshot acquirePublishedSnapshot();
@@ -264,7 +267,8 @@ private:
     Lot* findLotById(int lotId);
     const PublishedLotInfo* findPublishedLotInfoById(const std::vector<PublishedLotInfo>& publishedLotInfos, int lotId) const;
 
-    bool tryPlaceLot(const LotAsset& lotAsset, int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
+    bool buildLotCandidate(const LotAsset& lotAsset, int clickedTileX, int clickedTileY, int rotationSteps, int lotId, Lot& candidateLot) const;
+    bool tryPlaceLot(const LotAsset& lotAsset, int clickedTileX, int clickedTileY, int rotationSteps, TileBuffer& writeBuffer);
     bool tryAddModuleAtTile(const LotModule& moduleAsset, int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
     bool tryRemoveModuleAtTile(int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
     bool canPlaceLot(const Lot& candidateLot) const;
@@ -273,6 +277,7 @@ private:
     void setLotOccupancy(int lotId, const std::vector<int>& tileIndices);
     float lotParameterAmount(const Lot& lot, int parameterId) const;
     float lotDerivedParameterAmount(const Lot& lot, int parameterId) const;
+    void collectLotAccessNodes(const Lot& lot, const LotAsset& lotAsset, std::uint8_t allowedModeMask, std::vector<std::uint32_t>& accessNodes) const;
     std::vector<CommuteRouteSegment> buildCommuteRouteSegments(const TransportPathResult& pathResult, std::uint16_t demand) const;
     bool isTileInsideMap(int tileX, int tileY) const;
     int tileIndex(int tileX, int tileY) const;

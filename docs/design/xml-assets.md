@@ -8,18 +8,20 @@ Use this guide when changing `AssetLoader`, data XML files, or lot/module archet
 - Runtime systems should receive validated module and lot definitions.
 
 ## Current Shape
-- `AssetLoader` reads module XML from `Data/Modules` and lot XML from `Data/Lots`.
+- `AssetLoader` reads module XML from `Data/Modules`, lot XML from `Data/Lots`, and the congestion curve from `Data/TransportNetwork/congestion.xml` when present.
 - File stems are fallback ids when an explicit `id` attribute is absent.
 - Modules define size, effects, and placeholder render values.
 - Modules may also define city-parameter contributions inside `<parameters>` using `<driver>` or `<satisfaction>` tags.
-- Lots define an anchor, optional explicit footprint, optional render origin, and initial module references.
-- Lot validation ensures module references exist and the anchor is inside the lot footprint.
+- Lots define an anchor, optional explicit footprint, optional render origin, optional front direction, initial module references, and optional access connections.
+- Lot validation ensures module references exist, the anchor is inside the lot footprint, access tiles are inside the footprint, access directions point outside the footprint, and access modes are known.
+- The congestion XML defines `<point utilization="..." speedMultiplier="..." />` rows. Invalid or duplicate utilization points fail asset load.
 
 ## Rules
 - Keep errors descriptive; asset failures should not become silent defaults.
 - Validate cross-file references after loading modules and lots.
 - Validate parameter ids against `CityParameterRegistry` during asset load.
 - Validate explicit footprints: positive dimensions, anchor inside footprint, and initial modules fully inside the footprint.
+- Validate access declarations before normalizing the lot anchor, then store them relative to the normalized anchor so placement rotation can transform them.
 - Prefer simple explicit schema additions over implicit behavior.
 - Keep XML-backed archetypes separate from live runtime placement state.
 

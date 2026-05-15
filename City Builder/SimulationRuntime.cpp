@@ -31,6 +31,90 @@ std::string GetExecutableDirectory() {
 
     return fullPath.substr(0, separatorIndex);
 }
+
+int NormalizeRotationSteps(int rotationSteps) {
+    return ((rotationSteps % 4) + 4) % 4;
+}
+
+Int2 RotateLocalTile(const Int2& localTile, int rotationSteps) {
+    switch (NormalizeRotationSteps(rotationSteps)) {
+        case 1:
+            return Int2(-localTile.y, localTile.x);
+        case 2:
+            return Int2(-localTile.x, -localTile.y);
+        case 3:
+            return Int2(localTile.y, -localTile.x);
+        default:
+            return localTile;
+    }
+}
+
+std::uint8_t RotateRoadDirection(std::uint8_t roadDirection, int rotationSteps) {
+    std::uint8_t direction = roadDirection;
+    int step = 0;
+    for (; step < NormalizeRotationSteps(rotationSteps); ++step) {
+        if (direction == kRoadDirectionNorth) {
+            direction = kRoadDirectionEast;
+        } else if (direction == kRoadDirectionEast) {
+            direction = kRoadDirectionSouth;
+        } else if (direction == kRoadDirectionSouth) {
+            direction = kRoadDirectionWest;
+        } else if (direction == kRoadDirectionWest) {
+            direction = kRoadDirectionNorth;
+        }
+    }
+
+    return direction;
+}
+
+Int2 RotatedRectangleMinimum(const Int2& localOrigin, int width, int height, int rotationSteps) {
+    Int2 minimum(0, 0);
+    bool hasTile = false;
+
+    int tileY = 0;
+    for (; tileY < height; ++tileY) {
+        int tileX = 0;
+        for (; tileX < width; ++tileX) {
+            const Int2 rotatedTile = RotateLocalTile(Int2(localOrigin.x + tileX, localOrigin.y + tileY), rotationSteps);
+            if (!hasTile) {
+                minimum = rotatedTile;
+                hasTile = true;
+            } else {
+                minimum.x = std::min(minimum.x, rotatedTile.x);
+                minimum.y = std::min(minimum.y, rotatedTile.y);
+            }
+        }
+    }
+
+    return minimum;
+}
+
+void RotatedRectangleBounds(const Int2& localOrigin, int width, int height, int rotationSteps, Int2& minimum, Int2& maximum) {
+    bool hasTile = false;
+
+    int tileY = 0;
+    for (; tileY < height; ++tileY) {
+        int tileX = 0;
+        for (; tileX < width; ++tileX) {
+            const Int2 rotatedTile = RotateLocalTile(Int2(localOrigin.x + tileX, localOrigin.y + tileY), rotationSteps);
+            if (!hasTile) {
+                minimum = rotatedTile;
+                maximum = rotatedTile;
+                hasTile = true;
+            } else {
+                minimum.x = std::min(minimum.x, rotatedTile.x);
+                minimum.y = std::min(minimum.y, rotatedTile.y);
+                maximum.x = std::max(maximum.x, rotatedTile.x);
+                maximum.y = std::max(maximum.y, rotatedTile.y);
+            }
+        }
+    }
+
+    if (!hasTile) {
+        minimum = Int2(0, 0);
+        maximum = Int2(0, 0);
+    }
+}
 }
 
 // Allocates the triple-buffered world and derives chunk/work scheduling config.
@@ -167,7 +251,7 @@ void SimulationRuntime::queuePaintPollution(int tileX, int tileY, int amount) {
 }
 
 // Queues a lot placement by archetype id.
-void SimulationRuntime::queuePlaceLot(const std::string& lotAssetId, int tileX, int tileY) {
+void SimulationRuntime::queuePlaceLot(const std::string& lotAssetId, int tileX, int tileY, int rotationSteps) {
     if (!isTileInsideMap(tileX, tileY)) {
         return;
     }
@@ -176,6 +260,7 @@ void SimulationRuntime::queuePlaceLot(const std::string& lotAssetId, int tileX, 
     playerCommand.type = PlayerCommandType::PlaceLot;
     playerCommand.tileX = tileX;
     playerCommand.tileY = tileY;
+    playerCommand.rotationSteps = NormalizeRotationSteps(rotationSteps);
     playerCommand.assetId = lotAssetId;
     enqueueCommand(playerCommand);
 }
@@ -224,23 +309,23 @@ void SimulationRuntime::queuePlaceRoadStroke(const RoadStrokeCommand& roadStroke
 }
 
 // Queues the default smokestack lot archetype.
-void SimulationRuntime::queuePlaceSmokestack(int tileX, int tileY) {
-    queuePlaceLot("smokestack_lot", tileX, tileY);
+void SimulationRuntime::queuePlaceSmokestack(int tileX, int tileY, int rotationSteps) {
+    queuePlaceLot("smokestack_lot", tileX, tileY, rotationSteps);
 }
 
 // Queues the default park lot archetype.
-void SimulationRuntime::queuePlacePark(int tileX, int tileY) {
-    queuePlaceLot("park_lot", tileX, tileY);
+void SimulationRuntime::queuePlacePark(int tileX, int tileY, int rotationSteps) {
+    queuePlaceLot("park_lot", tileX, tileY, rotationSteps);
 }
 
 // Queues the default factory lot archetype.
-void SimulationRuntime::queuePlaceFactory(int tileX, int tileY) {
-    queuePlaceLot("factory_lot", tileX, tileY);
+void SimulationRuntime::queuePlaceFactory(int tileX, int tileY, int rotationSteps) {
+    queuePlaceLot("factory_lot", tileX, tileY, rotationSteps);
 }
 
 // Queues the default house lot archetype.
-void SimulationRuntime::queuePlaceHouse(int tileX, int tileY) {
-    queuePlaceLot("house_lot", tileX, tileY);
+void SimulationRuntime::queuePlaceHouse(int tileX, int tileY, int rotationSteps) {
+    queuePlaceLot("house_lot", tileX, tileY, rotationSteps);
 }
 
 // Queues a smokestack module expansion.
@@ -275,6 +360,30 @@ void SimulationRuntime::queuePlaceHighwayRoad(const Int2& startTile, const Int2&
     roadStrokeCommand.layer = TransportLayerId::Elevated;
     roadStrokeCommand.roadTemplate = TransportNetwork::makeRoadTemplate(roadStrokeCommand.family, roadStrokeCommand.layer, 1, RoadTrafficSide::RightHand, RoadDirectionMode::TwoWay);
     queuePlaceRoadStroke(roadStrokeCommand);
+}
+
+// Builds a renderer-facing lot preview without mutating simulation state.
+bool SimulationRuntime::buildLotPreviewInstance(const std::string& lotAssetId, int tileX, int tileY, int rotationSteps, LotRenderInstance& renderInstance) const {
+    const LotAsset* lotAsset = findLotAssetById(lotAssetId);
+    if (lotAsset == 0) {
+        return false;
+    }
+
+    Lot candidateLot;
+    if (!buildLotCandidate(*lotAsset, tileX, tileY, rotationSteps, -1, candidateLot)) {
+        return false;
+    }
+
+    const int minimumX = candidateLot.minimumTileX();
+    const int minimumY = candidateLot.minimumTileY();
+    const int maximumX = minimumX + candidateLot.footprintWidth() - 1;
+    const int maximumY = minimumY + candidateLot.footprintHeight() - 1;
+    if (!isTileInsideMap(minimumX, minimumY) || !isTileInsideMap(maximumX, maximumY)) {
+        return false;
+    }
+
+    renderInstance = candidateLot.buildRenderInstance();
+    return true;
 }
 
 // Reads the currently published snapshot for debug tile inspection.
@@ -420,6 +529,7 @@ void SimulationRuntime::loadAssets() {
 
     moduleAssets_ = loadedAssets.modules;
     lotAssets_ = loadedAssets.lots;
+    transportNetwork_.setCongestionCurve(loadedAssets.congestionCurve);
 
     moduleAssetIndexById_.clear();
     std::size_t moduleIndex = 0;
@@ -778,7 +888,7 @@ void SimulationRuntime::applyQueuedCommands(TileBuffer& writeBuffer) {
             case PlayerCommandType::PlaceLot: {
                 const LotAsset* lotAsset = findLotAssetById(playerCommand.assetId);
                 if (lotAsset != 0) {
-                    tryPlaceLot(*lotAsset, playerCommand.tileX, playerCommand.tileY, writeBuffer);
+                    tryPlaceLot(*lotAsset, playerCommand.tileX, playerCommand.tileY, playerCommand.rotationSteps, writeBuffer);
                 }
                 break;
             }
@@ -892,7 +1002,10 @@ void SimulationRuntime::runCommuteAssignment() {
         lot.clearCommutes();
 
         std::vector<std::uint32_t> accessNodes;
-        costMap.collectBuildingAccessNodes(lot.minimumTileX(), lot.minimumTileY(), lot.footprintWidth(), lot.footprintHeight(), allowedModeMask, accessNodes);
+        const LotAsset* lotAsset = findLotAssetById(lot.assetId());
+        if (lotAsset != 0) {
+            collectLotAccessNodes(lot, *lotAsset, allowedModeMask, accessNodes);
+        }
 
         const int residentDemand = static_cast<int>(lotParameterAmount(lot, cityParameterRegistry_.residentsLowWealthId()) + 0.5f);
         if (residentDemand > 0) {
@@ -1216,10 +1329,19 @@ const PublishedLotInfo* SimulationRuntime::findPublishedLotInfoById(const std::v
     return 0;
 }
 
-// Attempts to instantiate a lot archetype at the clicked tile.
-bool SimulationRuntime::tryPlaceLot(const LotAsset& lotAsset, int clickedTileX, int clickedTileY, TileBuffer& writeBuffer) {
-    Lot candidateLot(nextLotId_, lotAsset.id, clickedTileX, clickedTileY);
-    candidateLot.setExplicitFootprint(lotAsset.footprintOrigin, lotAsset.footprintWidth, lotAsset.footprintHeight, kMapWidth);
+// Builds a lot from an archetype so committed placement and ghost previews share geometry.
+bool SimulationRuntime::buildLotCandidate(const LotAsset& lotAsset, int clickedTileX, int clickedTileY, int rotationSteps, int lotId, Lot& candidateLot) const {
+    const int normalizedRotation = NormalizeRotationSteps(rotationSteps);
+    candidateLot = Lot(lotId, lotAsset.id, clickedTileX, clickedTileY, normalizedRotation);
+
+    Int2 footprintMinimum;
+    Int2 footprintMaximum;
+    RotatedRectangleBounds(lotAsset.footprintOrigin, lotAsset.footprintWidth, lotAsset.footprintHeight, normalizedRotation, footprintMinimum, footprintMaximum);
+    candidateLot.setExplicitFootprint(
+        footprintMinimum,
+        footprintMaximum.x - footprintMinimum.x + 1,
+        footprintMaximum.y - footprintMinimum.y + 1,
+        kMapWidth);
 
     std::size_t placementIndex = 0;
     for (; placementIndex < lotAsset.initialModules.size(); ++placementIndex) {
@@ -1228,7 +1350,22 @@ bool SimulationRuntime::tryPlaceLot(const LotAsset& lotAsset, int clickedTileX, 
             return false;
         }
 
-        candidateLot.addModule(*moduleAsset, lotAsset.initialModules[placementIndex].localOrigin, kMapWidth);
+        const Int2 rotatedModuleOrigin = RotatedRectangleMinimum(
+            lotAsset.initialModules[placementIndex].localOrigin,
+            moduleAsset->width,
+            moduleAsset->height,
+            normalizedRotation);
+        candidateLot.addModule(*moduleAsset, rotatedModuleOrigin, kMapWidth);
+    }
+
+    return true;
+}
+
+// Attempts to instantiate a lot archetype at the clicked tile.
+bool SimulationRuntime::tryPlaceLot(const LotAsset& lotAsset, int clickedTileX, int clickedTileY, int rotationSteps, TileBuffer& writeBuffer) {
+    Lot candidateLot;
+    if (!buildLotCandidate(lotAsset, clickedTileX, clickedTileY, rotationSteps, nextLotId_, candidateLot)) {
+        return false;
     }
 
     if (!canPlaceLot(candidateLot)) {
@@ -1469,6 +1606,54 @@ float SimulationRuntime::lotDerivedParameterAmount(const Lot& lot, int parameter
     }
 
     return amount;
+}
+
+void SimulationRuntime::collectLotAccessNodes(const Lot& lot, const LotAsset& lotAsset, std::uint8_t allowedModeMask, std::vector<std::uint32_t>& accessNodes) const {
+    accessNodes.clear();
+    if (lotAsset.accessDefinitions.empty()) {
+        return;
+    }
+
+    const TransportCostMap& costMap = transportNetwork_.costMap();
+    std::size_t accessIndex = 0;
+    for (; accessIndex < lotAsset.accessDefinitions.size(); ++accessIndex) {
+        const LotAccessDefinition& accessDefinition = lotAsset.accessDefinitions[accessIndex];
+        const std::uint8_t usableModeMask = static_cast<std::uint8_t>(accessDefinition.modeMask & allowedModeMask);
+        if (usableModeMask == 0u) {
+            continue;
+        }
+
+        const Int2 rotatedLocalTile = RotateLocalTile(accessDefinition.localTile, lot.rotationSteps());
+        const std::uint8_t rotatedDirection = RotateRoadDirection(accessDefinition.direction, lot.rotationSteps());
+        const int buildingTileX = lot.anchorTileX() + rotatedLocalTile.x;
+        const int buildingTileY = lot.anchorTileY() + rotatedLocalTile.y;
+        const int accessTileX = buildingTileX + RoadDirectionDeltaX(rotatedDirection);
+        const int accessTileY = buildingTileY + RoadDirectionDeltaY(rotatedDirection);
+        if (!isTileInsideMap(accessTileX, accessTileY)) {
+            continue;
+        }
+
+        const int accessTileIndex = tileIndex(accessTileX, accessTileY);
+        const std::uint8_t accessDirectionTowardBuilding = OppositeRoadDirection(rotatedDirection);
+        std::size_t layerIndex = 0;
+        for (; layerIndex < static_cast<std::size_t>(TransportLayerId::Count); ++layerIndex) {
+            std::size_t modeIndex = 0;
+            for (; modeIndex < static_cast<std::size_t>(TransportMode::Count); ++modeIndex) {
+                const TransportMode mode = static_cast<TransportMode>(modeIndex);
+                if ((usableModeMask & TransportModeMaskFor(mode)) == 0u) {
+                    continue;
+                }
+
+                const TransportCostCell& accessCell = costMap.cell(static_cast<TransportLayerId>(layerIndex), mode, accessTileIndex);
+                if ((accessCell.buildingAccessMask & accessDirectionTowardBuilding) != 0u) {
+                    accessNodes.push_back(costMap.nodeId(static_cast<TransportLayerId>(layerIndex), mode, accessTileIndex));
+                }
+            }
+        }
+    }
+
+    std::sort(accessNodes.begin(), accessNodes.end());
+    accessNodes.erase(std::unique(accessNodes.begin(), accessNodes.end()), accessNodes.end());
 }
 
 std::vector<CommuteRouteSegment> SimulationRuntime::buildCommuteRouteSegments(const TransportPathResult& pathResult, std::uint16_t demand) const {

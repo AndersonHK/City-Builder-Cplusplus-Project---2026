@@ -4,6 +4,7 @@
 layout(location = 0) in vec3 aLocalPosition;
 layout(location = 1) in vec4 aInstanceData0;
 layout(location = 2) in vec4 aInstanceData1;
+layout(location = 3) in vec4 aInstanceData2;
 
 uniform mat4 uViewProjection;
 uniform int uRenderMode;
@@ -14,6 +15,7 @@ out vec2 vLocalUv;
 out vec3 vLotColor;
 out vec2 vRoadGlyphs;
 out vec2 vRoadMasks;
+out vec3 vRouteColor;
 out float vSurfaceLift;
 flat out int vRenderMode;
 
@@ -32,6 +34,7 @@ void main()
         vLotColor = vec3(0.0);
         vRoadGlyphs = vec2(0.0);
         vRoadMasks = vec2(0.0);
+        vRouteColor = vec3(0.0);
         vSurfaceLift = tileLift;
     } else if (uRenderMode == 1) {
         vec3 scaledPosition = vec3(
@@ -44,6 +47,7 @@ void main()
         vLotColor = aInstanceData1.yzw;
         vRoadGlyphs = vec2(0.0);
         vRoadMasks = vec2(0.0);
+        vRouteColor = vec3(0.0);
         vSurfaceLift = 0.0;
     } else if (uRenderMode == 2) {
         worldPosition = vec3(
@@ -55,6 +59,7 @@ void main()
         vLotColor = vec3(0.0);
         vRoadGlyphs = vec2(aInstanceData0.w, aInstanceData1.x);
         vRoadMasks = vec2(aInstanceData1.y, aInstanceData1.z);
+        vRouteColor = vec3(0.0);
         vSurfaceLift = 0.0;
     } else if (uRenderMode == 4) {
         worldPosition = vec3(
@@ -66,6 +71,7 @@ void main()
         vLotColor = vec3(0.0);
         vRoadGlyphs = aInstanceData1.xy;
         vRoadMasks = vec2(aInstanceData1.w, 0.0);
+        vRouteColor = aInstanceData2.rgb;
         vSurfaceLift = 0.0;
     } else {
         worldPosition = vec3(
@@ -77,6 +83,7 @@ void main()
         vLotColor = vec3(0.0);
         vRoadGlyphs = vec2(0.0);
         vRoadMasks = vec2(0.0);
+        vRouteColor = vec3(0.0);
         vSurfaceLift = 0.0;
     }
 
@@ -98,12 +105,16 @@ uniform vec2 uRoadAtlasGrid;
 uniform float uRoadAlphaScale;
 uniform vec3 uRoadTintColor;
 uniform float uRoadTintStrength;
+uniform float uLotAlphaScale;
+uniform vec3 uLotTintColor;
+uniform float uLotTintStrength;
 
 in vec2 vTileUv;
 in vec2 vLocalUv;
 in vec3 vLotColor;
 in vec2 vRoadGlyphs;
 in vec2 vRoadMasks;
+in vec3 vRouteColor;
 in float vSurfaceLift;
 flat in int vRenderMode;
 
@@ -214,6 +225,12 @@ void main()
         return;
     }
 
+    if (vRenderMode == 1) {
+        vec3 finalColor = mix(vLotColor, uLotTintColor, clamp(uLotTintStrength, 0.0, 1.0));
+        color = vec4(finalColor, clamp(uLotAlphaScale, 0.0, 1.0));
+        return;
+    }
+
     if (vRenderMode == 3) {
         vec4 overlayColor = texture(uTileOverlayTexture, vTileUv);
         if (overlayColor.a <= 0.001) {
@@ -239,7 +256,7 @@ void main()
             discard;
         }
 
-        color = vec4(0.08, 0.95, 0.26, alpha);
+        color = vec4(vRouteColor, alpha);
         return;
     }
 

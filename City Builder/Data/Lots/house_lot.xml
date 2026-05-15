@@ -1,8 +1,14 @@
 <lot id="house_lot">
   <anchor x="0" y="0" />
   <footprint x="0" y="0" width="2" height="4" />
+  <front direction="north" />
   <modules>
+    <moduleRef id="garden_module" x="0" y="0" />
+    <moduleRef id="driveway_module" x="1" y="0" />
     <moduleRef id="house_module" x="0" y="1" />
   </modules>
+  <access>
+    <connection x="0" y="0" modes="pedestrian" />
+    <connection x="1" y="0" modes="car" />
+  </access>
 </lot>
-

@@ -18,6 +18,7 @@ Use this guide when changing road placement, lane topology, road render data, or
 - `RoadRenderState` owns base glyph, arrow glyph, lane graphic mask, and divider packing.
 - `TransportCostMap` owns dense outgoing directional costs, capacities, old/new load buffers, sparse transfer edges, A* scratch reuse, and traffic-overlay generation.
 - `TransportNetwork` owns layer storage, lot-occupancy rejection, dirty tile neighborhoods, chunk revisions, resolved-cell publication, cost-map rebuilding, traffic-overlay publication, and packed ground-road bytes.
+- `Data/TransportNetwork/congestion.xml` owns the utilization-to-speed-multiplier table used when old load turns base lane travel time into congested A* cost.
 
 ## Lane Rules
 - Sidewalks are pedestrian lanes. Crosswalks are not authored lanes; they are pedestrian lane graphics chosen during tile resolution.
@@ -28,16 +29,17 @@ Use this guide when changing road placement, lane topology, road render data, or
 - Perpendicular overlap is allowed as lane coexistence inside the same transport tile. Intersection behavior is resolved afterward from lane adjacency.
 - A resolved tile aggregates lane type masks, surface masks, costs, travel, exits, junction glyphs, lane graphics, and dividers for renderer/query consumers.
 - A pathing lane contributes only the outgoing directions it actually permits. If multiple lanes contribute to the same tile/layer/mode/direction, the cost map keeps the lower cost and accumulates capacity.
+- Local car lane base cost is calibrated as 10 tiles/time at 100 percent capacity. Pedestrian path base cost is 1 tile/time.
 - Ground local sidewalks expose adjacent building access for pedestrian and car spawning. Highways, elevated lanes, underground lanes, and through-only lanes do not expose adjacent building access by default.
 
 ## Pathfinding And Traffic Loads
 - Cost-map nodes use `tile + totalTiles * (mode + modeCount * layer)` so A* can use compact scratch arrays.
 - The cost map stores eight outgoing direction slots. Current road lanes populate cardinal directions; diagonal slots are reserved for future connectors.
 - A* expands movement edges within one layer/mode and sparse transfer edges for mode/layer changes. There is no implicit connection between overlapping layers.
-- Congestion reads immutable old load and writes reassigned traffic into a separate new-load buffer so future per-building path recalculation can run in parallel and reduce deltas afterward.
+- Congestion reads immutable old load, converts `oldLoad / capacity` through the XML speed table, and writes reassigned traffic into a separate new-load buffer so future per-building path recalculation can run in parallel and reduce deltas afterward.
 - Route tie-breaking uses tiny deterministic jitter from the route seed so equivalent alternatives can distribute statistically over repeated sampled updates.
 - The first commute pass routes low-wealth residential demand to compatible low-wealth job destinations, then commits accepted aggregate demand back into road loads and the traffic capacity overlay.
-- Querying a lot can publish coalesced commute route segments; rendering turns those tile/layer/mode/direction segments into green arrows above roads, buildings, and overlays.
+- Querying a lot can publish coalesced commute route segments; rendering turns those tile/layer/mode/direction segments into mode-colored arrows above roads, buildings, and overlays.
 
 ## Crosswalk Rule
 A pedestrian lane renders as a crosswalk only when all of these are true:
@@ -62,6 +64,7 @@ Otherwise the same pedestrian lane remains a sidewalk. This keeps T-section endp
 - Build and run `TransportNetworkTests.vcxproj`.
 - Verify straight one-way and two-way local streets, elevated highways, corners, tees, crosses, same-axis overlap rejection, exact replay revision stability, and lot-road occupancy rejection.
 - Verify directional one-way costs, lower-cost merge behavior, capacity accumulation, no implicit layer connection, explicit transfer edges, load add/subtract, congestion rerouting, and traffic-overlay colors.
+- Verify congestion XML keeps car cost at 10 tiles/time and pedestrian cost at 1 tile/time at 100 percent capacity before applying over-capacity slowdowns.
 - In game, pan away and back after road edits to confirm deferred chunk uploads still catch up when visible.
 
 ## Related Guides

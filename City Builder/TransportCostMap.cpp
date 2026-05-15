@@ -5,7 +5,7 @@
 #include <queue>
 
 namespace {
-const float kCongestionMultiplierLimit = 8.0f;
+const float kMinimumCongestedSpeedMultiplier = 0.01f;
 const float kRouteJitterScale = 0.0001f;
 
 std::uint16_t SaturatingAdd(std::uint16_t left, std::uint16_t right) {
@@ -17,14 +17,39 @@ std::uint16_t SaturatingSubtract(std::uint16_t left, std::uint16_t right) {
     return right > left ? 0u : static_cast<std::uint16_t>(left - right);
 }
 
-float CongestionMultiplier(std::uint16_t load, std::uint16_t capacity) {
+float CongestionSpeedMultiplier(const TransportCongestionCurve& congestionCurve, std::uint16_t load, std::uint16_t capacity) {
     if (capacity == 0u) {
         return 1.0f;
     }
 
     const float utilization = static_cast<float>(load) / static_cast<float>(capacity);
-    const float overage = std::max(0.0f, utilization - 1.0f);
-    return std::min(kCongestionMultiplierLimit, 1.0f + (3.0f * utilization * utilization) + (4.0f * overage));
+    if (congestionCurve.points.empty()) {
+        return 1.0f;
+    }
+
+    if (utilization <= congestionCurve.points.front().utilization) {
+        return std::max(kMinimumCongestedSpeedMultiplier, congestionCurve.points.front().speedMultiplier);
+    }
+
+    std::size_t pointIndex = 1;
+    for (; pointIndex < congestionCurve.points.size(); ++pointIndex) {
+        const TransportCongestionPoint& upperPoint = congestionCurve.points[pointIndex];
+        if (utilization > upperPoint.utilization) {
+            continue;
+        }
+
+        const TransportCongestionPoint& lowerPoint = congestionCurve.points[pointIndex - 1u];
+        const float span = upperPoint.utilization - lowerPoint.utilization;
+        if (span <= 0.0001f) {
+            return std::max(kMinimumCongestedSpeedMultiplier, upperPoint.speedMultiplier);
+        }
+
+        const float t = (utilization - lowerPoint.utilization) / span;
+        const float speedMultiplier = lowerPoint.speedMultiplier + ((upperPoint.speedMultiplier - lowerPoint.speedMultiplier) * t);
+        return std::max(kMinimumCongestedSpeedMultiplier, speedMultiplier);
+    }
+
+    return std::max(kMinimumCongestedSpeedMultiplier, congestionCurve.points.back().speedMultiplier);
 }
 
 struct HeapCompare {
@@ -55,6 +80,25 @@ void TransportCostCell::clearLoads() {
         oldLoads[directionIndex] = 0u;
         newLoads[directionIndex] = 0u;
     }
+}
+
+TransportCongestionPoint::TransportCongestionPoint()
+    : utilization(0.0f),
+      speedMultiplier(1.0f) {
+}
+
+TransportCongestionPoint::TransportCongestionPoint(float utilizationValue, float speedMultiplierValue)
+    : utilization(utilizationValue),
+      speedMultiplier(speedMultiplierValue) {
+}
+
+TransportCongestionCurve::TransportCongestionCurve() {
+    points.push_back(TransportCongestionPoint(0.0f, 1.0f));
+    points.push_back(TransportCongestionPoint(1.0f, 1.0f));
+    points.push_back(TransportCongestionPoint(1.25f, 0.75f));
+    points.push_back(TransportCongestionPoint(1.5f, 0.50f));
+    points.push_back(TransportCongestionPoint(2.0f, 0.25f));
+    points.push_back(TransportCongestionPoint(3.0f, 0.10f));
 }
 
 TransportTransferEdge::TransportTransferEdge()
@@ -328,6 +372,13 @@ void TransportCostMap::collectBuildingAccessNodes(int footprintX, int footprintY
     nodeIds.erase(std::unique(nodeIds.begin(), nodeIds.end()), nodeIds.end());
 }
 
+void TransportCostMap::setCongestionCurve(const TransportCongestionCurve& congestionCurve) {
+    congestionCurve_ = congestionCurve;
+    std::sort(congestionCurve_.points.begin(), congestionCurve_.points.end(), [](const TransportCongestionPoint& left, const TransportCongestionPoint& right) {
+        return left.utilization < right.utilization;
+    });
+}
+
 void TransportCostMap::beginNextLoadFromOldLoad() {
     std::size_t cellIndex = 0;
     for (; cellIndex < cells_.size(); ++cellIndex) {
@@ -582,13 +633,13 @@ bool TransportCostMap::tryNeighborTile(int tileIndex, std::uint8_t roadDirection
 
 float TransportCostMap::movementCostWithCongestion(const TransportCostCell& cell, int directionIndex, std::uint32_t routeSeed, std::uint32_t nodeIdValue) const {
     const float baseCost = static_cast<float>(cell.costs[directionIndex]);
-    return (baseCost * CongestionMultiplier(cell.oldLoads[directionIndex], cell.capacities[directionIndex])) +
+    return (baseCost / CongestionSpeedMultiplier(congestionCurve_, cell.oldLoads[directionIndex], cell.capacities[directionIndex])) +
         routeJitter(routeSeed, nodeIdValue, RoadDirectionFromIndex(directionIndex));
 }
 
 float TransportCostMap::transferCostWithCongestion(const TransportTransferEdge& transferEdge, std::uint32_t routeSeed, std::uint32_t nodeIdValue) const {
     const float baseCost = static_cast<float>(transferEdge.cost);
-    return (baseCost * CongestionMultiplier(transferEdge.oldLoad, transferEdge.capacity)) +
+    return (baseCost / CongestionSpeedMultiplier(congestionCurve_, transferEdge.oldLoad, transferEdge.capacity)) +
         routeJitter(routeSeed, nodeIdValue, transferEdge.toNodeId);
 }
 

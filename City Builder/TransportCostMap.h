@@ -29,6 +29,20 @@ struct TransportCostCell {
     void clearLoads();
 };
 
+struct TransportCongestionPoint {
+    float utilization;
+    float speedMultiplier;
+
+    TransportCongestionPoint();
+    TransportCongestionPoint(float utilizationValue, float speedMultiplierValue);
+};
+
+struct TransportCongestionCurve {
+    std::vector<TransportCongestionPoint> points;
+
+    TransportCongestionCurve();
+};
+
 struct TransportTransferEdge {
     std::uint32_t fromNodeId;
     std::uint32_t toNodeId;
@@ -124,6 +138,7 @@ public:
     void clearTransferEdges();
     void finalizeTransferEdges();
     void collectBuildingAccessNodes(int footprintX, int footprintY, int footprintWidth, int footprintHeight, std::uint8_t allowedModeMask, std::vector<std::uint32_t>& nodeIds) const;
+    void setCongestionCurve(const TransportCongestionCurve& congestionCurve);
 
     void beginNextLoadFromOldLoad();
     void beginNextLoadFromZero();
@@ -148,5 +163,6 @@ private:
     std::vector<TransportCostCell> cells_;
     std::vector<TransportTransferEdge> transferEdges_;
     std::vector<std::uint32_t> transferOffsets_;
+    TransportCongestionCurve congestionCurve_;
     bool transferOffsetsDirty_;
 };

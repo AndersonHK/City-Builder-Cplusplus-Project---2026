@@ -1,8 +1,14 @@
 <lot id="factory_lot">
   <anchor x="0" y="0" />
   <footprint x="0" y="0" width="2" height="2" />
+  <front direction="north" />
   <modules>
     <moduleRef id="warehouse_module" x="0" y="0" />
   </modules>
+  <access>
+    <connection x="0" y="0" direction="north" modes="pedestrian,car" />
+    <connection x="1" y="0" direction="north" modes="pedestrian,car" />
+    <connection x="0" y="1" direction="south" modes="pedestrian,car" />
+    <connection x="1" y="1" direction="south" modes="pedestrian,car" />
+  </access>
 </lot>
-

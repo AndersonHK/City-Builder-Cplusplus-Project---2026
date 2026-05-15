@@ -236,6 +236,10 @@ std::uint64_t TransportNetwork::trafficOverlayRevision() const {
     return trafficOverlayRevision_;
 }
 
+void TransportNetwork::setCongestionCurve(const TransportCongestionCurve& congestionCurve) {
+    costMap_.setCongestionCurve(congestionCurve);
+}
+
 void TransportNetwork::beginTrafficAssignmentFromZero() {
     costMap_.beginNextLoadFromZero();
 }

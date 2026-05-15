@@ -27,6 +27,7 @@ public:
     const std::vector<std::uint64_t>& trafficOverlayChunkRevisions() const;
     std::uint64_t revision() const;
     std::uint64_t trafficOverlayRevision() const;
+    void setCongestionCurve(const TransportCongestionCurve& congestionCurve);
 
     void beginTrafficAssignmentFromZero();
     void applyTrafficPathLoad(const TransportPathResult& pathResult, std::uint16_t demand, bool addLoad);
