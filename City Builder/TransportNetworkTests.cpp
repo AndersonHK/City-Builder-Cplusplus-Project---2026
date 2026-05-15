@@ -319,6 +319,24 @@ std::string SidewalkLaneGrid(const TransportNetwork& network, int minX, int minY
     return grid;
 }
 
+std::string CarLaneGrid(const TransportNetwork& network, int minX, int minY, int maxX, int maxY) {
+    std::string grid;
+    int tileY = minY;
+    for (; tileY <= maxY; ++tileY) {
+        if (tileY > minY) {
+            grid += "\n";
+        }
+
+        int tileX = minX;
+        for (; tileX <= maxX; ++tileX) {
+            const TransportCostCell& cell = CostCellAt(network, TransportLayerId::Ground, TransportMode::Car, tileX, tileY);
+            grid += HexDigit(CostCellDirectionMask(cell));
+        }
+    }
+
+    return grid;
+}
+
 std::string SidewalkEdgeGrid(const TransportNetwork& network, int minX, int minY, int maxX, int maxY) {
     std::string grid;
     int tileY = minY;
@@ -394,6 +412,8 @@ std::string SandboxSnapshot(const std::string& action, const TransportNetwork& n
     snapshot += ResolvedRoadGrid(network, 0, 0, network.width() - 1, network.height() - 1);
     snapshot += "\ncrosswalks:\n";
     snapshot += CrosswalkGrid(network, 0, 0, network.width() - 1, network.height() - 1);
+    snapshot += "\ncar lanes:\n";
+    snapshot += CarLaneGrid(network, 0, 0, network.width() - 1, network.height() - 1);
     snapshot += "\nsidewalk lanes:\n";
     snapshot += SidewalkLaneGrid(network, 0, 0, network.width() - 1, network.height() - 1);
     snapshot += "\nsidewalk edge graphics:\n";
@@ -736,6 +756,9 @@ std::string SandboxGridForExpectation(const RoadToolSandbox& sandbox, const Sand
     }
     if (expectedGrid.kind == "crosswalks") {
         return CrosswalkGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
+    }
+    if (expectedGrid.kind == "car_lanes") {
+        return CarLaneGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
     }
     if (expectedGrid.kind == "sidewalks") {
         return SidewalkLaneGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);

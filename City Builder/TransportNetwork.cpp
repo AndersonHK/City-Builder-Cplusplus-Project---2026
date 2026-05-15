@@ -719,20 +719,6 @@ void TransportNetwork::resolveDirtyTile(TransportLayerId layer, int tileX, int t
     const std::uint8_t junctionMask = buildJunctionMask(layer, tileX, tileY, tile, exitMask);
     const RoadRenderVariant renderVariant = chooseRenderVariantForTile(tile, junctionMask);
     const std::uint8_t baseGlyphJunctionMask = baseGlyphJunctionMaskForTile(tile, renderVariant, junctionMask);
-    if (isSingleAxisDeadEndCapMask(tile, junctionMask)) {
-        const std::uint8_t roadDirectionMask = tile.hasCarAxis(RoadAxis::Horizontal)
-            ? static_cast<std::uint8_t>(kRoadDirectionEast | kRoadDirectionWest)
-            : static_cast<std::uint8_t>(kRoadDirectionNorth | kRoadDirectionSouth);
-        const std::uint8_t connectedRoadDirection = static_cast<std::uint8_t>(junctionMask & roadDirectionMask);
-        if (connectedRoadDirection != 0) {
-            const std::uint8_t capDividerEdge = OppositeCardinal(connectedRoadDirection);
-            if (sameDirectionDividerEdges != 0 && opposingDirectionDividerEdges == 0) {
-                sameDirectionDividerEdges |= capDividerEdge;
-            } else {
-                opposingDirectionDividerEdges |= capDividerEdge;
-            }
-        }
-    }
     const std::uint8_t turnArrowIntentMask = buildTurnArrowIntentMask(layer, tileX, tileY, tile);
     const bool isCarIntersection = tile.hasCarAxis(RoadAxis::Horizontal) &&
         tile.hasCarAxis(RoadAxis::Vertical) &&
@@ -1397,6 +1383,23 @@ std::uint8_t TransportNetwork::pedestrianLaneCrosswalkMask(TransportLayerId laye
         return 0;
     }
 
+    const std::uint8_t pedestrianAxisDirections[] = {
+        pedestrianLane.axis == RoadAxis::Horizontal ? kRoadDirectionEast : kRoadDirectionNorth,
+        pedestrianLane.axis == RoadAxis::Horizontal ? kRoadDirectionWest : kRoadDirectionSouth
+    };
+    std::size_t pedestrianDirectionIndex = 0;
+    for (; pedestrianDirectionIndex < sizeof(pedestrianAxisDirections) / sizeof(pedestrianAxisDirections[0]); ++pedestrianDirectionIndex) {
+        const std::uint8_t pedestrianDirection = pedestrianAxisDirections[pedestrianDirectionIndex];
+        const TransportTile* pedestrianNeighborTile = tileAt(layer, tileX + DeltaXForDirection(pedestrianDirection), tileY + DeltaYForDirection(pedestrianDirection));
+        if (!hasCompatibleNeighborLane(layer, tileX, tileY, pedestrianLane, pedestrianDirection, false) &&
+            deadEndUTurnDirectionForLane(layer, tileX, tileY, pedestrianLane, pedestrianDirection) == 0 &&
+            (pedestrianGraphicMask & pedestrianDirection) == 0 &&
+            pedestrianNeighborTile != 0 &&
+            !pedestrianNeighborTile->empty()) {
+            return 0;
+        }
+    }
+
     std::uint8_t crosswalkMask = 0;
     const std::vector<RoadLanePlacement>& lanes = tile.lanes();
     std::size_t laneIndex = 0;
@@ -1805,8 +1808,23 @@ std::uint8_t TransportNetwork::buildJunctionMask(TransportLayerId layer, int til
                     lanes[laneIndex].axis == axis &&
                     hasNeighborLaneBody(layer, tileX, tileY, lanes[laneIndex], direction)) {
                     const RoadAxis crossingAxis = axis == RoadAxis::Horizontal ? RoadAxis::Vertical : RoadAxis::Horizontal;
+                    const bool neighborIsSameIntersectionBody = neighborTile->hasCarAxis(axis) &&
+                        neighborTile->hasCarAxis(crossingAxis);
+                    const std::uint8_t oppositeDirection = OppositeCardinal(direction);
+                    const TransportTile* oppositeTile = tileAt(
+                        layer,
+                        tileX + DeltaXForDirection(oppositeDirection),
+                        tileY + DeltaYForDirection(oppositeDirection));
+                    const bool oppositeTileIsSameIntersectionBody = oppositeTile != 0 &&
+                        oppositeTile->family() == tile.family() &&
+                        oppositeTile->hasCarAxis(axis) &&
+                        oppositeTile->hasCarAxis(crossingAxis);
+                    const bool connectsFromIntersectionEntryEdge = neighborIsSameIntersectionBody &&
+                        !oppositeTileIsSameIntersectionBody &&
+                        hasCarContinuationBeyondCrossing(layer, tileX, tileY, lanes[laneIndex], oppositeDirection);
                     if (!sameStrokeCarCorner &&
                         tile.hasCarAxis(crossingAxis) &&
+                        !connectsFromIntersectionEntryEdge &&
                         !hasCarContinuationBeyondCrossing(layer, tileX, tileY, lanes[laneIndex], direction)) {
                         continue;
                     }
