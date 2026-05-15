@@ -1,14 +1,18 @@
 #include "AssetLoader.h"
+#include "CrashLogger.h"
 #include "TransportNetwork.h"
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
 
+#include <cctype>
 #include <cstdint>
+#include <cstdlib>
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -54,6 +58,19 @@ RoadStrokeCommand MakeStroke(const Int2& startTile, const Int2& endTile, RoadFam
     RoadStrokeCommand command;
     command.startTile = startTile;
     command.cornerTile = endTile;
+    command.endTile = endTile;
+    command.family = family;
+    command.layer = layer;
+    command.roadTemplate = TransportNetwork::makeRoadTemplate(family, layer, laneCount, RoadTrafficSide::RightHand, directionMode);
+    return command;
+}
+
+RoadStrokeCommand MakeToolDragStroke(const Int2& startTile, const Int2& endTile, RoadFamily family, TransportLayerId layer, RoadDirectionMode directionMode = RoadDirectionMode::TwoWay, int laneCount = 1) {
+    RoadStrokeCommand command;
+    const int deltaX = endTile.x - startTile.x;
+    const int deltaY = endTile.y - startTile.y;
+    command.startTile = startTile;
+    command.cornerTile = std::abs(deltaX) >= std::abs(deltaY) ? Int2(endTile.x, startTile.y) : Int2(startTile.x, endTile.y);
     command.endTile = endTile;
     command.family = family;
     command.layer = layer;
@@ -135,6 +152,554 @@ bool IsTurnArrow(const ResolvedRoadCell& cell) {
     return cell.arrowGlyph != 0 && !IsDebugArrow(cell);
 }
 
+char ActiveCarAxisChar(std::uint8_t axisMask, const ResolvedRoadCell& cell) {
+    const bool horizontal = (axisMask & static_cast<std::uint8_t>(RoadAxis::Horizontal)) != 0;
+    const bool vertical = (axisMask & static_cast<std::uint8_t>(RoadAxis::Vertical)) != 0;
+    if (horizontal && vertical) {
+        if (cell.renderVariant == static_cast<std::uint8_t>(RoadRenderVariant::Corner)) {
+            return 'L';
+        }
+        return '+';
+    }
+    if (horizontal) {
+        return 'H';
+    }
+    if (vertical) {
+        return 'V';
+    }
+    return '.';
+}
+
+std::vector<std::uint8_t> ActiveCarAxisMasks(const TransportNetwork& network) {
+    std::vector<std::uint8_t> axisMasks(network.totalTileCount(), 0);
+    const TransportNetworkSaveState saveState = network.exportSaveState();
+    std::size_t savedTileIndex = 0;
+    for (; savedTileIndex < saveState.tiles.size(); ++savedTileIndex) {
+        const TransportTileSaveState& tile = saveState.tiles[savedTileIndex];
+        if (tile.layer != TransportLayerId::Ground ||
+            tile.tileIndex < 0 ||
+            tile.tileIndex >= static_cast<int>(network.totalTileCount())) {
+            continue;
+        }
+
+        std::size_t laneIndex = 0;
+        for (; laneIndex < tile.lanes.size(); ++laneIndex) {
+            const RoadLanePlacement& lane = tile.lanes[laneIndex];
+            if (lane.active && lane.isCar()) {
+                axisMasks[static_cast<std::size_t>(tile.tileIndex)] |= static_cast<std::uint8_t>(lane.axis);
+            }
+        }
+    }
+
+    return axisMasks;
+}
+
+std::string ActiveCarAxisGrid(const TransportNetwork& network, int minX, int minY, int maxX, int maxY) {
+    const std::vector<std::uint8_t> axisMasks = ActiveCarAxisMasks(network);
+    std::string grid;
+    int tileY = minY;
+    for (; tileY <= maxY; ++tileY) {
+        if (tileY > minY) {
+            grid += "\n";
+        }
+
+        int tileX = minX;
+        for (; tileX <= maxX; ++tileX) {
+            const int index = tileY * network.width() + tileX;
+            grid += ActiveCarAxisChar(axisMasks[static_cast<std::size_t>(index)], CellAt(network, TransportLayerId::Ground, tileX, tileY));
+        }
+    }
+
+    return grid;
+}
+
+char ResolvedCellChar(const ResolvedRoadCell& cell) {
+    if (cell.family == static_cast<std::uint8_t>(RoadFamily::None)) {
+        return '.';
+    }
+
+    const RoadRenderVariant variant = static_cast<RoadRenderVariant>(cell.renderVariant);
+    if (variant == RoadRenderVariant::Corner) {
+        return 'L';
+    }
+    if (variant == RoadRenderVariant::Tee) {
+        return 'T';
+    }
+    if (variant == RoadRenderVariant::Cross) {
+        return '+';
+    }
+    if (variant == RoadRenderVariant::DeadEnd) {
+        return 'D';
+    }
+    if (variant == RoadRenderVariant::Isolated) {
+        return 'I';
+    }
+    if (variant == RoadRenderVariant::Straight) {
+        return (cell.junctionMask & (kRoadDirectionEast | kRoadDirectionWest)) != 0 ? 'H' : 'V';
+    }
+
+    return '?';
+}
+
+std::string ResolvedRoadGrid(const TransportNetwork& network, int minX, int minY, int maxX, int maxY) {
+    std::string grid;
+    int tileY = minY;
+    for (; tileY <= maxY; ++tileY) {
+        if (tileY > minY) {
+            grid += "\n";
+        }
+
+        int tileX = minX;
+        for (; tileX <= maxX; ++tileX) {
+            grid += ResolvedCellChar(CellAt(network, TransportLayerId::Ground, tileX, tileY));
+        }
+    }
+
+    return grid;
+}
+
+std::string CrosswalkGrid(const TransportNetwork& network, int minX, int minY, int maxX, int maxY) {
+    std::string grid;
+    int tileY = minY;
+    for (; tileY <= maxY; ++tileY) {
+        if (tileY > minY) {
+            grid += "\n";
+        }
+
+        int tileX = minX;
+        for (; tileX <= maxX; ++tileX) {
+            grid += CrosswalkEdges(CellAt(network, TransportLayerId::Ground, tileX, tileY)) == 0 ? '.' : 'x';
+        }
+    }
+
+    return grid;
+}
+
+char MaterialCellChar(const ResolvedRoadCell& cell) {
+    const bool hasRoad = (cell.laneTypeMask & kRoadLaneTypeCar) != 0 ||
+        (cell.surfaceMask & kRoadSurfaceAsphalt) != 0;
+    const bool hasSidewalk = SidewalkEdges(cell) != 0 || CrosswalkEdges(cell) != 0;
+    if (hasRoad && hasSidewalk) {
+        return 'B';
+    }
+    if (hasRoad) {
+        return 'R';
+    }
+    if (hasSidewalk) {
+        return 'S';
+    }
+    return '.';
+}
+
+std::string MaterialGrid(const TransportNetwork& network, int minX, int minY, int maxX, int maxY) {
+    std::string grid;
+    int tileY = minY;
+    for (; tileY <= maxY; ++tileY) {
+        if (tileY > minY) {
+            grid += "\n";
+        }
+
+        int tileX = minX;
+        for (; tileX <= maxX; ++tileX) {
+            grid += MaterialCellChar(CellAt(network, TransportLayerId::Ground, tileX, tileY));
+        }
+    }
+
+    return grid;
+}
+
+char HexDigit(std::uint8_t value) {
+    value = static_cast<std::uint8_t>(value & 0x0Fu);
+    return value < 10u ? static_cast<char>('0' + value) : static_cast<char>('A' + (value - 10u));
+}
+
+std::string JunctionMaskGrid(const TransportNetwork& network, int minX, int minY, int maxX, int maxY) {
+    std::string grid;
+    int tileY = minY;
+    for (; tileY <= maxY; ++tileY) {
+        if (tileY > minY) {
+            grid += "\n";
+        }
+
+        int tileX = minX;
+        for (; tileX <= maxX; ++tileX) {
+            grid += HexDigit(CellAt(network, TransportLayerId::Ground, tileX, tileY).junctionMask);
+        }
+    }
+
+    return grid;
+}
+
+std::string SandboxSnapshot(const std::string& action, const TransportNetwork& network) {
+    std::string snapshot = action;
+    snapshot += "\nactive car axes:\n";
+    snapshot += ActiveCarAxisGrid(network, 0, 0, network.width() - 1, network.height() - 1);
+    snapshot += "\nresolved road:\n";
+    snapshot += ResolvedRoadGrid(network, 0, 0, network.width() - 1, network.height() - 1);
+    snapshot += "\ncrosswalks:\n";
+    snapshot += CrosswalkGrid(network, 0, 0, network.width() - 1, network.height() - 1);
+    snapshot += "\nmaterials:\n";
+    snapshot += MaterialGrid(network, 0, 0, network.width() - 1, network.height() - 1);
+    snapshot += "\njunction masks:\n";
+    snapshot += JunctionMaskGrid(network, 0, 0, network.width() - 1, network.height() - 1);
+    return snapshot;
+}
+
+struct RoadToolSandbox {
+    TransportNetwork network;
+    std::vector<int> lotOccupancy;
+    std::vector<std::string> snapshots;
+
+    RoadToolSandbox(int width, int height)
+        : lotOccupancy(static_cast<std::size_t>(width * height), kInvalidLotId) {
+        network.initialize(width, height, SingleChunkLayout(width, height));
+    }
+
+    bool dragStreet(const Int2& startTile, const Int2& endTile, int laneCount = 1, RoadDirectionMode directionMode = RoadDirectionMode::TwoWay) {
+        const RoadStrokeCommand command = MakeToolDragStroke(startTile, endTile, RoadFamily::LocalStreet, TransportLayerId::Ground, directionMode, laneCount);
+        const bool placed = Place(network, command, lotOccupancy);
+        std::string action = "drag street ";
+        action += std::to_string(startTile.x) + "," + std::to_string(startTile.y);
+        action += " -> " + std::to_string(endTile.x) + "," + std::to_string(endTile.y);
+        action += " corner " + std::to_string(command.cornerTile.x) + "," + std::to_string(command.cornerTile.y);
+        action += placed ? " accepted" : " rejected";
+        snapshots.push_back(SandboxSnapshot(action, network));
+        return placed;
+    }
+
+    bool bulldoze(int tileX, int tileY) {
+        const bool removed = network.removeRoadAtTile(tileX, tileY);
+        std::string action = "bulldoze ";
+        action += std::to_string(tileX) + "," + std::to_string(tileY);
+        action += removed ? " accepted" : " rejected";
+        snapshots.push_back(SandboxSnapshot(action, network));
+        return removed;
+    }
+
+    std::string log() const {
+        std::string result;
+        std::size_t snapshotIndex = 0;
+        for (; snapshotIndex < snapshots.size(); ++snapshotIndex) {
+            if (!result.empty()) {
+                result += "\n\n";
+            }
+            result += snapshots[snapshotIndex];
+        }
+
+        return result;
+    }
+};
+
+void ExpectTextEqual(TestRunner& runner, const std::string& actual, const std::string& expected, const std::string& name, const RoadToolSandbox& sandbox) {
+    if (actual == expected) {
+        runner.expect(true, name);
+        return;
+    }
+
+    runner.expect(false, name + "\nExpected:\n" + expected + "\nActual:\n" + actual + "\nSandbox log:\n" + sandbox.log());
+}
+
+std::string TrimString(const std::string& text) {
+    std::size_t startIndex = 0;
+    while (startIndex < text.size() && std::isspace(static_cast<unsigned char>(text[startIndex])) != 0) {
+        ++startIndex;
+    }
+
+    std::size_t endIndex = text.size();
+    while (endIndex > startIndex && std::isspace(static_cast<unsigned char>(text[endIndex - 1])) != 0) {
+        --endIndex;
+    }
+
+    return text.substr(startIndex, endIndex - startIndex);
+}
+
+bool StartsWith(const std::string& text, const std::string& prefix) {
+    return text.size() >= prefix.size() && text.compare(0, prefix.size(), prefix) == 0;
+}
+
+struct SandboxBounds {
+    int minX;
+    int minY;
+    int maxX;
+    int maxY;
+
+    SandboxBounds()
+        : minX(0),
+          minY(0),
+          maxX(15),
+          maxY(15) {
+    }
+};
+
+struct SandboxExpectedGrid {
+    std::string kind;
+    SandboxBounds bounds;
+    std::string grid;
+};
+
+struct SandboxAction {
+    bool isBulldoze;
+    Int2 startTile;
+    Int2 endTile;
+    int laneCount;
+    RoadDirectionMode directionMode;
+
+    SandboxAction()
+        : isBulldoze(false),
+          startTile(0, 0),
+          endTile(0, 0),
+          laneCount(1),
+          directionMode(RoadDirectionMode::TwoWay) {
+    }
+};
+
+struct SandboxFixture {
+    std::string name;
+    std::string description;
+    int width;
+    int height;
+    std::vector<SandboxAction> actions;
+    std::vector<SandboxExpectedGrid> expectedGrids;
+
+    SandboxFixture()
+        : width(16),
+          height(16) {
+    }
+};
+
+std::string ReadWholeFile(const std::string& path) {
+    std::ifstream stream(path.c_str(), std::ios::in | std::ios::binary);
+    if (!stream) {
+        return std::string();
+    }
+
+    std::ostringstream builder;
+    builder << stream.rdbuf();
+    return builder.str();
+}
+
+std::vector<std::string> ReadFixtureLines(const std::string& path) {
+    std::vector<std::string> lines;
+    std::ifstream stream(path.c_str(), std::ios::in | std::ios::binary);
+    if (!stream) {
+        return lines;
+    }
+
+    std::string line;
+    while (std::getline(stream, line)) {
+        if (!line.empty() && line[line.size() - 1] == '\r') {
+            line.erase(line.size() - 1);
+        }
+
+        lines.push_back(line);
+    }
+
+    return lines;
+}
+
+std::string FixturePath(const std::string& relativePath) {
+    if (!ReadWholeFile(relativePath).empty()) {
+        return relativePath;
+    }
+
+    return "City Builder\\" + relativePath;
+}
+
+RoadDirectionMode ParseDirectionMode(const std::string& token) {
+    if (token == "one_way_forward") {
+        return RoadDirectionMode::OneWayForward;
+    }
+    if (token == "one_way_reverse") {
+        return RoadDirectionMode::OneWayReverse;
+    }
+
+    return RoadDirectionMode::TwoWay;
+}
+
+SandboxAction ParseSandboxAction(const std::string& line) {
+    std::istringstream stream(line);
+    std::string command;
+    stream >> command;
+
+    SandboxAction action;
+    if (command == "drag") {
+        int startX = 0;
+        int startY = 0;
+        int endX = 0;
+        int endY = 0;
+        stream >> startX >> startY >> endX >> endY;
+        action.startTile = Int2(startX, startY);
+        action.endTile = Int2(endX, endY);
+
+        std::string token;
+        while (stream >> token) {
+            if (StartsWith(token, "lanes=")) {
+                action.laneCount = std::atoi(token.substr(6).c_str());
+            } else if (StartsWith(token, "mode=")) {
+                action.directionMode = ParseDirectionMode(token.substr(5));
+            }
+        }
+    } else if (command == "bulldoze") {
+        int tileX = 0;
+        int tileY = 0;
+        stream >> tileX >> tileY;
+        action.isBulldoze = true;
+        action.startTile = Int2(tileX, tileY);
+    }
+
+    return action;
+}
+
+bool ParseExpectedHeader(const std::string& line, SandboxExpectedGrid& expectedGrid) {
+    std::string header = line.substr(std::string("expect ").size());
+    if (!header.empty() && header[header.size() - 1] == ':') {
+        header.erase(header.size() - 1);
+    }
+
+    std::istringstream stream(header);
+    stream >> expectedGrid.kind;
+    if (expectedGrid.kind.empty()) {
+        return false;
+    }
+
+    stream >> expectedGrid.bounds.minX >> expectedGrid.bounds.minY >> expectedGrid.bounds.maxX >> expectedGrid.bounds.maxY;
+    return true;
+}
+
+SandboxFixture LoadSandboxFixture(const std::string& path) {
+    SandboxFixture fixture;
+    const std::vector<std::string> lines = ReadFixtureLines(path);
+    std::size_t lineIndex = 0;
+    while (lineIndex < lines.size()) {
+        const std::string line = TrimString(lines[lineIndex]);
+        if (line.empty() || StartsWith(line, "#")) {
+            ++lineIndex;
+            continue;
+        }
+
+        if (StartsWith(line, "name:")) {
+            fixture.name = TrimString(line.substr(5));
+            ++lineIndex;
+            continue;
+        }
+
+        if (StartsWith(line, "size:")) {
+            std::istringstream stream(line.substr(5));
+            stream >> fixture.width >> fixture.height;
+            ++lineIndex;
+            continue;
+        }
+
+        if (line == "description:") {
+            ++lineIndex;
+            while (lineIndex < lines.size() && TrimString(lines[lineIndex]) != "end") {
+                if (!fixture.description.empty()) {
+                    fixture.description += "\n";
+                }
+                fixture.description += lines[lineIndex];
+                ++lineIndex;
+            }
+            if (lineIndex < lines.size()) {
+                ++lineIndex;
+            }
+            continue;
+        }
+
+        if (line == "actions:") {
+            ++lineIndex;
+            while (lineIndex < lines.size() && TrimString(lines[lineIndex]) != "end") {
+                const std::string actionLine = TrimString(lines[lineIndex]);
+                if (!actionLine.empty() && !StartsWith(actionLine, "#")) {
+                    fixture.actions.push_back(ParseSandboxAction(actionLine));
+                }
+                ++lineIndex;
+            }
+            if (lineIndex < lines.size()) {
+                ++lineIndex;
+            }
+            continue;
+        }
+
+        if (StartsWith(line, "expect ")) {
+            SandboxExpectedGrid expectedGrid;
+            if (ParseExpectedHeader(line, expectedGrid)) {
+                ++lineIndex;
+                while (lineIndex < lines.size() && TrimString(lines[lineIndex]) != "end") {
+                    if (!expectedGrid.grid.empty()) {
+                        expectedGrid.grid += "\n";
+                    }
+                    expectedGrid.grid += lines[lineIndex];
+                    ++lineIndex;
+                }
+                fixture.expectedGrids.push_back(expectedGrid);
+            }
+            if (lineIndex < lines.size()) {
+                ++lineIndex;
+            }
+            continue;
+        }
+
+        ++lineIndex;
+    }
+
+    return fixture;
+}
+
+std::string SandboxGridForExpectation(const RoadToolSandbox& sandbox, const SandboxExpectedGrid& expectedGrid) {
+    if (expectedGrid.kind == "active_car_axes") {
+        return ActiveCarAxisGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
+    }
+    if (expectedGrid.kind == "resolved") {
+        return ResolvedRoadGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
+    }
+    if (expectedGrid.kind == "crosswalks") {
+        return CrosswalkGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
+    }
+    if (expectedGrid.kind == "materials") {
+        return MaterialGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
+    }
+    if (expectedGrid.kind == "junctions") {
+        return JunctionMaskGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
+    }
+
+    return std::string();
+}
+
+void RunSandboxFixture(TestRunner& runner, const std::string& path) {
+    const SandboxFixture fixture = LoadSandboxFixture(path);
+    runner.expect(!fixture.name.empty(), "sandbox fixture has a name: " + path);
+    runner.expect(!fixture.actions.empty(), "sandbox fixture has tool actions: " + path);
+    runner.expect(!fixture.expectedGrids.empty(), "sandbox fixture has expected grids: " + path);
+    if (fixture.name.empty() || fixture.actions.empty() || fixture.expectedGrids.empty()) {
+        return;
+    }
+
+    RoadToolSandbox sandbox(fixture.width, fixture.height);
+    std::size_t actionIndex = 0;
+    for (; actionIndex < fixture.actions.size(); ++actionIndex) {
+        const SandboxAction& action = fixture.actions[actionIndex];
+        const bool applied = action.isBulldoze
+            ? sandbox.bulldoze(action.startTile.x, action.startTile.y)
+            : sandbox.dragStreet(action.startTile, action.endTile, action.laneCount, action.directionMode);
+        runner.expect(applied, "sandbox fixture action applies: " + fixture.name + " action " + std::to_string(actionIndex));
+        if (!applied) {
+            return;
+        }
+    }
+
+    std::size_t expectedIndex = 0;
+    for (; expectedIndex < fixture.expectedGrids.size(); ++expectedIndex) {
+        const SandboxExpectedGrid& expectedGrid = fixture.expectedGrids[expectedIndex];
+        const std::string actual = SandboxGridForExpectation(sandbox, expectedGrid);
+        ExpectTextEqual(
+            runner,
+            actual,
+            expectedGrid.grid,
+            "sandbox fixture grid matches: " + fixture.name + " " + expectedGrid.kind + "\nExpected topology:\n" + fixture.description,
+            sandbox);
+    }
+}
+
 void ExpectCarCostsStayWithinJunctionMask(TestRunner& runner, const TransportNetwork& network, int tileX, int tileY, const std::string& name) {
     const ResolvedRoadCell& cell = CellAt(network, TransportLayerId::Ground, tileX, tileY);
     const TransportCostCell& costCell = CostCellAt(network, TransportLayerId::Ground, TransportMode::Car, tileX, tileY);
@@ -177,6 +742,16 @@ bool SameResolvedCell(const ResolvedRoadCell& first, const ResolvedRoadCell& sec
         first.junctionMask == second.junctionMask &&
         first.renderVariant == second.renderVariant &&
         first.laneTypeCosts == second.laneTypeCosts;
+}
+
+std::string ResolvedCellSummary(const ResolvedRoadCell& cell) {
+    return "variant=" + std::to_string(static_cast<int>(cell.renderVariant)) +
+        " junction=" + std::to_string(static_cast<int>(cell.junctionMask)) +
+        " exit=" + std::to_string(static_cast<int>(cell.exitMask)) +
+        " surfaceEdges=" + std::to_string(static_cast<int>(cell.surfaceEdgeMask)) +
+        " divider=" + std::to_string(static_cast<int>(cell.dividerMask)) +
+        " laneTypes=" + std::to_string(static_cast<int>(cell.laneTypeMask)) +
+        " travel=" + std::to_string(static_cast<int>(cell.travelMask));
 }
 
 const LotModule* FindModule(const LoadedGameAssets& assets, const std::string& id) {
@@ -234,6 +809,11 @@ std::string MakeTempAssetDirectory(const std::string& name) {
     return root;
 }
 
+bool DirectoryExists(const std::string& path) {
+    const DWORD attributes = GetFileAttributesA(path.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+}
+
 bool InvalidAssetsRejected(const std::string& moduleXml, const std::string& lotXml, const CityParameterRegistry& registry) {
     const std::string root = MakeTempAssetDirectory("CityBuilderAssetInvalid");
     WriteTextAssetFile(root + "\\Modules\\test_module.xml", moduleXml);
@@ -241,6 +821,7 @@ bool InvalidAssetsRejected(const std::string& moduleXml, const std::string& lotX
 
     LoadedGameAssets assets;
     std::string errorMessage;
+    ScopedCrashLogSuppression suppressExpectedAssetErrors;
     return !LoadGameAssets(root, registry, assets, errorMessage) && !errorMessage.empty();
 }
 
@@ -303,7 +884,7 @@ void TestPerpendicularCrosswalkIsOrderIndependent(TestRunner& runner) {
     runner.expect((crossingCell.surfaceMask & kRoadSurfaceCrosswalk) != 0, "reverse cross advertises crosswalk surface");
 }
 
-void TestTSectionThroughSidewalkRendersCrosswalkAcrossSideStreetMouth(TestRunner& runner) {
+void TestTSectionDoesNotPaintHalfCrosswalk(TestRunner& runner) {
     TransportNetwork network = MakeNetwork(12, 12);
     std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
 
@@ -314,14 +895,13 @@ void TestTSectionThroughSidewalkRendersCrosswalkAcrossSideStreetMouth(TestRunner
     const ResolvedRoadCell& mainSouthCell = CellAt(network, TransportLayerId::Ground, 5, 6);
     const ResolvedRoadCell& mainSouthEastCell = CellAt(network, TransportLayerId::Ground, 6, 6);
 
-    runner.expect((CrosswalkEdges(teeCell) & kRoadDirectionNorth) != 0, "t-section through sidewalk renders crosswalk at side-street mouth");
-    runner.expect((CrosswalkEdges(teeCellEast) & kRoadDirectionNorth) != 0, "t-section through sidewalk crosswalk spans the side-street mouth");
-    runner.expect((CrosswalkEdges(mainSouthCell) & kRoadDirectionSouth) == 0, "t-section far-side main-road body remains sidewalk");
-    runner.expect((CrosswalkEdges(mainSouthEastCell) & kRoadDirectionSouth) == 0, "t-section far-side adjacent body remains sidewalk");
-    runner.expect((SidewalkEdges(mainSouthCell) & kRoadDirectionSouth) != 0, "t-section far-side main-road sidewalk remains visible");
+    runner.expect(CrosswalkEdges(teeCell) == 0, "t-section endpoint does not render half crosswalk");
+    runner.expect(CrosswalkEdges(teeCellEast) == 0, "t-section adjacent endpoint tile does not render half crosswalk");
+    runner.expect(CrosswalkEdges(mainSouthCell) == 0, "t-section main-road second body tile stays sidewalk");
+    runner.expect(CrosswalkEdges(mainSouthEastCell) == 0, "t-section main-road second adjacent body tile stays sidewalk");
     runner.expect((SidewalkEdges(teeCell) & kRoadDirectionWest) == 0, "t-section does not create west sidewalk halfway across main road");
     runner.expect((SidewalkEdges(teeCellEast) & kRoadDirectionEast) == 0, "t-section does not create east sidewalk halfway across main road");
-    runner.expect((SidewalkEdges(teeCell) & kRoadDirectionNorth) == 0, "t-section replaces through sidewalk with crosswalk at the road mouth");
+    runner.expect((SidewalkEdges(teeCell) & kRoadDirectionNorth) != 0, "t-section keeps through main-road sidewalk");
 }
 
 void TestJoggedSidewalkDoesNotBecomeCrosswalk(TestRunner& runner) {
@@ -354,6 +934,22 @@ void TestCornerDoesNotRenderCrosswalks(TestRunner& runner) {
     runner.expect(CrosswalkEdges(CellAt(network, TransportLayerId::Ground, 6, 5)) == 0, "corner northeast tile has no crosswalk");
     runner.expect(CrosswalkEdges(CellAt(network, TransportLayerId::Ground, 5, 6)) == 0, "corner southwest tile has no crosswalk");
     runner.expect(CrosswalkEdges(CellAt(network, TransportLayerId::Ground, 6, 6)) == 0, "corner southeast tile has no crosswalk");
+}
+
+void TestRoadToolSandboxFixtureCases(TestRunner& runner) {
+    const char* fixturePaths[] = {
+        "Data\\TransportNetwork\\SandboxCases\\dead_end.txt",
+        "Data\\TransportNetwork\\SandboxCases\\l_corner.txt",
+        "Data\\TransportNetwork\\SandboxCases\\l_corner_up2_right1.txt",
+        "Data\\TransportNetwork\\SandboxCases\\t_section.txt",
+        "Data\\TransportNetwork\\SandboxCases\\four_way.txt",
+        "Data\\TransportNetwork\\SandboxCases\\wide_deleted_approach.txt"
+    };
+
+    std::size_t fixtureIndex = 0;
+    for (; fixtureIndex < sizeof(fixturePaths) / sizeof(fixturePaths[0]); ++fixtureIndex) {
+        RunSandboxFixture(runner, FixturePath(fixturePaths[fixtureIndex]));
+    }
 }
 
 void TestTurnArrowsRenderAheadOfIntersectionsOnly(TestRunner& runner) {
@@ -419,7 +1015,7 @@ void TestSingleStrokeCornerCleanupUsesValidCornerMasks(TestRunner& runner) {
     runner.expect(Place(network, command, lotOccupancy), "single-stroke corner placement succeeds");
 
     const int cornerTiles[][2] = {
-        {5, 5},
+        {6, 5},
         {5, 6}
     };
 
@@ -464,6 +1060,52 @@ void TestRemoveRoadTileClearsFourTileFootprint(TestRunner& runner) {
     }
 }
 
+void TestRemovingApproachDoesNotLeavePartialIntersectionCrosswalk(TestRunner& runner) {
+    TransportNetwork network = MakeNetwork(12, 12);
+    std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(network, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "partial intersection base horizontal placement succeeds");
+    runner.expect(Place(network, MakeStroke(Int2(5, 2), Int2(5, 8), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "partial intersection base vertical placement succeeds");
+    runner.expect(network.removeRoadAtTile(5, 4), "partial intersection approach removal succeeds");
+
+    const int intersectionTiles[][2] = {
+        {5, 5},
+        {6, 5},
+        {5, 6},
+        {6, 6}
+    };
+
+    std::size_t tileIndex = 0;
+    for (; tileIndex < sizeof(intersectionTiles) / sizeof(intersectionTiles[0]); ++tileIndex) {
+        const ResolvedRoadCell& cell = CellAt(network, TransportLayerId::Ground, intersectionTiles[tileIndex][0], intersectionTiles[tileIndex][1]);
+        runner.expect(
+            CrosswalkEdges(cell) == 0,
+            "removed approach does not leave partial-intersection crosswalk at " +
+                std::to_string(intersectionTiles[tileIndex][0]) + "," +
+                std::to_string(intersectionTiles[tileIndex][1]) +
+                " mask " + std::to_string(static_cast<int>(CrosswalkEdges(cell))));
+    }
+}
+
+void TestWideRoadCleanupPropagatesAcrossIntersectionBody(TestRunner& runner) {
+    TransportNetwork network = MakeNetwork(20, 20);
+    std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(network, MakeStroke(Int2(2, 8), Int2(16, 8), RoadFamily::LocalStreet, TransportLayerId::Ground, RoadDirectionMode::TwoWay, 2), lotOccupancy), "wide partial intersection horizontal avenue placement succeeds");
+    runner.expect(Place(network, MakeStroke(Int2(8, 2), Int2(8, 16), RoadFamily::LocalStreet, TransportLayerId::Ground, RoadDirectionMode::TwoWay, 2), lotOccupancy), "wide partial intersection vertical avenue placement succeeds");
+    runner.expect(network.removeRoadAtTile(8, 7), "wide partial intersection north approach removal succeeds");
+
+    int tileY = 8;
+    for (; tileY <= 11; ++tileY) {
+        int tileX = 8;
+        for (; tileX <= 11; ++tileX) {
+            const ResolvedRoadCell& cell = CellAt(network, TransportLayerId::Ground, tileX, tileY);
+            runner.expect(CrosswalkEdges(cell) == 0, "wide cleanup removes crosswalks from whole intersection body");
+            runner.expect((cell.junctionMask & kRoadDirectionNorth) == 0, "wide cleanup does not keep a corrected-through north lane");
+        }
+    }
+}
+
 void TestCornerUpgradeMatchesDirectFourWay(TestRunner& runner) {
     TransportNetwork directNetwork = MakeNetwork(12, 12);
     TransportNetwork upgradedNetwork = MakeNetwork(12, 12);
@@ -497,8 +1139,12 @@ void TestCornerUpgradeMatchesDirectFourWay(TestRunner& runner) {
         const int tileY = testTiles[testTileIndex][1];
         const ResolvedRoadCell& directCell = CellAt(directNetwork, TransportLayerId::Ground, tileX, tileY);
         const ResolvedRoadCell& upgradedCell = CellAt(upgradedNetwork, TransportLayerId::Ground, tileX, tileY);
-        runner.expect(SameResolvedCell(directCell, upgradedCell), "corner upgrade resolved tile matches direct four-way");
-        runner.expect(CrosswalkEdges(upgradedCell) == CrosswalkEdges(directCell), "corner upgrade crosswalk graphics match direct four-way");
+        runner.expect(
+            SameResolvedCell(directCell, upgradedCell),
+            "corner upgrade resolved tile matches direct four-way at " + std::to_string(tileX) + "," + std::to_string(tileY) +
+                "\ndirect: " + ResolvedCellSummary(directCell) +
+                "\nupgraded: " + ResolvedCellSummary(upgradedCell));
+        runner.expect(CrosswalkEdges(upgradedCell) == CrosswalkEdges(directCell), "corner upgrade crosswalk graphics match direct four-way at " + std::to_string(tileX) + "," + std::to_string(tileY));
     }
 }
 
@@ -535,8 +1181,12 @@ void TestCornerUpgradeWithOnlyMissingArmsMatchesDirectFourWay(TestRunner& runner
         const int tileY = testTiles[testTileIndex][1];
         const ResolvedRoadCell& directCell = CellAt(directNetwork, TransportLayerId::Ground, tileX, tileY);
         const ResolvedRoadCell& upgradedCell = CellAt(upgradedNetwork, TransportLayerId::Ground, tileX, tileY);
-        runner.expect(SameResolvedCell(directCell, upgradedCell), "missing-arm corner upgrade resolved tile matches direct four-way");
-        runner.expect(CrosswalkEdges(upgradedCell) == CrosswalkEdges(directCell), "missing-arm corner upgrade crosswalk graphics match direct four-way");
+        runner.expect(
+            SameResolvedCell(directCell, upgradedCell),
+            "missing-arm corner upgrade resolved tile matches direct four-way at " + std::to_string(tileX) + "," + std::to_string(tileY) +
+                "\ndirect: " + ResolvedCellSummary(directCell) +
+                "\nupgraded: " + ResolvedCellSummary(upgradedCell));
+        runner.expect(CrosswalkEdges(upgradedCell) == CrosswalkEdges(directCell), "missing-arm corner upgrade crosswalk graphics match direct four-way at " + std::to_string(tileX) + "," + std::to_string(tileY));
     }
 }
 
@@ -829,12 +1479,20 @@ void TestFactoryHouseAssetsAndParameters(TestRunner& runner) {
     CityParameterRegistry registry;
     LoadedGameAssets assets;
     std::string errorMessage;
-    bool loaded = LoadGameAssets("Data", registry, assets, errorMessage);
-    if (!loaded) {
-        loaded = LoadGameAssets("City Builder\\Data", registry, assets, errorMessage);
+    bool loaded = false;
+    const char* dataDirectories[] = {
+        "Data",
+        "City Builder\\Data"
+    };
+
+    std::size_t dataDirectoryIndex = 0;
+    for (; !loaded && dataDirectoryIndex < sizeof(dataDirectories) / sizeof(dataDirectories[0]); ++dataDirectoryIndex) {
+        if (DirectoryExists(dataDirectories[dataDirectoryIndex])) {
+            loaded = LoadGameAssets(dataDirectories[dataDirectoryIndex], registry, assets, errorMessage);
+        }
     }
 
-    runner.expect(loaded, "factory/house XML assets load");
+    runner.expect(loaded, "factory/house XML assets load" + (errorMessage.empty() ? std::string() : "\nLoader error: " + errorMessage));
     if (!loaded) {
         return;
     }
@@ -1043,13 +1701,16 @@ int main() {
     TestOneWayLocalStreet(runner);
     TestPerpendicularCrosswalkRequiresLaneContinuation(runner);
     TestPerpendicularCrosswalkIsOrderIndependent(runner);
-    TestTSectionThroughSidewalkRendersCrosswalkAcrossSideStreetMouth(runner);
+    TestTSectionDoesNotPaintHalfCrosswalk(runner);
     TestJoggedSidewalkDoesNotBecomeCrosswalk(runner);
     TestCornerDoesNotRenderCrosswalks(runner);
+    TestRoadToolSandboxFixtureCases(runner);
     TestTurnArrowsRenderAheadOfIntersectionsOnly(runner);
     TestSingleStrokeCornerCleanupUsesValidCornerMasks(runner);
     TestRemoveRoadTileClearsTwoTileFootprint(runner);
     TestRemoveRoadTileClearsFourTileFootprint(runner);
+    TestRemovingApproachDoesNotLeavePartialIntersectionCrosswalk(runner);
+    TestWideRoadCleanupPropagatesAcrossIntersectionBody(runner);
     TestCornerUpgradeMatchesDirectFourWay(runner);
     TestCornerUpgradeWithOnlyMissingArmsMatchesDirectFourWay(runner);
     TestOpposingStubsDoNotConnectAcrossTwoLaneRoad(runner);

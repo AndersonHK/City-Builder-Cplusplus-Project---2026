@@ -16,6 +16,7 @@
 namespace {
 std::mutex gCrashLogMutex;
 std::string gApplicationName = "City Builder";
+int gCrashLogSuppressionDepth = 0;
 thread_local std::string gCurrentCrashScope = "unknown";
 
 std::string GetExecutableDirectory() {
@@ -70,6 +71,10 @@ void WriteLine(const std::string& severity, const std::string& scope, const std:
     const std::string line = SeverityLine(severity, scope, message);
 
     std::lock_guard<std::mutex> lock(gCrashLogMutex);
+    if (gCrashLogSuppressionDepth > 0) {
+        return;
+    }
+
     std::cerr << line << std::endl;
 
     std::ofstream log(CrashLogFilePath().c_str(), std::ios::out | std::ios::app);
@@ -128,6 +133,23 @@ CrashScope::CrashScope(const char* scopeName)
 
 CrashScope::~CrashScope() {
     gCurrentCrashScope = previousScope_;
+}
+
+ScopedCrashLogSuppression::ScopedCrashLogSuppression()
+    : active_(true) {
+    std::lock_guard<std::mutex> lock(gCrashLogMutex);
+    ++gCrashLogSuppressionDepth;
+}
+
+ScopedCrashLogSuppression::~ScopedCrashLogSuppression() {
+    if (!active_) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(gCrashLogMutex);
+    if (gCrashLogSuppressionDepth > 0) {
+        --gCrashLogSuppressionDepth;
+    }
 }
 
 void InitializeCrashLogger(const std::string& applicationName) {

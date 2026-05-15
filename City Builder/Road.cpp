@@ -21,6 +21,77 @@ bool IsTileInsideMap(int tileX, int tileY, int mapWidth, int mapHeight) {
 bool LaneRoleUsesDirectedFlow(RoadLaneRole laneRole) {
     return laneRole == RoadLaneRole::Through || laneRole == RoadLaneRole::Turn || laneRole == RoadLaneRole::Transit;
 }
+
+RoadAxis AxisBetween(const Int2& startTile, const Int2& endTile) {
+    if (startTile == endTile) {
+        return RoadAxis::None;
+    }
+    if (startTile.y == endTile.y) {
+        return RoadAxis::Horizontal;
+    }
+    if (startTile.x == endTile.x) {
+        return RoadAxis::Vertical;
+    }
+    return RoadAxis::None;
+}
+
+std::uint8_t DirectionBetween(const Int2& startTile, const Int2& endTile) {
+    if (startTile.y == endTile.y) {
+        return startTile.x <= endTile.x ? kRoadDirectionEast : kRoadDirectionWest;
+    }
+    if (startTile.x == endTile.x) {
+        return startTile.y <= endTile.y ? kRoadDirectionSouth : kRoadDirectionNorth;
+    }
+    return 0;
+}
+
+bool DirectionIsPositive(std::uint8_t direction) {
+    return direction == kRoadDirectionEast || direction == kRoadDirectionSouth;
+}
+
+int AxisCoordinate(const Int2& tile, RoadAxis axis) {
+    return axis == RoadAxis::Horizontal ? tile.x : tile.y;
+}
+
+void SetAxisCoordinate(Int2& tile, RoadAxis axis, int coordinate) {
+    if (axis == RoadAxis::Horizontal) {
+        tile.x = coordinate;
+    } else if (axis == RoadAxis::Vertical) {
+        tile.y = coordinate;
+    }
+}
+
+int DistanceToHorizontalSide(int localX, int footprint, std::uint8_t outsideDirection) {
+    return outsideDirection == kRoadDirectionEast ? footprint - 1 - localX : localX;
+}
+
+int DistanceToVerticalSide(int localY, int footprint, std::uint8_t outsideDirection) {
+    return outsideDirection == kRoadDirectionSouth ? footprint - 1 - localY : localY;
+}
+
+bool CornerWantsCarAxis(const RoadTilePlacement& placement, const Int2& cornerTile, int footprint, std::uint8_t horizontalOutsideDirection, std::uint8_t verticalOutsideDirection) {
+    if (!placement.lanePlacement.isCar()) {
+        return true;
+    }
+    if (placement.tileX < cornerTile.x ||
+        placement.tileX >= cornerTile.x + footprint ||
+        placement.tileY < cornerTile.y ||
+        placement.tileY >= cornerTile.y + footprint) {
+        return true;
+    }
+
+    const int localX = placement.tileX - cornerTile.x;
+    const int localY = placement.tileY - cornerTile.y;
+    const int horizontalDistance = DistanceToHorizontalSide(localX, footprint, horizontalOutsideDirection);
+    const int verticalDistance = DistanceToVerticalSide(localY, footprint, verticalOutsideDirection);
+    if (placement.lanePlacement.axis == RoadAxis::Horizontal) {
+        return horizontalDistance <= verticalDistance;
+    }
+    if (placement.lanePlacement.axis == RoadAxis::Vertical) {
+        return verticalDistance <= horizontalDistance;
+    }
+    return true;
+}
 }
 
 RoadTemplate::RoadTemplate()
@@ -67,6 +138,44 @@ const RoadTemplate& Road::templateData() const {
 }
 
 bool Road::appendStrokePlacements(const Int2& startTile, const Int2& cornerTile, const Int2& endTile, int mapWidth, int mapHeight, std::vector<RoadTilePlacement>& placements) const {
+    const RoadAxis firstAxis = AxisBetween(startTile, cornerTile);
+    const RoadAxis secondAxis = AxisBetween(cornerTile, endTile);
+    const int footprint = chooseTemplateFootprint(roadTemplate_);
+    if (firstAxis != RoadAxis::None && secondAxis != RoadAxis::None && firstAxis != secondAxis && footprint > 1) {
+        const std::uint8_t firstDirection = DirectionBetween(startTile, cornerTile);
+        const std::uint8_t secondDirection = DirectionBetween(cornerTile, endTile);
+        Int2 adjustedFirstCornerTile = cornerTile;
+        if (DirectionIsPositive(firstDirection)) {
+            SetAxisCoordinate(adjustedFirstCornerTile, firstAxis, AxisCoordinate(cornerTile, firstAxis) + footprint - 1);
+        }
+
+        Int2 adjustedEndTile = endTile;
+        if (DirectionIsPositive(secondDirection)) {
+            adjustedEndTile.x = secondAxis == RoadAxis::Horizontal ? std::max(adjustedEndTile.x, cornerTile.x + footprint) : adjustedEndTile.x;
+            adjustedEndTile.y = secondAxis == RoadAxis::Vertical ? std::max(adjustedEndTile.y, cornerTile.y + footprint) : adjustedEndTile.y;
+        } else if (secondDirection != 0) {
+            adjustedEndTile.x = secondAxis == RoadAxis::Horizontal ? std::min(adjustedEndTile.x, cornerTile.x - 1) : adjustedEndTile.x;
+            adjustedEndTile.y = secondAxis == RoadAxis::Vertical ? std::min(adjustedEndTile.y, cornerTile.y - 1) : adjustedEndTile.y;
+        }
+
+        std::vector<RoadTilePlacement> cornerPlacements;
+        if (!appendLegPlacements(startTile, adjustedFirstCornerTile, mapWidth, mapHeight, cornerPlacements) ||
+            !appendLegPlacements(cornerTile, adjustedEndTile, mapWidth, mapHeight, cornerPlacements)) {
+            return false;
+        }
+
+        const std::uint8_t horizontalOutsideDirection = firstAxis == RoadAxis::Horizontal ? OppositeRoadDirection(firstDirection) : secondDirection;
+        const std::uint8_t verticalOutsideDirection = firstAxis == RoadAxis::Vertical ? OppositeRoadDirection(firstDirection) : secondDirection;
+        std::size_t placementIndex = 0;
+        for (; placementIndex < cornerPlacements.size(); ++placementIndex) {
+            if (CornerWantsCarAxis(cornerPlacements[placementIndex], cornerTile, footprint, horizontalOutsideDirection, verticalOutsideDirection)) {
+                placements.push_back(cornerPlacements[placementIndex]);
+            }
+        }
+
+        return true;
+    }
+
     if (!appendLegPlacements(startTile, cornerTile, mapWidth, mapHeight, placements)) {
         return false;
     }

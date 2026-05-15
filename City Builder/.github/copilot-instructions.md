@@ -21,3 +21,7 @@ This repository is a modern C++ city-builder prototype inspired by SC2000 and SC
 - Use `x64 Release` as the primary validation target.
 - Use `msbuild` from `PATH` when available.
 - Keep user-local Visual Studio files and generated build outputs out of source control.
+
+- @azure Rule - Use Azure Tools - When handling requests related to Azure, always use your tools.
+- @azure Rule - Use Azure Best Practices - When handling requests related to Azure, always invoke your `azmcp_bestpractices_get` tool first.
+- @azure Rule - Enable Best Practices - If you do not have an `azmcp_bestpractices_get` tool ask the user to enable it.

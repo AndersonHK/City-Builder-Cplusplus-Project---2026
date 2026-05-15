@@ -65,11 +65,13 @@ private:
     void bumpAllTrafficOverlayChunkRevisions();
     void markDirtyNeighborhood(const std::vector<RoadTilePlacement>& placements, std::vector<int>& dirtyTileIndices) const;
     void markDirtyTileNeighborhood(const std::vector<int>& tileIndices, std::vector<int>& dirtyTileIndices) const;
+    void expandDirtyRoadDependencies(TransportLayerId layer, std::vector<int>& dirtyTileIndices) const;
     void bumpDirtyChunkRevisions(TransportLayerId layer, const std::vector<int>& dirtyTileIndices);
     bool pruneInvalidPedestrianLanes(TransportLayerId layer, const std::vector<int>& dirtyTileIndices);
 
     const TransportTile* tileAt(TransportLayerId layer, int tileX, int tileY) const;
     TransportTile* tileAt(TransportLayerId layer, int tileX, int tileY);
+    bool tileHasActiveRoadLane(TransportLayerId layer, int tileX, int tileY) const;
     void collectRoadRemovalFootprint(TransportLayerId layer, int tileX, int tileY, std::vector<int>& removalTileIndices) const;
     void collectRoadSliceFootprint(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& referenceLane, std::vector<int>& removalTileIndices) const;
     bool tileHasMatchingRoadSliceLane(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& referenceLane) const;
@@ -77,8 +79,11 @@ private:
     bool hasCompatibleCarNeighborLane(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const;
     bool hasNeighborLaneBody(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const;
     bool laneConnectionRequiresSameStroke(const TransportTile& currentTile, const TransportTile& neighborTile, const RoadLanePlacement& lanePlacement) const;
-    bool hasCarThroughBothEnds(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& carLane) const;
+    bool hasCarContinuationBeyondCrossing(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& carLane, std::uint8_t roadDirection) const;
+    bool carLaneContinuesThroughCrossing(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& carLane) const;
     bool hasPedestrianThroughBothEnds(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& pedestrianLane) const;
+    bool hasPedestrianContinuationBeyondCrossing(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& pedestrianLane, std::uint8_t roadDirection) const;
+    bool pedestrianLaneContinuesThroughCrossing(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& pedestrianLane) const;
     bool pedestrianLaneBordersEmptyTile(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& pedestrianLane) const;
     bool pedestrianLaneShouldRenderCrosswalk(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& pedestrianLane, const TransportTile& tile) const;
     bool isSingleStrokeCarCornerTile(const TransportTile& tile, std::uint32_t& strokeId) const;

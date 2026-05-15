@@ -42,17 +42,27 @@ Use this guide when changing road placement, lane topology, road render data, or
 - Querying a lot can publish coalesced commute route segments; rendering turns those tile/layer/mode/direction segments into mode-colored arrows above roads, buildings, and overlays.
 
 ## Crosswalk Rule
-A pedestrian lane renders as a crosswalk when all of these are true:
+A pedestrian lane renders as a crosswalk only when all of these are true:
 
 - The pedestrian lane has a sidewalk graphic edge on this tile.
 - The pedestrian lane overlaps a perpendicular car lane in the same tile.
+- The perpendicular car lane has car-road continuation on both cardinal ends of its axis.
 - The pedestrian lane has pedestrian continuation on both cardinal ends of its own axis.
-- The perpendicular car lane either continues on both cardinal ends of its axis, or it terminates at this tile as a true T-mouth with no same-axis car stub immediately across the road body.
 
-Otherwise the same pedestrian lane remains a sidewalk. This allows the through sidewalk at a side-street mouth to stripe as a crosswalk while preventing opposing stubs and isolated intersection tiles from inventing crosswalks where pedestrian lanes do not continue through the crossing.
+Otherwise the same pedestrian lane remains a sidewalk. This keeps T-section endpoints from painting half-crosswalks and prevents isolated or partially cleaned intersection tiles from inventing crosswalks where the car road does not continue through the crossing.
 
 ## Cleanup Rule
-Road edits resolve nearby tiles as a local collection rather than independent cells. Same-stroke L-corner overlaps are cleaned to a valid corner configuration with one horizontal and one vertical junction leg; they must not remain as partial T/cross intersections. Road removal clears the full road cross-section for the clicked slice, so a normal two-tile two-way road removes both paired footprint tiles and wider avenue templates remove the full template width.
+Road edits seed the immediate neighborhood and then expand dirty resolution across the connected road component. This lets validation use information from the full local road graph, including wide roads where the deciding continuation can be several tiles away from the modified slice. Same-stroke L-corner overlaps are cleaned to a valid corner configuration with one horizontal and one vertical junction leg; they must not remain as partial T/cross intersections. Road removal clears the full road cross-section for the clicked slice, so a normal two-tile two-way road removes both paired footprint tiles and wider avenue templates remove the full template width.
+
+## Road Tool Semantic Cases
+Road-tool tests should model small player-action sandboxes, not only individual helper return values. The fixture files under `City Builder/Data/TransportNetwork/SandboxCases/` define action sequences and expected final ASCII grids for materials, active car axes, resolved road variants, crosswalks, and junction masks. Material grids use `.` for empty terrain, `R` for road body without visible pedestrian edge, `S` for visible pedestrian edge without road body, and `B` for road body plus visible pedestrian edge. The core configurations are:
+
+- Dead end: a single stroke has exactly one connected junction leg at each cap. It is not an intersection, has no turn arrows, and does not paint crosswalks or lane markings that imply a road beyond the cap.
+- Straight road: the body continues on exactly two opposite legs. Sidewalks remain sidewalks, lane dividers follow the road body, and no crosswalk is inferred.
+- L-corner: a single drag with a corner is one road bending through the overlap. Both car lanes flow in parallel around the bend. The overlap resolves as a corner, never as a T or cross, and has no crosswalk or missing-arm junction leg.
+- T-section: the main road continues through the mouth, while the side road terminates at the main road. The side-road mouth may connect to the node, but it must not be corrected into a four-way crossing, must not expose the missing opposite side as a through leg, and must not paint half-crosswalks.
+- Four-way: a crossing is valid only when both axes continue beyond the whole intersection body. Crosswalks and turn arrows are allowed only in this valid-through case, with turn arrows on approach tiles rather than inside the intersection body.
+- Deleted approach: removing one approach from a previously valid crossing must re-resolve the remaining connected road component as a partial/T-style configuration. The center must not keep crosswalks or corrected-through junction legs that point toward the removed approach.
 
 ## Turn Arrow Rule
 A car intersection node is a resolved car junction with at least three cardinal junction connections. Turn-arrow glyphs are assigned only to non-intersection car tiles that can enter the local collection of tiles around one of those nodes, using the node's available outbound exits minus the U-turn back toward the approach tile. Simple same-stroke L-corners therefore do not count as turn-arrow intersections, even when the road footprint overlaps itself at the corner.
