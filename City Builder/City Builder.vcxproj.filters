@@ -24,6 +24,9 @@
     <ClCompile Include="City.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="CrashLogger.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="ChunkConfig.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -43,6 +46,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="RoadRenderState.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="RendererAlgorithms.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Renderer.cpp">
@@ -121,6 +127,9 @@
     <ClInclude Include="City.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="CrashLogger.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="ChunkConfig.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -143,6 +152,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="RoadRenderState.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RendererAlgorithms.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Renderer.h">

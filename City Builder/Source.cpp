@@ -3,11 +3,15 @@
 #include <iostream>
 
 #include "AppController.h"
+#include "CrashLogger.h"
 #include "GameSession.h"
 #include "Renderer.h"
 
 // Boots the simulation, controller, and renderer for the desktop prototype.
 int main() {
+    InitializeCrashLogger("City Builder");
+    CrashScope crashScope("main");
+
     try {
         RuntimeOptions runtimeOptions;
         runtimeOptions.fastForward = true;
@@ -25,9 +29,9 @@ int main() {
         gameSession.shutdown();
         return rendererExitCode;
     } catch (const std::exception& error) {
-        std::cerr << "Fatal error: " << error.what() << std::endl;
+        LogCrashAndShowWindow("main", error);
     } catch (...) {
-        std::cerr << "Fatal error: unknown exception." << std::endl;
+        LogCrashAndShowWindow("main", "unknown exception.");
     }
 
     return EXIT_FAILURE;

@@ -1,5 +1,7 @@
 #include "AssetLoader.h"
 
+#include "CrashLogger.h"
+
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
@@ -649,6 +651,7 @@ std::vector<std::string> CollectXmlFiles(const std::string& directoryPath) {
 
 // Loads all module and lot archetypes, returning errors instead of throwing across the runtime boundary.
 bool LoadGameAssets(const std::string& dataDirectory, const CityParameterRegistry& parameterRegistry, LoadedGameAssets& assets, std::string& errorMessage) {
+    CrashScope crashScope("LoadGameAssets");
     assets.modules.clear();
     assets.lots.clear();
     assets.congestionCurve = TransportCongestionCurve();
@@ -695,6 +698,7 @@ bool LoadGameAssets(const std::string& dataDirectory, const CityParameterRegistr
             assets.congestionCurve = LoadCongestionCurve(congestionPath);
         }
     } catch (const std::exception& error) {
+        LogException("LoadGameAssets", error);
         errorMessage = error.what();
         assets.modules.clear();
         assets.lots.clear();

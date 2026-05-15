@@ -55,6 +55,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 
 ## Checks
 - Build `x64 Release`.
+- Build and run `RendererTests.vcxproj` after touching renderer CPU packing, UTF-8 text, or UI quad generation.
 - Compare the status line at `32`, `64`, `128`, `256`, `512`, `1024`, and `2048` visible-tile zoom.
 - Verify `tileStateChunks`, `tileStateTiles`, and `tileStateBytes` scale with visible chunks.
 - Pan after road or lot edits to confirm deferred chunks update before drawing.

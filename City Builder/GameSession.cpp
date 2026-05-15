@@ -14,6 +14,8 @@
 #define NOMINMAX
 #include <windows.h>
 
+#include "CrashLogger.h"
+
 namespace {
 const std::uint32_t kRegionSaveMagic = 0x52424743u; // CBGR
 const std::uint32_t kRegionSaveVersion = 2u;
@@ -345,6 +347,8 @@ GameSession::~GameSession() {
 }
 
 void GameSession::loadOrCreateRegion() {
+    CrashScope crashScope("GameSession::loadOrCreateRegion");
+
     if (!loadRegionFromDisk()) {
         region_.createDefault();
         std::cout << "Created default 3x3 region." << std::endl;
@@ -408,6 +412,8 @@ void GameSession::setActiveCityCamera(int cameraX, int cameraY, int visibleTiles
 }
 
 bool GameSession::enterCity(int regionX, int regionY) {
+    CrashScope crashScope("GameSession::enterCity");
+
     City* city = region_.cityAt(regionX, regionY);
     if (city == 0) {
         return false;
@@ -431,7 +437,12 @@ bool GameSession::enterCity(int regionX, int regionY) {
         finishLoadingStage(true);
         std::cout << "Entered city at region " << regionX << ", " << regionY << ": " << city->name() << std::endl;
         return true;
+    } catch (const std::exception& error) {
+        LogException("GameSession::enterCity", error);
+        finishLoadingStage(false);
+        throw;
     } catch (...) {
+        LogError("GameSession::enterCity", "unknown exception.");
         finishLoadingStage(false);
         throw;
     }
@@ -465,6 +476,8 @@ bool GameSession::saveAutoslot() {
 }
 
 bool GameSession::loadAutoslot() {
+    CrashScope crashScope("GameSession::loadAutoslot");
+
     beginLoadingStage();
     const bool reloadActiveCity = mode_ == GameMode::City && activeCity_ != 0;
     int activeRegionX = 0;
@@ -508,7 +521,12 @@ bool GameSession::loadAutoslot() {
             finishLoadingStage(false);
         }
         return loaded;
+    } catch (const std::exception& error) {
+        LogException("GameSession::loadAutoslot", error);
+        finishLoadingStage(false);
+        throw;
     } catch (...) {
+        LogError("GameSession::loadAutoslot", "unknown exception.");
         finishLoadingStage(false);
         throw;
     }
@@ -576,6 +594,7 @@ bool GameSession::loadRegionFromDisk() {
         return true;
     } catch (const std::exception& error) {
         std::cout << "Could not load region save: " << error.what() << std::endl;
+        LogException("GameSession::loadRegionFromDisk", error);
     }
 
     return false;
@@ -630,6 +649,7 @@ bool GameSession::saveRegionToDisk() {
         return true;
     } catch (const std::exception& error) {
         std::cout << "Could not save region: " << error.what() << std::endl;
+        LogException("GameSession::saveRegionToDisk", error);
     }
 
     return false;
@@ -662,6 +682,7 @@ CitySaveState GameSession::loadCitySaveState(City& city) {
             }
         } catch (const std::exception& error) {
             std::cout << "Could not load city save for " << city.name() << ": " << error.what() << std::endl;
+            LogException("GameSession::loadCitySaveState", error);
         }
     }
 
@@ -687,6 +708,7 @@ bool GameSession::saveCityStateToDisk(City& city, const CitySaveState& saveState
         return true;
     } catch (const std::exception& error) {
         std::cout << "Could not save city " << city.name() << ": " << error.what() << std::endl;
+        LogException("GameSession::saveCityStateToDisk", error);
     }
 
     return false;
@@ -729,6 +751,7 @@ bool GameSession::requestCityPreviewBuild(City& city) {
                 std::cout << "City save version mismatch for preview " << cityName << "." << std::endl;
             } catch (const std::exception& error) {
                 std::cout << "Could not load city preview state for " << cityName << ": " << error.what() << std::endl;
+                LogException("GameSession::requestCityPreviewBuild", error);
             }
         }
 

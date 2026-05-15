@@ -67,6 +67,13 @@ msbuild 'City Builder/TransportNetworkTests.vcxproj' /p:Configuration=Release /p
 & 'City Builder/x64/Release/TransportNetworkTests.exe'
 ```
 
+Renderer CPU packing and UI quad generation also have a standalone non-graphics test target:
+
+```powershell
+msbuild 'City Builder/RendererTests.vcxproj' /p:Configuration=Release /p:Platform=x64 /m
+& 'City Builder/x64/Release/RendererTests.exe'
+```
+
 ## Architecture notes
 - Simulation remains tile-statistical and authoritative.
 - Rendering consumes published immutable snapshots only.
