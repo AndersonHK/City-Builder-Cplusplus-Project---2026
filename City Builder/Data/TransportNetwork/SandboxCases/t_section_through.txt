@@ -1,14 +1,14 @@
-name: t_section
+name: t_section_through
 size: 16 16
 description:
-A drag from (2,7) to (13,7), followed by a drag from (7,2) to (7,7), is a T-section.
+A drag from (2,7) to (13,7), followed by a drag from (7,2) to (7,8), is a T-section.
 The east-west road is the through road. The north-south road is a side-road mouth that terminates at the through road.
 The side road must not be corrected into a four-way crossing, must not expose a south-going through leg,
 and must not paint crosswalks for a pedestrian or car continuation that does not exist.
 end
 actions:
 drag 2 7 13 7 lanes=1
-drag 7 2 7 7 lanes=1
+drag 7 2 7 8 lanes=1
 end
 expect active_car_axes 0 0 15 15:
 ................
@@ -63,6 +63,24 @@ expect crosswalks 0 0 15 15:
 ................
 ................
 ................
+end
+expect sidewalks 0 0 15 15:
+0000000000000000
+0000000000000000
+0000000440000000
+0000000550000000
+0000000550000000
+0000000550000000
+0000000550000000
+002AAAAFFAAAA800
+002AAAABBAAAA800
+0000000000000000
+0000000000000000
+0000000000000000
+0000000000000000
+0000000000000000
+0000000000000000
+0000000000000000
 end
 expect materials 0 0 15 15:
 ................

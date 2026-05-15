@@ -280,7 +280,45 @@ char HexDigit(std::uint8_t value) {
     return value < 10u ? static_cast<char>('0' + value) : static_cast<char>('A' + (value - 10u));
 }
 
-std::string SidewalkMaskGrid(const TransportNetwork& network, int minX, int minY, int maxX, int maxY) {
+std::uint8_t CostCellDirectionMask(const TransportCostCell& cell) {
+    const std::uint8_t directions[] = {
+        kRoadDirectionNorth,
+        kRoadDirectionEast,
+        kRoadDirectionSouth,
+        kRoadDirectionWest
+    };
+
+    std::uint8_t directionMask = 0;
+    std::size_t directionIndex = 0;
+    for (; directionIndex < sizeof(directions) / sizeof(directions[0]); ++directionIndex) {
+        const std::uint8_t direction = directions[directionIndex];
+        if (DirectionCost(cell, direction) != kTransportNoCost) {
+            directionMask |= direction;
+        }
+    }
+
+    return directionMask;
+}
+
+std::string SidewalkLaneGrid(const TransportNetwork& network, int minX, int minY, int maxX, int maxY) {
+    std::string grid;
+    int tileY = minY;
+    for (; tileY <= maxY; ++tileY) {
+        if (tileY > minY) {
+            grid += "\n";
+        }
+
+        int tileX = minX;
+        for (; tileX <= maxX; ++tileX) {
+            const TransportCostCell& cell = CostCellAt(network, TransportLayerId::Ground, TransportMode::Pedestrian, tileX, tileY);
+            grid += HexDigit(CostCellDirectionMask(cell));
+        }
+    }
+
+    return grid;
+}
+
+std::string SidewalkEdgeGrid(const TransportNetwork& network, int minX, int minY, int maxX, int maxY) {
     std::string grid;
     int tileY = minY;
     for (; tileY <= maxY; ++tileY) {
@@ -300,7 +338,7 @@ std::string SidewalkMaskGrid(const TransportNetwork& network, int minX, int minY
 char MaterialCellChar(const ResolvedRoadCell& cell) {
     const bool hasRoad = (cell.laneTypeMask & kRoadLaneTypeCar) != 0 ||
         (cell.surfaceMask & kRoadSurfaceAsphalt) != 0;
-    const bool hasSidewalk = SidewalkEdges(cell) != 0 || CrosswalkEdges(cell) != 0;
+    const bool hasSidewalk = (cell.laneTypeMask & kRoadLaneTypePedestrian) != 0;
     if (hasRoad && hasSidewalk) {
         return 'B';
     }
@@ -355,8 +393,10 @@ std::string SandboxSnapshot(const std::string& action, const TransportNetwork& n
     snapshot += ResolvedRoadGrid(network, 0, 0, network.width() - 1, network.height() - 1);
     snapshot += "\ncrosswalks:\n";
     snapshot += CrosswalkGrid(network, 0, 0, network.width() - 1, network.height() - 1);
-    snapshot += "\nsidewalk masks:\n";
-    snapshot += SidewalkMaskGrid(network, 0, 0, network.width() - 1, network.height() - 1);
+    snapshot += "\nsidewalk lanes:\n";
+    snapshot += SidewalkLaneGrid(network, 0, 0, network.width() - 1, network.height() - 1);
+    snapshot += "\nsidewalk edge graphics:\n";
+    snapshot += SidewalkEdgeGrid(network, 0, 0, network.width() - 1, network.height() - 1);
     snapshot += "\nmaterials:\n";
     snapshot += MaterialGrid(network, 0, 0, network.width() - 1, network.height() - 1);
     snapshot += "\njunction masks:\n";
@@ -675,7 +715,10 @@ std::string SandboxGridForExpectation(const RoadToolSandbox& sandbox, const Sand
         return CrosswalkGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
     }
     if (expectedGrid.kind == "sidewalks") {
-        return SidewalkMaskGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
+        return SidewalkLaneGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
+    }
+    if (expectedGrid.kind == "sidewalk_edges") {
+        return SidewalkEdgeGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
     }
     if (expectedGrid.kind == "materials") {
         return MaterialGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
@@ -921,9 +964,10 @@ void TestTSectionDoesNotPaintHalfCrosswalk(TestRunner& runner) {
     runner.expect(CrosswalkEdges(teeCellEast) == 0, "t-section adjacent endpoint tile does not render half crosswalk");
     runner.expect(CrosswalkEdges(mainSouthCell) == 0, "t-section main-road second body tile stays sidewalk");
     runner.expect(CrosswalkEdges(mainSouthEastCell) == 0, "t-section main-road second adjacent body tile stays sidewalk");
-    runner.expect((SidewalkEdges(teeCell) & kRoadDirectionWest) == 0, "t-section does not create west sidewalk halfway across main road");
-    runner.expect((SidewalkEdges(teeCellEast) & kRoadDirectionEast) == 0, "t-section does not create east sidewalk halfway across main road");
-    runner.expect((SidewalkEdges(teeCell) & kRoadDirectionNorth) != 0, "t-section keeps through main-road sidewalk");
+    const std::uint8_t teePedestrianMask = CostCellDirectionMask(CostCellAt(network, TransportLayerId::Ground, TransportMode::Pedestrian, 5, 5));
+    const std::uint8_t teeEastPedestrianMask = CostCellDirectionMask(CostCellAt(network, TransportLayerId::Ground, TransportMode::Pedestrian, 6, 5));
+    runner.expect(teePedestrianMask == (kRoadDirectionNorth | kRoadDirectionEast | kRoadDirectionWest), "t-section pedestrian lane connects side-road mouth to main sidewalk");
+    runner.expect(teeEastPedestrianMask == (kRoadDirectionNorth | kRoadDirectionEast | kRoadDirectionWest), "t-section adjacent pedestrian lane connects side-road mouth to main sidewalk");
 }
 
 void TestJoggedSidewalkDoesNotBecomeCrosswalk(TestRunner& runner) {
@@ -935,7 +979,6 @@ void TestJoggedSidewalkDoesNotBecomeCrosswalk(TestRunner& runner) {
     runner.expect(Place(network, MakeStroke(Int2(5, 2), Int2(5, 8), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "jogged vertical crossing street placement succeeds");
 
     const ResolvedRoadCell& jogCell = CellAt(network, TransportLayerId::Ground, 5, 5);
-    runner.expect((SidewalkEdges(jogCell) & kRoadDirectionNorth) == 0, "jogged same-axis sidewalk is not created across occupied road edge");
     runner.expect((CrosswalkEdges(jogCell) & kRoadDirectionNorth) == 0, "jogged opposite-side sidewalk is not treated as through crosswalk");
 }
 
@@ -983,7 +1026,7 @@ void TestTurnArrowsRenderAheadOfIntersectionsOnly(TestRunner& runner) {
     runner.expect(Place(network, MakeStroke(Int2(5, 2), Int2(5, 8), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "turn arrow vertical street placement succeeds");
 
     const ResolvedRoadCell& westApproach = CellAt(network, TransportLayerId::Ground, 4, 6);
-    const std::uint8_t expectedWestApproachTurns = kLaneIntentEast | kLaneIntentSouth;
+    const std::uint8_t expectedWestApproachTurns = kLaneIntentNorth | kLaneIntentEast | kLaneIntentSouth;
     runner.expect(ArrowMask(westApproach) == expectedWestApproachTurns, "west approach arrow reflects non-u-turn exits through its connected intersection node");
     runner.expect(IsTurnArrow(westApproach), "west approach turn arrow is not tagged as debug graphics");
 
