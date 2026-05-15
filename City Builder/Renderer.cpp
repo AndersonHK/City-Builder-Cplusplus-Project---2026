@@ -2281,8 +2281,32 @@ int Renderer::run() {
     std::vector<std::uint64_t> lastUploadedGroundRoadChunkRevisions(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
     std::vector<std::uint64_t> lastUploadedTileOverlayChunkRevisions(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
     bool lastFrameWasRegion = true;
+    std::uint64_t lastHandledRenderStateRevision = gameSession_.renderStateRevision();
     std::uint64_t lastRegionPreviewCacheRevision = std::numeric_limits<std::uint64_t>::max();
     std::vector<std::uint8_t> cityPreviewReadPixels(static_cast<std::size_t>(City::kPreviewWidth) * static_cast<std::size_t>(City::kPreviewHeight) * 4u, 0u);
+
+    auto invalidateCityRenderCaches = [&] () {
+        std::size_t cacheIndex = 0;
+        for (; cacheIndex < chunkCaches.size(); ++cacheIndex) {
+            chunkCaches[cacheIndex].lastUploadedTileStateGeneration = std::numeric_limits<std::uint64_t>::max();
+            chunkCaches[cacheIndex].lastUploadedLiftRevision = std::numeric_limits<std::uint64_t>::max();
+        }
+
+        for (cacheIndex = 0; cacheIndex < roadChunkCaches.size(); ++cacheIndex) {
+            roadChunkCaches[cacheIndex].lastUploadedRevision = std::numeric_limits<std::uint64_t>::max();
+            roadChunkCaches[cacheIndex].instanceCount = 0;
+            roadChunkCaches[cacheIndex].instances.clear();
+        }
+
+        lastUploadedGroundRoadChunkRevisions.assign(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
+        lastUploadedTileOverlayChunkRevisions.assign(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
+        lastUploadedLotRevision = std::numeric_limits<std::uint64_t>::max();
+        lastUploadedQueryRouteRevision = std::numeric_limits<std::uint64_t>::max();
+        lotInstances.clear();
+        lotGhostInstances.clear();
+        roadGhostInstances.clear();
+        routeArrowInstances.clear();
+    };
 
     auto renderCityPreview = [&] (City& city) -> bool {
         if (!cityPreviewFramebufferComplete) {
@@ -2414,6 +2438,12 @@ int Renderer::run() {
         int framebufferHeight = 0;
         glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
         appController_.setFramebufferSize(framebufferWidth, framebufferHeight);
+
+        if (gameSession_.isLoading()) {
+            glfwPollEvents();
+            continue;
+        }
+
         glViewport(0, 0, framebufferWidth, framebufferHeight);
         glClearColor(0.08f, 0.11f, 0.15f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -2478,21 +2508,11 @@ int Renderer::run() {
             continue;
         }
 
-        if (lastFrameWasRegion) {
-            std::size_t cacheIndex = 0;
-            for (; cacheIndex < chunkCaches.size(); ++cacheIndex) {
-                chunkCaches[cacheIndex].lastUploadedTileStateGeneration = std::numeric_limits<std::uint64_t>::max();
-                chunkCaches[cacheIndex].lastUploadedLiftRevision = std::numeric_limits<std::uint64_t>::max();
-            }
-            for (cacheIndex = 0; cacheIndex < roadChunkCaches.size(); ++cacheIndex) {
-                roadChunkCaches[cacheIndex].lastUploadedRevision = 0;
-                roadChunkCaches[cacheIndex].instanceCount = 0;
-            }
-            lastUploadedGroundRoadChunkRevisions.assign(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
-            lastUploadedTileOverlayChunkRevisions.assign(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
-            lastUploadedLotRevision = std::numeric_limits<std::uint64_t>::max();
-            lastUploadedQueryRouteRevision = std::numeric_limits<std::uint64_t>::max();
+        const std::uint64_t renderStateRevision = gameSession_.renderStateRevision();
+        if (lastFrameWasRegion || lastHandledRenderStateRevision != renderStateRevision) {
+            invalidateCityRenderCaches();
             lastFrameWasRegion = false;
+            lastHandledRenderStateRevision = renderStateRevision;
         }
 
         const CameraState cameraState = BuildCameraState(viewState);

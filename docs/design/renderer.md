@@ -23,6 +23,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Lots still render through one global placeholder-prism instance buffer keyed by lot revision.
 - Region mode draws city preview textures with the same angled camera settings as city mode.
 - City previews are rendered through the normal city draw passes with a top-down orthographic camera before being cached on `City`.
+- `GameSession::renderStateRevision` fences city load/enter transitions; when it changes, all city tile, road, lot, overlay, and route upload caches must be treated as stale before the next draw.
 
 ## Road Render Data
 - The road simulation owns lane topology, lane type masks, graphic masks, and path masks; rendering only consumes published road snapshots.
@@ -37,6 +38,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Track freshness per chunk. A hidden stale chunk must remain stale and upload on the first frame it becomes visible.
 - Keep static geometry separate from dynamic scalar masks so future elevation/terrain work can replace the geometry path without reintroducing full-map uploads.
 - Keep shader sampling UV-compatible with full-map textures unless a future renderer migration changes the handoff contract explicitly.
+- Do not draw while `GameSession::isLoading()` is true; the previous completed frame should remain visible until the fenced load stage finishes.
 - Add renderer metrics when adding new upload paths.
 - Keep ground and elevated road rendering fed by the same resolved road cell contract; do not fork road-template semantics in the renderer.
 - Keep road ghost previews presentation-only. They may reuse road templates and glyph helpers, but committed topology and validation must stay in the simulation/transport command path.

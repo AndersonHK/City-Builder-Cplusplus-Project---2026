@@ -320,7 +320,9 @@ GameSession::GameSession(const RuntimeOptions& runtimeOptions)
     : runtimeOptions_(runtimeOptions),
       runtime_(new SimulationRuntime(runtimeOptions)),
       mode_(GameMode::Region),
-      activeCity_(0) {
+      activeCity_(0),
+      isLoading_(false),
+      renderStateRevision_(0) {
 }
 
 GameSession::~GameSession() {
@@ -376,24 +378,39 @@ const City* GameSession::activeCity() const {
     return activeCity_;
 }
 
+bool GameSession::isLoading() const {
+    return isLoading_;
+}
+
+std::uint64_t GameSession::renderStateRevision() const {
+    return renderStateRevision_;
+}
+
 bool GameSession::enterCity(int regionX, int regionY) {
     City* city = region_.cityAt(regionX, regionY);
     if (city == 0) {
         return false;
     }
 
-    if (mode_ == GameMode::City) {
-        runtime_->stop();
-        exportActiveCity();
-    }
+    beginLoadingStage();
+    try {
+        if (mode_ == GameMode::City) {
+            runtime_->stop();
+            exportActiveCity();
+        }
 
-    runtime_->stop();
-    runtime_->importCitySaveState(city->saveState());
-    activeCity_ = city;
-    mode_ = GameMode::City;
-    runtime_->start();
-    std::cout << "Entered city at region " << regionX << ", " << regionY << ": " << city->name() << std::endl;
-    return true;
+        runtime_->stop();
+        runtime_->importCitySaveState(city->saveState());
+        activeCity_ = city;
+        mode_ = GameMode::City;
+        runtime_->start();
+        finishLoadingStage(true);
+        std::cout << "Entered city at region " << regionX << ", " << regionY << ": " << city->name() << std::endl;
+        return true;
+    } catch (...) {
+        finishLoadingStage(false);
+        throw;
+    }
 }
 
 void GameSession::exitToRegion() {
@@ -424,6 +441,7 @@ bool GameSession::saveAutoslot() {
 }
 
 bool GameSession::loadAutoslot() {
+    beginLoadingStage();
     const bool reloadActiveCity = mode_ == GameMode::City && activeCity_ != 0;
     int activeRegionX = 0;
     int activeRegionY = 0;
@@ -432,30 +450,41 @@ bool GameSession::loadAutoslot() {
         activeRegionY = activeCity_->regionY();
     }
 
-    runtime_->stop();
-    activeCity_ = 0;
-    mode_ = GameMode::Region;
+    try {
+        runtime_->stop();
+        activeCity_ = 0;
+        mode_ = GameMode::Region;
 
-    const bool loaded = loadRegionFromDisk();
-    if (!loaded) {
-        region_.createDefault();
-        std::cout << "Load failed; created a new default region." << std::endl;
-    }
-
-    if (reloadActiveCity) {
-        City* city = region_.cityAt(activeRegionX, activeRegionY);
-        if (city != 0) {
-            runtime_->importCitySaveState(city->saveState());
-            activeCity_ = city;
-            mode_ = GameMode::City;
-            runtime_->start();
-            std::cout << "Reloaded city at region " << activeRegionX << ", " << activeRegionY << ": " << city->name() << std::endl;
-        } else {
-            std::cout << "Loaded region, but active city coordinates were missing; returned to region." << std::endl;
+        const bool loaded = loadRegionFromDisk();
+        if (!loaded) {
+            region_.createDefault();
+            std::cout << "Load failed; created a new default region." << std::endl;
         }
-    }
 
-    return loaded;
+        bool importedCity = false;
+        if (reloadActiveCity) {
+            City* city = region_.cityAt(activeRegionX, activeRegionY);
+            if (city != 0) {
+                runtime_->importCitySaveState(city->saveState());
+                activeCity_ = city;
+                mode_ = GameMode::City;
+                importedCity = true;
+                runtime_->start();
+                finishLoadingStage(true);
+                std::cout << "Reloaded city at region " << activeRegionX << ", " << activeRegionY << ": " << city->name() << std::endl;
+            } else {
+                std::cout << "Loaded region, but active city coordinates were missing; returned to region." << std::endl;
+            }
+        }
+
+        if (!importedCity) {
+            finishLoadingStage(false);
+        }
+        return loaded;
+    } catch (...) {
+        finishLoadingStage(false);
+        throw;
+    }
 }
 
 bool GameSession::loadRegionFromDisk() {
@@ -545,6 +574,20 @@ void GameSession::exportActiveCity() {
 
     activeCity_->setSaveState(runtime_->exportCitySaveState());
     region_.recalculateRegionParameters();
+}
+
+void GameSession::beginLoadingStage() {
+    isLoading_ = true;
+}
+
+void GameSession::finishLoadingStage(bool invalidatesRenderState) {
+    if (invalidatesRenderState) {
+        ++renderStateRevision_;
+        if (renderStateRevision_ == 0) {
+            renderStateRevision_ = 1;
+        }
+    }
+    isLoading_ = false;
 }
 
 std::string GameSession::saveDirectory() const {

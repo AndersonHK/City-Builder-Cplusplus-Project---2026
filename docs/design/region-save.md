@@ -20,6 +20,7 @@ Use this guide when changing `GameSession`, `City`, `Region`, city save export/i
 - Keep `{regionX, regionY}` as the stable city address.
 - Stop the simulation thread before exporting or importing city state.
 - Do not treat published renderer snapshots as save truth; regenerate them after load.
+- Treat enter-city and F2 city reload as fenced loading stages: finish disk read, runtime import, and renderer cache invalidation before drawing the next city frame.
 - Keep region previews disposable and regenerable from city save state through renderer-owned top-down offscreen rendering.
 - Bump or invalidate renderer upload freshness when moving from region mode into city mode.
 - It is acceptable for Release x64 rebuilds to delete `Data\Saves`; save compatibility is intentionally disposable during this alpha stage.

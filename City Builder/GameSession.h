@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -28,6 +29,8 @@ public:
     const SimulationRuntime& runtime() const;
     City* activeCity();
     const City* activeCity() const;
+    bool isLoading() const;
+    std::uint64_t renderStateRevision() const;
 
     bool enterCity(int regionX, int regionY);
     void exitToRegion();
@@ -38,6 +41,8 @@ private:
     bool loadRegionFromDisk();
     bool saveRegionToDisk() const;
     void exportActiveCity();
+    void beginLoadingStage();
+    void finishLoadingStage(bool invalidatesRenderState);
     std::string saveDirectory() const;
     std::string saveFilePath() const;
     void ensureSaveDirectory() const;
@@ -47,4 +52,6 @@ private:
     std::unique_ptr<SimulationRuntime> runtime_;
     GameMode mode_;
     City* activeCity_;
+    bool isLoading_;
+    std::uint64_t renderStateRevision_;
 };
