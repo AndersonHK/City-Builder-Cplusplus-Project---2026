@@ -50,14 +50,14 @@ TransportNetwork MakeNetwork(int width, int height) {
     return network;
 }
 
-RoadStrokeCommand MakeStroke(const Int2& startTile, const Int2& endTile, RoadFamily family, TransportLayerId layer, RoadDirectionMode directionMode = RoadDirectionMode::TwoWay) {
+RoadStrokeCommand MakeStroke(const Int2& startTile, const Int2& endTile, RoadFamily family, TransportLayerId layer, RoadDirectionMode directionMode = RoadDirectionMode::TwoWay, int laneCount = 1) {
     RoadStrokeCommand command;
     command.startTile = startTile;
     command.cornerTile = endTile;
     command.endTile = endTile;
     command.family = family;
     command.layer = layer;
-    command.roadTemplate = TransportNetwork::makeRoadTemplate(family, layer, 1, RoadTrafficSide::RightHand, directionMode);
+    command.roadTemplate = TransportNetwork::makeRoadTemplate(family, layer, laneCount, RoadTrafficSide::RightHand, directionMode);
     return command;
 }
 
@@ -100,6 +100,67 @@ std::uint8_t SidewalkEdges(const ResolvedRoadCell& cell) {
 
 std::uint8_t CrosswalkEdges(const ResolvedRoadCell& cell) {
     return (cell.surfaceEdgeMask >> kRoadSurfaceCrosswalkShift) & kRoadSurfaceSidewalkEdgeMask;
+}
+
+bool RoadCellEmpty(const ResolvedRoadCell& cell) {
+    return cell.family == static_cast<std::uint8_t>(RoadFamily::None);
+}
+
+std::uint8_t ArrowMask(const ResolvedRoadCell& cell) {
+    return cell.arrowGlyph & (kLaneIntentNorth | kLaneIntentEast | kLaneIntentSouth | kLaneIntentWest);
+}
+
+int CardinalDirectionCount(std::uint8_t roadDirectionMask) {
+    int count = 0;
+    if ((roadDirectionMask & kRoadDirectionNorth) != 0) {
+        ++count;
+    }
+    if ((roadDirectionMask & kRoadDirectionEast) != 0) {
+        ++count;
+    }
+    if ((roadDirectionMask & kRoadDirectionSouth) != 0) {
+        ++count;
+    }
+    if ((roadDirectionMask & kRoadDirectionWest) != 0) {
+        ++count;
+    }
+    return count;
+}
+
+bool IsDebugArrow(const ResolvedRoadCell& cell) {
+    return (cell.arrowGlyph & kRoadArrowDebugFlag) != 0;
+}
+
+bool IsTurnArrow(const ResolvedRoadCell& cell) {
+    return cell.arrowGlyph != 0 && !IsDebugArrow(cell);
+}
+
+void ExpectCarCostsStayWithinJunctionMask(TestRunner& runner, const TransportNetwork& network, int tileX, int tileY, const std::string& name) {
+    const ResolvedRoadCell& cell = CellAt(network, TransportLayerId::Ground, tileX, tileY);
+    const TransportCostCell& costCell = CostCellAt(network, TransportLayerId::Ground, TransportMode::Car, tileX, tileY);
+    const std::uint8_t directions[] = {
+        kRoadDirectionNorth,
+        kRoadDirectionEast,
+        kRoadDirectionSouth,
+        kRoadDirectionWest
+    };
+
+    int costDirectionCount = 0;
+    std::size_t directionIndex = 0;
+    for (; directionIndex < sizeof(directions) / sizeof(directions[0]); ++directionIndex) {
+        const std::uint8_t direction = directions[directionIndex];
+        const bool allowedCost = (cell.junctionMask & direction) != 0;
+        const bool hasCost = DirectionCost(costCell, direction) > 0u;
+        if (hasCost) {
+            ++costDirectionCount;
+        }
+        runner.expect(
+            !hasCost || allowedCost,
+            name + " at " + std::to_string(tileX) + "," + std::to_string(tileY) + " direction " + std::to_string(static_cast<int>(direction)));
+    }
+
+    runner.expect(costDirectionCount > 0, name + " keeps at least one car movement");
+    runner.expect(costDirectionCount <= 2, name + " never exposes a three-way car crossing");
 }
 
 bool SameResolvedCell(const ResolvedRoadCell& first, const ResolvedRoadCell& second) {
@@ -209,7 +270,8 @@ void TestOneWayLocalStreet(TestRunner& runner) {
 
     runner.expect((cell.exitMask & kRoadDirectionEast) != 0, "one-way street exits forward");
     runner.expect((cell.exitMask & kRoadDirectionWest) != 0, "one-way street keeps bidirectional pedestrian sidewalk exit");
-    runner.expect(cell.arrowGlyph == static_cast<std::uint8_t>(RoadArrowGlyph::East), "one-way street arrow points east");
+    runner.expect(ArrowMask(cell) == kLaneIntentEast, "one-way street arrow points east");
+    runner.expect(IsDebugArrow(cell), "one-way street arrow is tagged as debug graphics");
     runner.expect((SidewalkEdges(cell) & (kRoadDirectionNorth | kRoadDirectionSouth)) == (kRoadDirectionNorth | kRoadDirectionSouth), "one-way street keeps both sidewalk edges");
 }
 
@@ -241,7 +303,7 @@ void TestPerpendicularCrosswalkIsOrderIndependent(TestRunner& runner) {
     runner.expect((crossingCell.surfaceMask & kRoadSurfaceCrosswalk) != 0, "reverse cross advertises crosswalk surface");
 }
 
-void TestTSectionDoesNotPaintHalfCrosswalk(TestRunner& runner) {
+void TestTSectionThroughSidewalkRendersCrosswalkAcrossSideStreetMouth(TestRunner& runner) {
     TransportNetwork network = MakeNetwork(12, 12);
     std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
 
@@ -252,13 +314,14 @@ void TestTSectionDoesNotPaintHalfCrosswalk(TestRunner& runner) {
     const ResolvedRoadCell& mainSouthCell = CellAt(network, TransportLayerId::Ground, 5, 6);
     const ResolvedRoadCell& mainSouthEastCell = CellAt(network, TransportLayerId::Ground, 6, 6);
 
-    runner.expect(CrosswalkEdges(teeCell) == 0, "t-section endpoint does not render half crosswalk");
-    runner.expect(CrosswalkEdges(teeCellEast) == 0, "t-section adjacent endpoint tile does not render half crosswalk");
-    runner.expect(CrosswalkEdges(mainSouthCell) == 0, "t-section main-road second body tile stays sidewalk");
-    runner.expect(CrosswalkEdges(mainSouthEastCell) == 0, "t-section main-road second adjacent body tile stays sidewalk");
+    runner.expect((CrosswalkEdges(teeCell) & kRoadDirectionNorth) != 0, "t-section through sidewalk renders crosswalk at side-street mouth");
+    runner.expect((CrosswalkEdges(teeCellEast) & kRoadDirectionNorth) != 0, "t-section through sidewalk crosswalk spans the side-street mouth");
+    runner.expect((CrosswalkEdges(mainSouthCell) & kRoadDirectionSouth) == 0, "t-section far-side main-road body remains sidewalk");
+    runner.expect((CrosswalkEdges(mainSouthEastCell) & kRoadDirectionSouth) == 0, "t-section far-side adjacent body remains sidewalk");
+    runner.expect((SidewalkEdges(mainSouthCell) & kRoadDirectionSouth) != 0, "t-section far-side main-road sidewalk remains visible");
     runner.expect((SidewalkEdges(teeCell) & kRoadDirectionWest) == 0, "t-section does not create west sidewalk halfway across main road");
     runner.expect((SidewalkEdges(teeCellEast) & kRoadDirectionEast) == 0, "t-section does not create east sidewalk halfway across main road");
-    runner.expect((SidewalkEdges(teeCell) & kRoadDirectionNorth) != 0, "t-section keeps through main-road sidewalk");
+    runner.expect((SidewalkEdges(teeCell) & kRoadDirectionNorth) == 0, "t-section replaces through sidewalk with crosswalk at the road mouth");
 }
 
 void TestJoggedSidewalkDoesNotBecomeCrosswalk(TestRunner& runner) {
@@ -291,6 +354,114 @@ void TestCornerDoesNotRenderCrosswalks(TestRunner& runner) {
     runner.expect(CrosswalkEdges(CellAt(network, TransportLayerId::Ground, 6, 5)) == 0, "corner northeast tile has no crosswalk");
     runner.expect(CrosswalkEdges(CellAt(network, TransportLayerId::Ground, 5, 6)) == 0, "corner southwest tile has no crosswalk");
     runner.expect(CrosswalkEdges(CellAt(network, TransportLayerId::Ground, 6, 6)) == 0, "corner southeast tile has no crosswalk");
+}
+
+void TestTurnArrowsRenderAheadOfIntersectionsOnly(TestRunner& runner) {
+    TransportNetwork network = MakeNetwork(12, 12);
+    std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(network, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "turn arrow horizontal street placement succeeds");
+    runner.expect(Place(network, MakeStroke(Int2(5, 2), Int2(5, 8), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "turn arrow vertical street placement succeeds");
+
+    const ResolvedRoadCell& westApproach = CellAt(network, TransportLayerId::Ground, 4, 6);
+    const std::uint8_t expectedWestApproachTurns = kLaneIntentEast | kLaneIntentSouth;
+    runner.expect(ArrowMask(westApproach) == expectedWestApproachTurns, "west approach arrow reflects non-u-turn exits through its connected intersection node");
+    runner.expect(IsTurnArrow(westApproach), "west approach turn arrow is not tagged as debug graphics");
+
+    const ResolvedRoadCell& farWestLane = CellAt(network, TransportLayerId::Ground, 3, 6);
+    runner.expect(ArrowMask(farWestLane) == kLaneIntentEast, "non-approach lane keeps ordinary direction arrow");
+    runner.expect(IsDebugArrow(farWestLane), "non-approach lane arrow remains debug-only");
+
+    const int intersectionTiles[][2] = {
+        {5, 5},
+        {6, 5},
+        {5, 6},
+        {6, 6}
+    };
+
+    std::size_t intersectionTileIndex = 0;
+    for (; intersectionTileIndex < sizeof(intersectionTiles) / sizeof(intersectionTiles[0]); ++intersectionTileIndex) {
+        const ResolvedRoadCell& intersectionCell = CellAt(
+            network,
+            TransportLayerId::Ground,
+            intersectionTiles[intersectionTileIndex][0],
+            intersectionTiles[intersectionTileIndex][1]);
+        runner.expect(!IsTurnArrow(intersectionCell), "intersection collection tile does not receive turn arrow");
+    }
+
+    TransportNetwork cornerNetwork = MakeNetwork(12, 12);
+    std::vector<int> cornerLotOccupancy(cornerNetwork.totalTileCount(), kInvalidLotId);
+    RoadStrokeCommand cornerCommand;
+    cornerCommand.startTile = Int2(2, 5);
+    cornerCommand.cornerTile = Int2(5, 5);
+    cornerCommand.endTile = Int2(5, 8);
+    cornerCommand.family = RoadFamily::LocalStreet;
+    cornerCommand.layer = TransportLayerId::Ground;
+    cornerCommand.roadTemplate = TransportNetwork::makeRoadTemplate(cornerCommand.family, cornerCommand.layer, 1, RoadTrafficSide::RightHand, RoadDirectionMode::TwoWay);
+    runner.expect(Place(cornerNetwork, cornerCommand, cornerLotOccupancy), "turn arrow corner stroke placement succeeds");
+
+    const ResolvedRoadCell& cornerApproach = CellAt(cornerNetwork, TransportLayerId::Ground, 4, 6);
+    runner.expect(ArrowMask(cornerApproach) == kLaneIntentEast, "corner approach does not receive intersection turn arrows");
+    runner.expect(IsDebugArrow(cornerApproach), "corner approach arrow remains debug-only");
+}
+
+void TestSingleStrokeCornerCleanupUsesValidCornerMasks(TestRunner& runner) {
+    TransportNetwork network = MakeNetwork(12, 12);
+    std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
+
+    RoadStrokeCommand command;
+    command.startTile = Int2(2, 5);
+    command.cornerTile = Int2(5, 5);
+    command.endTile = Int2(5, 8);
+    command.family = RoadFamily::LocalStreet;
+    command.layer = TransportLayerId::Ground;
+    command.roadTemplate = TransportNetwork::makeRoadTemplate(command.family, command.layer, 1, RoadTrafficSide::RightHand, RoadDirectionMode::TwoWay);
+    runner.expect(Place(network, command, lotOccupancy), "single-stroke corner placement succeeds");
+
+    const int cornerTiles[][2] = {
+        {5, 5},
+        {5, 6}
+    };
+
+    std::size_t cornerTileIndex = 0;
+    for (; cornerTileIndex < sizeof(cornerTiles) / sizeof(cornerTiles[0]); ++cornerTileIndex) {
+        const ResolvedRoadCell& cornerCell = CellAt(network, TransportLayerId::Ground, cornerTiles[cornerTileIndex][0], cornerTiles[cornerTileIndex][1]);
+        runner.expect(cornerCell.renderVariant == static_cast<std::uint8_t>(RoadRenderVariant::Corner), "single-stroke corner tile resolves to corner variant");
+        runner.expect(CardinalDirectionCount(cornerCell.junctionMask) == 2, "single-stroke corner tile has exactly two cleaned junction legs");
+        runner.expect((cornerCell.junctionMask & (kRoadDirectionEast | kRoadDirectionWest)) != 0, "single-stroke corner keeps one horizontal leg");
+        runner.expect((cornerCell.junctionMask & (kRoadDirectionNorth | kRoadDirectionSouth)) != 0, "single-stroke corner keeps one vertical leg");
+        runner.expect(CrosswalkEdges(cornerCell) == 0, "single-stroke corner tile does not render crosswalks");
+        runner.expect(!IsTurnArrow(cornerCell), "single-stroke corner tile does not receive turn arrow");
+        ExpectCarCostsStayWithinJunctionMask(runner, network, cornerTiles[cornerTileIndex][0], cornerTiles[cornerTileIndex][1], "single-stroke corner car costs stay within cleaned corner legs");
+    }
+}
+
+void TestRemoveRoadTileClearsTwoTileFootprint(TestRunner& runner) {
+    TransportNetwork network = MakeNetwork(12, 12);
+    std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(network, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "two-tile road removal setup succeeds");
+    runner.expect(network.removeRoadAtTile(4, 5), "two-tile road removal succeeds from one footprint tile");
+
+    runner.expect(RoadCellEmpty(CellAt(network, TransportLayerId::Ground, 4, 5)), "two-tile road removal clears clicked footprint tile");
+    runner.expect(RoadCellEmpty(CellAt(network, TransportLayerId::Ground, 4, 6)), "two-tile road removal clears paired footprint tile");
+    runner.expect(!RoadCellEmpty(CellAt(network, TransportLayerId::Ground, 3, 5)), "two-tile road removal leaves previous slice intact");
+    runner.expect(!RoadCellEmpty(CellAt(network, TransportLayerId::Ground, 5, 6)), "two-tile road removal leaves next slice intact");
+}
+
+void TestRemoveRoadTileClearsFourTileFootprint(TestRunner& runner) {
+    TransportNetwork network = MakeNetwork(14, 14);
+    std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(network, MakeStroke(Int2(2, 4), Int2(10, 4), RoadFamily::LocalStreet, TransportLayerId::Ground, RoadDirectionMode::TwoWay, 2), lotOccupancy), "four-tile road removal setup succeeds");
+    runner.expect(network.removeRoadAtTile(6, 5), "four-tile road removal succeeds from interior footprint tile");
+
+    int tileY = 4;
+    for (; tileY <= 7; ++tileY) {
+        runner.expect(RoadCellEmpty(CellAt(network, TransportLayerId::Ground, 6, tileY)), "four-tile road removal clears full footprint width");
+        runner.expect(!RoadCellEmpty(CellAt(network, TransportLayerId::Ground, 5, tileY)), "four-tile road removal leaves previous slice intact");
+        runner.expect(!RoadCellEmpty(CellAt(network, TransportLayerId::Ground, 7, tileY)), "four-tile road removal leaves next slice intact");
+    }
 }
 
 void TestCornerUpgradeMatchesDirectFourWay(TestRunner& runner) {
@@ -872,9 +1043,13 @@ int main() {
     TestOneWayLocalStreet(runner);
     TestPerpendicularCrosswalkRequiresLaneContinuation(runner);
     TestPerpendicularCrosswalkIsOrderIndependent(runner);
-    TestTSectionDoesNotPaintHalfCrosswalk(runner);
+    TestTSectionThroughSidewalkRendersCrosswalkAcrossSideStreetMouth(runner);
     TestJoggedSidewalkDoesNotBecomeCrosswalk(runner);
     TestCornerDoesNotRenderCrosswalks(runner);
+    TestTurnArrowsRenderAheadOfIntersectionsOnly(runner);
+    TestSingleStrokeCornerCleanupUsesValidCornerMasks(runner);
+    TestRemoveRoadTileClearsTwoTileFootprint(runner);
+    TestRemoveRoadTileClearsFourTileFootprint(runner);
     TestCornerUpgradeMatchesDirectFourWay(runner);
     TestCornerUpgradeWithOnlyMissingArmsMatchesDirectFourWay(runner);
     TestOpposingStubsDoNotConnectAcrossTwoLaneRoad(runner);

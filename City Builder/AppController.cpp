@@ -33,6 +33,7 @@ const int kKeyRightBracket = 93;
 const int kKeyF1 = 290;
 const int kKeyF2 = 291;
 const int kKeyF3 = 292;
+const int kKeyF11 = 300;
 const int kMinimumRoadLaneCount = 1;
 const int kMaximumRoadLaneCount = 4;
 const long long kRegionDoubleClickMillis = 650;
@@ -373,6 +374,11 @@ void AppController::onKeyPressed(int key, int action) {
         return;
     }
 
+    if (action == kKeyActionPress && key == kKeyF11) {
+        toggleRoadDebugGraphics();
+        return;
+    }
+
     if (gameSession_.isRegionMode()) {
         return;
     }
@@ -615,6 +621,11 @@ void AppController::setActiveTool(ActiveTool activeTool) {
 void AppController::toggleTrafficOverlay() {
     viewState_.overlayMode = viewState_.overlayMode == OverlayMode::TrafficCapacity ? OverlayMode::None : OverlayMode::TrafficCapacity;
     std::cout << "Overlay: " << OverlayModeName(viewState_.overlayMode) << std::endl;
+}
+
+void AppController::toggleRoadDebugGraphics() {
+    viewState_.roadDebugGraphicsEnabled = !viewState_.roadDebugGraphicsEnabled;
+    std::cout << "Road debug graphics: " << (viewState_.roadDebugGraphicsEnabled ? "on" : "off") << std::endl;
 }
 
 void AppController::rotatePlacement(int deltaSteps) {

@@ -136,6 +136,7 @@ uniform sampler2D uRoadBaseAtlasTexture;
 uniform sampler2D uRoadArrowAtlasTexture;
 uniform sampler2D uRegionPreviewTexture;
 uniform vec2 uRoadAtlasGrid;
+uniform int uRoadDebugVisible;
 uniform float uRoadAlphaScale;
 uniform vec3 uRoadTintColor;
 uniform float uRoadTintStrength;
@@ -163,6 +164,19 @@ vec4 sampleRoadAtlas(sampler2D atlasTexture, float glyphIndex, vec2 localUv)
         (mod(glyphIndex, uRoadAtlasGrid.x) + clamp(localUv.x, 0.0, 0.9999)) / uRoadAtlasGrid.x,
         (floor(glyphIndex / uRoadAtlasGrid.x) + clamp(localUv.y, 0.0, 0.9999)) / uRoadAtlasGrid.y);
     return texture(atlasTexture, atlasUv);
+}
+
+float visibleRoadArrowGlyph(float packedGlyph)
+{
+    float glyph = floor(packedGlyph + 0.5);
+    bool debugArrow = glyph >= 128.0;
+    if (debugArrow && uRoadDebugVisible == 0) {
+        return 0.0;
+    }
+    if (debugArrow) {
+        glyph -= 128.0;
+    }
+    return glyph;
 }
 
 bool hasMaskBit(float maskValue, int bitValue)
@@ -235,7 +249,7 @@ void main()
 
         vec4 packedRoadState = floor(texture(uGroundRoadStateTexture, vTileUv).rgba * 255.0 + 0.5);
         vec4 roadBase = sampleRoadAtlas(uRoadBaseAtlasTexture, packedRoadState.x, vLocalUv);
-        vec4 roadArrow = sampleRoadAtlas(uRoadArrowAtlasTexture, packedRoadState.y, vLocalUv);
+        vec4 roadArrow = sampleRoadAtlas(uRoadArrowAtlasTexture, visibleRoadArrowGlyph(packedRoadState.y), vLocalUv);
         finalColor = mix(finalColor, roadBase.rgb, roadBase.a);
         if (roadBase.a > 0.001) {
             finalColor = applyRoadEdgeOverlays(finalColor, vLocalUv, packedRoadState.z, packedRoadState.w);
@@ -247,7 +261,7 @@ void main()
 
     if (vRenderMode == 2) {
         vec4 roadBase = sampleRoadAtlas(uRoadBaseAtlasTexture, vRoadGlyphs.x, vLocalUv);
-        vec4 roadArrow = sampleRoadAtlas(uRoadArrowAtlasTexture, vRoadGlyphs.y, vLocalUv);
+        vec4 roadArrow = sampleRoadAtlas(uRoadArrowAtlasTexture, visibleRoadArrowGlyph(vRoadGlyphs.y), vLocalUv);
         vec3 finalColor = applyRoadEdgeOverlays(roadBase.rgb, vLocalUv, vRoadMasks.x, vRoadMasks.y);
         finalColor = mix(finalColor, roadArrow.rgb, roadArrow.a);
         finalColor = mix(finalColor, uRoadTintColor, clamp(uRoadTintStrength, 0.0, 1.0));

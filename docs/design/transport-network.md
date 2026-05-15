@@ -42,18 +42,24 @@ Use this guide when changing road placement, lane topology, road render data, or
 - Querying a lot can publish coalesced commute route segments; rendering turns those tile/layer/mode/direction segments into mode-colored arrows above roads, buildings, and overlays.
 
 ## Crosswalk Rule
-A pedestrian lane renders as a crosswalk only when all of these are true:
+A pedestrian lane renders as a crosswalk when all of these are true:
 
 - The pedestrian lane has a sidewalk graphic edge on this tile.
 - The pedestrian lane overlaps a perpendicular car lane in the same tile.
-- The perpendicular car lane has car-road continuation on both cardinal ends of its axis.
 - The pedestrian lane has pedestrian continuation on both cardinal ends of its own axis.
+- The perpendicular car lane either continues on both cardinal ends of its axis, or it terminates at this tile as a true T-mouth with no same-axis car stub immediately across the road body.
 
-Otherwise the same pedestrian lane remains a sidewalk. This keeps T-section endpoints from painting half-crosswalks and prevents isolated intersection tiles from inventing crosswalks where pedestrian lanes do not continue through the crossing.
+Otherwise the same pedestrian lane remains a sidewalk. This allows the through sidewalk at a side-street mouth to stripe as a crosswalk while preventing opposing stubs and isolated intersection tiles from inventing crosswalks where pedestrian lanes do not continue through the crossing.
+
+## Cleanup Rule
+Road edits resolve nearby tiles as a local collection rather than independent cells. Same-stroke L-corner overlaps are cleaned to a valid corner configuration with one horizontal and one vertical junction leg; they must not remain as partial T/cross intersections. Road removal clears the full road cross-section for the clicked slice, so a normal two-tile two-way road removes both paired footprint tiles and wider avenue templates remove the full template width.
+
+## Turn Arrow Rule
+A car intersection node is a resolved car junction with at least three cardinal junction connections. Turn-arrow glyphs are assigned only to non-intersection car tiles that can enter the local collection of tiles around one of those nodes, using the node's available outbound exits minus the U-turn back toward the approach tile. Simple same-stroke L-corners therefore do not count as turn-arrow intersections, even when the road footprint overlaps itself at the corner.
 
 ## Render Contract
 - Ground road channel 0 is the base glyph.
-- Ground road channel 1 is the arrow glyph.
+- Ground road channel 1 is the arrow glyph. Intersection turn arrows override ordinary lane-direction arrows on approach tiles; ordinary arrows are tagged with `kRoadArrowDebugFlag` so `F11` can hide them without hiding turn-lane arrows.
 - Ground road channel 2 is the lane graphic mask: sidewalk edges in the low nibble, crosswalk edges in the high nibble.
 - Ground road channel 3 is the divider mask: same-direction dividers in the low nibble, opposing-flow dividers in the high nibble.
 - Elevated roads consume the same resolved glyph and mask fields through chunked instances.

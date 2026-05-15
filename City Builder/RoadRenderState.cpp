@@ -98,37 +98,37 @@ RoadBaseGlyph ChooseBaseGlyph(RoadFamily family, RoadRenderVariant renderVariant
 }
 
 RoadArrowGlyph ChooseArrowGlyph(std::uint8_t laneIntentMask) {
-    const bool east = (laneIntentMask & kLaneIntentEast) != 0;
-    const bool west = (laneIntentMask & kLaneIntentWest) != 0;
-    const bool north = (laneIntentMask & kLaneIntentNorth) != 0;
-    const bool south = (laneIntentMask & kLaneIntentSouth) != 0;
-
-    if (north && east && !south && !west) {
+    const std::uint8_t mask = laneIntentMask & (kLaneIntentNorth | kLaneIntentEast | kLaneIntentSouth | kLaneIntentWest);
+    if (mask == (kLaneIntentNorth | kLaneIntentEast)) {
         return RoadArrowGlyph::NorthEast;
     }
-    if (south && east && !north && !west) {
+    if (mask == (kLaneIntentSouth | kLaneIntentEast)) {
         return RoadArrowGlyph::SouthEast;
     }
-    if (south && west && !north && !east) {
+    if (mask == (kLaneIntentSouth | kLaneIntentWest)) {
         return RoadArrowGlyph::SouthWest;
     }
-    if (north && west && !south && !east) {
+    if (mask == (kLaneIntentNorth | kLaneIntentWest)) {
         return RoadArrowGlyph::NorthWest;
     }
-    if (north && !east && !south && !west) {
+    if (mask == kLaneIntentNorth) {
         return RoadArrowGlyph::North;
     }
-    if (east && !north && !south && !west) {
+    if (mask == kLaneIntentEast) {
         return RoadArrowGlyph::East;
     }
-    if (south && !north && !east && !west) {
+    if (mask == kLaneIntentSouth) {
         return RoadArrowGlyph::South;
     }
-    if (west && !north && !east && !south) {
+    if (mask == kLaneIntentWest) {
         return RoadArrowGlyph::West;
     }
 
     return RoadArrowGlyph::None;
+}
+
+RoadArrowGlyph ChooseTurnArrowGlyph(std::uint8_t laneIntentMask) {
+    return static_cast<RoadArrowGlyph>(laneIntentMask & (kLaneIntentNorth | kLaneIntentEast | kLaneIntentSouth | kLaneIntentWest));
 }
 
 std::uint8_t PackLaneGraphicMask(std::uint8_t sidewalkEdges, std::uint8_t crosswalkEdges) {

@@ -116,14 +116,14 @@ enum class RoadBaseGlyph : std::uint8_t {
 
 enum class RoadArrowGlyph : std::uint8_t {
     None = 0,
-    North,
-    East,
-    South,
-    West,
-    NorthEast,
-    SouthEast,
-    SouthWest,
-    NorthWest
+    East = 1,
+    West = 2,
+    North = 4,
+    NorthEast = 5,
+    NorthWest = 6,
+    South = 8,
+    SouthEast = 9,
+    SouthWest = 10
 };
 
 enum class RoadAxis : std::uint8_t {
@@ -242,6 +242,7 @@ constexpr std::uint8_t kLaneIntentEast = 1u << 0;
 constexpr std::uint8_t kLaneIntentWest = 1u << 1;
 constexpr std::uint8_t kLaneIntentNorth = 1u << 2;
 constexpr std::uint8_t kLaneIntentSouth = 1u << 3;
+constexpr std::uint8_t kRoadArrowDebugFlag = 1u << 7;
 
 constexpr std::uint8_t kRoadLaneTypeCar = 1u << static_cast<std::uint8_t>(RoadLaneTypeId::Car);
 constexpr std::uint8_t kRoadLaneTypePedestrian = 1u << static_cast<std::uint8_t>(RoadLaneTypeId::Pedestrian);

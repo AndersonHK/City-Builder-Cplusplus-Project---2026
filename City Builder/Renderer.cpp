@@ -994,7 +994,7 @@ void BlendPixel(std::vector<std::uint8_t>& pixels, int textureWidth, int pixelX,
 }
 
 // Paints one road surface glyph into the generated road atlas.
-void PaintRoadBaseGlyph(std::vector<std::uint8_t>& pixels, int textureWidth, int cellX, int cellY, RoadBaseGlyph glyph) {
+void PaintRoadBaseGlyph(std::vector<std::uint8_t>& pixels, int textureWidth, int cellX, int cellY, RoadBaseGlyph glyph, bool includeDebugMarkings) {
     const RoadFamily family = BaseGlyphFamily(glyph);
     if (family == RoadFamily::None) {
         return;
@@ -1048,7 +1048,7 @@ void PaintRoadBaseGlyph(std::vector<std::uint8_t>& pixels, int textureWidth, int
                 }
             }
 
-            if (markingMask > 0.0f) {
+            if (includeDebugMarkings && markingMask > 0.0f) {
                 BlendPixel(pixels, textureWidth, pixelX, pixelY, pixelColor);
                 BlendPixel(pixels, textureWidth, pixelX, pixelY, Vec4(markingColor.x, markingColor.y, markingColor.z, markingMask));
             } else {
@@ -1058,25 +1058,17 @@ void PaintRoadBaseGlyph(std::vector<std::uint8_t>& pixels, int textureWidth, int
     }
 }
 
-// Converts an arrow glyph id to its atlas-space direction vector.
-Vec2 ArrowGlyphDirection(RoadArrowGlyph glyph) {
-    switch (glyph) {
-        case RoadArrowGlyph::North:
+// Converts one lane intent bit to its atlas-space direction vector.
+Vec2 ArrowIntentDirection(std::uint8_t laneIntent) {
+    switch (laneIntent) {
+        case kLaneIntentNorth:
             return Vec2(0.0f, -1.0f);
-        case RoadArrowGlyph::East:
+        case kLaneIntentEast:
             return Vec2(1.0f, 0.0f);
-        case RoadArrowGlyph::South:
+        case kLaneIntentSouth:
             return Vec2(0.0f, 1.0f);
-        case RoadArrowGlyph::West:
+        case kLaneIntentWest:
             return Vec2(-1.0f, 0.0f);
-        case RoadArrowGlyph::NorthEast:
-            return Vec2(1.0f, -1.0f);
-        case RoadArrowGlyph::SouthEast:
-            return Vec2(1.0f, 1.0f);
-        case RoadArrowGlyph::SouthWest:
-            return Vec2(-1.0f, 1.0f);
-        case RoadArrowGlyph::NorthWest:
-            return Vec2(-1.0f, -1.0f);
         default:
             return Vec2(0.0f, 0.0f);
     }
@@ -1084,11 +1076,11 @@ Vec2 ArrowGlyphDirection(RoadArrowGlyph glyph) {
 
 // Paints one road directional overlay glyph into the generated atlas.
 void PaintRoadArrowGlyph(std::vector<std::uint8_t>& pixels, int textureWidth, int cellX, int cellY, RoadArrowGlyph glyph) {
-    if (glyph == RoadArrowGlyph::None) {
+    const std::uint8_t laneIntentMask = static_cast<std::uint8_t>(glyph) & (kLaneIntentNorth | kLaneIntentEast | kLaneIntentSouth | kLaneIntentWest);
+    if (laneIntentMask == 0) {
         return;
     }
 
-    const Vec2 direction = ArrowGlyphDirection(glyph);
     const Vec4 arrowColor(0.93f, 0.86f, 0.32f, 1.0f);
 
     int localY = 0;
@@ -1097,7 +1089,18 @@ void PaintRoadArrowGlyph(std::vector<std::uint8_t>& pixels, int textureWidth, in
         for (; localX < kRoadAtlasTileSize; ++localX) {
             const float u = (static_cast<float>(localX) + 0.5f) / static_cast<float>(kRoadAtlasTileSize);
             const float v = (static_cast<float>(localY) + 0.5f) / static_cast<float>(kRoadAtlasTileSize);
-            const float alpha = CpuArrowMask(Vec2(u, v), direction);
+            float alpha = 0.0f;
+            const std::uint8_t laneIntents[] = {
+                kLaneIntentNorth,
+                kLaneIntentEast,
+                kLaneIntentSouth,
+                kLaneIntentWest
+            };
+            for (std::size_t intentIndex = 0; intentIndex < sizeof(laneIntents) / sizeof(laneIntents[0]); ++intentIndex) {
+                if ((laneIntentMask & laneIntents[intentIndex]) != 0) {
+                    alpha = std::max(alpha, CpuArrowMask(Vec2(u, v), ArrowIntentDirection(laneIntents[intentIndex])));
+                }
+            }
             if (alpha <= 0.0f) {
                 continue;
             }
@@ -1110,14 +1113,12 @@ void PaintRoadArrowGlyph(std::vector<std::uint8_t>& pixels, int textureWidth, in
 }
 
 // Builds a CPU-generated road atlas and uploads it once to OpenGL.
-GLuint CreateRoadAtlasTexture(bool arrowAtlas) {
+GLuint CreateRoadAtlasTexture(bool arrowAtlas, bool includeDebugMarkings) {
     const int textureWidth = kRoadAtlasColumns * kRoadAtlasTileSize;
     const int textureHeight = kRoadAtlasRows * kRoadAtlasTileSize;
     std::vector<std::uint8_t> pixels(static_cast<std::size_t>(textureWidth) * static_cast<std::size_t>(textureHeight) * 4u, 0);
 
-    const int glyphCount = arrowAtlas
-        ? static_cast<int>(RoadArrowGlyph::NorthWest) + 1
-        : static_cast<int>(RoadBaseGlyph::HighwayCross) + 1;
+    const int glyphCount = arrowAtlas ? 16 : static_cast<int>(RoadBaseGlyph::HighwayCross) + 1;
     int glyphIndex = 0;
     for (; glyphIndex < glyphCount; ++glyphIndex) {
         const int cellX = glyphIndex % kRoadAtlasColumns;
@@ -1125,7 +1126,7 @@ GLuint CreateRoadAtlasTexture(bool arrowAtlas) {
         if (arrowAtlas) {
             PaintRoadArrowGlyph(pixels, textureWidth, cellX, cellY, static_cast<RoadArrowGlyph>(glyphIndex));
         } else {
-            PaintRoadBaseGlyph(pixels, textureWidth, cellX, cellY, static_cast<RoadBaseGlyph>(glyphIndex));
+            PaintRoadBaseGlyph(pixels, textureWidth, cellX, cellY, static_cast<RoadBaseGlyph>(glyphIndex), includeDebugMarkings);
         }
     }
 
@@ -1620,7 +1621,10 @@ std::vector<RoadInstanceData> BuildRoadPreviewInstances(const RoadStrokeCommand&
         instance.originZ = static_cast<float>(cell.tileY);
         instance.lift = RoadLayerLift(roadStrokeCommand.layer);
         instance.baseGlyph = static_cast<float>(ChooseBaseGlyph(roadStrokeCommand.family, renderVariant, cell.junctionMask));
-        instance.arrowGlyph = static_cast<float>(ChooseArrowGlyph(cell.arrowIntentMask));
+        const RoadArrowGlyph previewArrowGlyph = ChooseArrowGlyph(cell.arrowIntentMask);
+        instance.arrowGlyph = previewArrowGlyph == RoadArrowGlyph::None
+            ? 0.0f
+            : static_cast<float>(static_cast<std::uint8_t>(previewArrowGlyph) | kRoadArrowDebugFlag);
         instance.surfaceEdgeMask = static_cast<float>(PackLaneGraphicMask(cell.sidewalkEdges, 0));
         instance.dividerMask = static_cast<float>(PackDividerMask(cell.sameDirectionDividerEdges, cell.opposingDirectionDividerEdges));
         instances.push_back(instance);
@@ -2278,8 +2282,9 @@ int Renderer::run() {
         GL_UNSIGNED_BYTE,
         0);
 
-    const GLuint roadBaseAtlasTextureId = CreateRoadAtlasTexture(false);
-    const GLuint roadArrowAtlasTextureId = CreateRoadAtlasTexture(true);
+    const GLuint roadBaseAtlasTextureId = CreateRoadAtlasTexture(false, true);
+    const GLuint roadBaseCleanAtlasTextureId = CreateRoadAtlasTexture(false, false);
+    const GLuint roadArrowAtlasTextureId = CreateRoadAtlasTexture(true, true);
 
     std::vector<TileChunkRenderCache> chunkCaches(simulationRuntime.chunkLayout().size());
     std::size_t chunkIndex = 0;
@@ -2387,6 +2392,7 @@ int Renderer::run() {
         glDeleteBuffers(1, &lotInstanceBufferId);
         glDeleteVertexArrays(1, &lotVertexArrayId);
         glDeleteTextures(1, &roadArrowAtlasTextureId);
+        glDeleteTextures(1, &roadBaseCleanAtlasTextureId);
         glDeleteTextures(1, &roadBaseAtlasTextureId);
         glDeleteTextures(1, &tileOverlayTextureId);
         glDeleteTextures(1, &groundRoadStateTextureId);
@@ -2409,6 +2415,7 @@ int Renderer::run() {
     const GLint roadBaseAtlasTextureLocation = glGetUniformLocation(shaderProgram.programId(), "uRoadBaseAtlasTexture");
     const GLint roadArrowAtlasTextureLocation = glGetUniformLocation(shaderProgram.programId(), "uRoadArrowAtlasTexture");
     const GLint roadAtlasGridLocation = glGetUniformLocation(shaderProgram.programId(), "uRoadAtlasGrid");
+    const GLint roadDebugVisibleLocation = glGetUniformLocation(shaderProgram.programId(), "uRoadDebugVisible");
     const GLint roadAlphaScaleLocation = glGetUniformLocation(shaderProgram.programId(), "uRoadAlphaScale");
     const GLint roadTintColorLocation = glGetUniformLocation(shaderProgram.programId(), "uRoadTintColor");
     const GLint roadTintStrengthLocation = glGetUniformLocation(shaderProgram.programId(), "uRoadTintStrength");
@@ -2424,6 +2431,7 @@ int Renderer::run() {
     glUniform1i(tileOverlayTextureLocation, 5);
     glUniform1i(regionPreviewTextureLocation, 6);
     glUniform2f(roadAtlasGridLocation, static_cast<float>(kRoadAtlasColumns), static_cast<float>(kRoadAtlasRows));
+    glUniform1i(roadDebugVisibleLocation, 1);
     glUniform1f(roadAlphaScaleLocation, 1.0f);
     glUniform3f(roadTintColorLocation, 1.0f, 1.0f, 1.0f);
     glUniform1f(roadTintStrengthLocation, 0.0f);
@@ -2556,6 +2564,7 @@ int Renderer::run() {
         glBindTexture(GL_TEXTURE_2D, tileLiftTextureId);
         glActiveTexture(GL_TEXTURE5);
         glBindTexture(GL_TEXTURE_2D, tileOverlayTextureId);
+        glUniform1i(roadDebugVisibleLocation, 1);
 
         glUniform1i(renderModeLocation, 0);
         for (uploadChunkIndex = 0; uploadChunkIndex < chunkCaches.size(); ++uploadChunkIndex) {
@@ -2967,13 +2976,14 @@ int Renderer::run() {
             glActiveTexture(GL_TEXTURE1);
             glBindTexture(GL_TEXTURE_2D, groundRoadStateTextureId);
             glActiveTexture(GL_TEXTURE2);
-            glBindTexture(GL_TEXTURE_2D, roadBaseAtlasTextureId);
+            glBindTexture(GL_TEXTURE_2D, viewState.roadDebugGraphicsEnabled ? roadBaseAtlasTextureId : roadBaseCleanAtlasTextureId);
             glActiveTexture(GL_TEXTURE3);
             glBindTexture(GL_TEXTURE_2D, roadArrowAtlasTextureId);
             glActiveTexture(GL_TEXTURE4);
             glBindTexture(GL_TEXTURE_2D, tileLiftTextureId);
             glActiveTexture(GL_TEXTURE5);
             glBindTexture(GL_TEXTURE_2D, tileOverlayTextureId);
+            glUniform1i(roadDebugVisibleLocation, viewState.roadDebugGraphicsEnabled ? 1 : 0);
 
             glUniform1i(renderModeLocation, 0);
             const std::chrono::steady_clock::time_point tileDrawStart = std::chrono::steady_clock::now();
@@ -3187,6 +3197,7 @@ int Renderer::run() {
     glDeleteBuffers(1, &lotInstanceBufferId);
     glDeleteVertexArrays(1, &lotVertexArrayId);
     glDeleteTextures(1, &roadArrowAtlasTextureId);
+    glDeleteTextures(1, &roadBaseCleanAtlasTextureId);
     glDeleteTextures(1, &roadBaseAtlasTextureId);
     glDeleteTextures(1, &tileOverlayTextureId);
     glDeleteTextures(1, &groundRoadStateTextureId);

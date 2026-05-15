@@ -34,6 +34,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Ground road channel 0 is the base glyph, channel 1 is the arrow glyph, channel 2 packs lane graphic masks, and channel 3 packs divider masks.
 - Channel 2 low nibble is sidewalk edges and high nibble is crosswalk edges. These values are produced by `RoadRenderState` from lane-owned transport resolution.
 - Crosswalk policy is not shader-owned. A crosswalk is a pedestrian lane graphic selected only when the lane overlaps a perpendicular car lane and both lane systems continue through the crossing.
+- `F11` toggles road debug graphics. The renderer switches between marked and clean base-road atlases, and `Basic.shader` hides only arrow glyphs tagged with the debug bit; road surfaces, turn-lane arrows, sidewalks, crosswalks, and lane dividers still render.
 - Elevated road instances carry the same base/arrow glyphs and packed lane-graphic/divider masks as instance attributes.
 - `Basic.shader` unpacks the lane graphic and divider masks in `applyRoadEdgeOverlays`.
 

@@ -47,6 +47,7 @@ struct ViewState {
     RoadDirectionMode roadDirectionMode;
     int lotRotationSteps;
     OverlayMode overlayMode;
+    bool roadDebugGraphicsEnabled;
     int queriedLotId;
     std::uint64_t queryRouteRevision;
     std::vector<CommuteRouteSegment> queriedCommuteRouteSegments;
@@ -78,6 +79,7 @@ struct ViewState {
           roadDirectionMode(RoadDirectionMode::TwoWay),
           lotRotationSteps(0),
           overlayMode(OverlayMode::None),
+          roadDebugGraphicsEnabled(false),
           queriedLotId(-1),
           queryRouteRevision(0),
           hoveredRegionX(0),
@@ -112,6 +114,7 @@ private:
     void panCamera(int deltaX, int deltaY);
     void setActiveTool(ActiveTool activeTool);
     void toggleTrafficOverlay();
+    void toggleRoadDebugGraphics();
     void rotatePlacement(int deltaSteps);
     bool activeToolIsRoad() const;
     bool handleRegionClick();

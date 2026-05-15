@@ -40,6 +40,7 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
 - `C`: toggle right-hand / left-hand road traffic side
 - `O`: cycle road direction mode between two-way, one-way forward, and one-way reverse
 - `T`: toggle the traffic capacity overlay
+- `F11`: toggle road debug graphics; off by default
 - `M`: add park module to an adjacent lot footprint
 - `Y`: remove the module under the hovered tile
 - `B`: bulldoze the lot or road under the hovered tile
@@ -83,6 +84,7 @@ msbuild 'City Builder/RendererTests.vcxproj' /p:Configuration=Release /p:Platfor
 - Roads live in a separate transport layer with their own published cell snapshot, directional pathfinding cost map, packed ground-road render state, traffic overlay state, and split ground/elevated chunk revisions so `Tile` stays compact for the scalar simulation passes.
 - Ground-road and elevated-road uploads are dirty visible-chunk only, and stale hidden chunks stay deferred until visible.
 - Traffic overlays use the same visible-dirty chunk upload pattern and draw above roads and lots as a presentation tint.
+- Road debug graphics start disabled and can be toggled with `F11`; disabling them hides ordinary direction arrows and car-lane connection markers while preserving turn-lane arrows, lane dividers, crosswalks, and road surfaces.
 - Road drag previews are renderer-only transient instances tinted with alpha; committed road topology still arrives through published snapshots.
 - Lot placement previews are renderer-only transient instances built from the same XML-backed lot candidate geometry used by committed placement.
 - In-game windows load from XML under `City Builder/Data/UI`; the current query window uses optional text fields, margins, and content hugging.
