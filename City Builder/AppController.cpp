@@ -18,6 +18,7 @@ const int kKeyE = 69;
 const int kKeyR = 82;
 const int kKeyO = 79;
 const int kKeyH = 72;
+const int kKeyM = 77;
 const int kKeyT = 84;
 const int kKeyY = 89;
 const int kKeyA = 65;
@@ -26,6 +27,18 @@ const int kKeyLeftBracket = 91;
 const int kKeyRightBracket = 93;
 const int kMinimumRoadLaneCount = 1;
 const int kMaximumRoadLaneCount = 4;
+
+const char* OverlayModeName(OverlayMode overlayMode) {
+    switch (overlayMode) {
+        case OverlayMode::None:
+            return "none";
+
+        case OverlayMode::TrafficCapacity:
+            return "traffic capacity";
+    }
+
+    return "unknown";
+}
 
 // Returns the human-readable label used when the active tool changes.
 const char* ActiveToolName(ActiveTool activeTool) {
@@ -302,6 +315,10 @@ void AppController::onKeyPressed(int key, int action) {
             return;
 
         case kKeyT:
+            toggleTrafficOverlay();
+            return;
+
+        case kKeyM:
             setActiveTool(ActiveTool::AddParkModule);
             return;
 
@@ -422,6 +439,11 @@ void AppController::setActiveTool(ActiveTool activeTool) {
     viewState_.activeTool = activeTool;
     viewState_.roadDragActive = false;
     std::cout << "Selected tool: " << ActiveToolName(activeTool) << std::endl;
+}
+
+void AppController::toggleTrafficOverlay() {
+    viewState_.overlayMode = viewState_.overlayMode == OverlayMode::TrafficCapacity ? OverlayMode::None : OverlayMode::TrafficCapacity;
+    std::cout << "Overlay: " << OverlayModeName(viewState_.overlayMode) << std::endl;
 }
 
 // Reports whether the active tool uses the road drag workflow.

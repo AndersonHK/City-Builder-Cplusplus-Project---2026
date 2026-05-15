@@ -8,6 +8,7 @@ Use this guide when changing road placement, lane topology, road render data, or
 - Roads are containers of lanes. Lanes own type, flow, side span, traversal cost, and render-graphic triggers.
 - Transport tiles self-resolve from their own lanes plus the four cardinal neighbor tiles.
 - Ground and elevated roads share the same lane and resolved-cell model, even though they render through different upload paths.
+- Pathfinding uses directional `(tile, layer, mode)` cost-map nodes. Layers and modes connect only through explicit transfer edges such as future ramps, stations, or parking.
 
 ## Current Shape
 - `TransportTypes.h` owns shared enums, direction bits, masks, and snapshot structs such as `ResolvedRoadCell`.
@@ -15,7 +16,8 @@ Use this guide when changing road placement, lane topology, road render data, or
 - `Road` owns road-template construction and stroke expansion. It converts the current tool inputs into clipped per-tile lane placements.
 - `TransportTile` owns the authored lanes on one tile/layer and validates merge/replay rules locally, including replayed stroke identity updates during upgrades.
 - `RoadRenderState` owns base glyph, arrow glyph, lane graphic mask, and divider packing.
-- `TransportNetwork` owns layer storage, lot-occupancy rejection, dirty tile neighborhoods, chunk revisions, resolved-cell publication, and packed ground-road bytes.
+- `TransportCostMap` owns dense outgoing directional costs, capacities, old/new load buffers, sparse transfer edges, A* scratch reuse, and traffic-overlay generation.
+- `TransportNetwork` owns layer storage, lot-occupancy rejection, dirty tile neighborhoods, chunk revisions, resolved-cell publication, cost-map rebuilding, traffic-overlay publication, and packed ground-road bytes.
 
 ## Lane Rules
 - Sidewalks are pedestrian lanes. Crosswalks are not authored lanes; they are pedestrian lane graphics chosen during tile resolution.
@@ -25,6 +27,15 @@ Use this guide when changing road placement, lane topology, road render data, or
 - Same-axis overlap is lane-span validated. Exact replay is accepted; incompatible shifted road bodies are rejected.
 - Perpendicular overlap is allowed as lane coexistence inside the same transport tile. Intersection behavior is resolved afterward from lane adjacency.
 - A resolved tile aggregates lane type masks, surface masks, costs, travel, exits, junction glyphs, lane graphics, and dividers for renderer/query consumers.
+- A pathing lane contributes only the outgoing directions it actually permits. If multiple lanes contribute to the same tile/layer/mode/direction, the cost map keeps the lower cost and accumulates capacity.
+- Ground local sidewalks expose adjacent building access for pedestrian and car spawning. Highways, elevated lanes, underground lanes, and through-only lanes do not expose adjacent building access by default.
+
+## Pathfinding And Traffic Loads
+- Cost-map nodes use `tile + totalTiles * (mode + modeCount * layer)` so A* can use compact scratch arrays.
+- The cost map stores eight outgoing direction slots. Current road lanes populate cardinal directions; diagonal slots are reserved for future connectors.
+- A* expands movement edges within one layer/mode and sparse transfer edges for mode/layer changes. There is no implicit connection between overlapping layers.
+- Congestion reads immutable old load and writes reassigned traffic into a separate new-load buffer so future per-building path recalculation can run in parallel and reduce deltas afterward.
+- Route tie-breaking uses tiny deterministic jitter from the route seed so equivalent alternatives can distribute statistically over repeated sampled updates.
 
 ## Crosswalk Rule
 A pedestrian lane renders as a crosswalk only when all of these are true:
@@ -48,6 +59,7 @@ Otherwise the same pedestrian lane remains a sidewalk. This keeps T-section endp
 - Build `x64 Release`.
 - Build and run `TransportNetworkTests.vcxproj`.
 - Verify straight one-way and two-way local streets, elevated highways, corners, tees, crosses, same-axis overlap rejection, exact replay revision stability, and lot-road occupancy rejection.
+- Verify directional one-way costs, lower-cost merge behavior, capacity accumulation, no implicit layer connection, explicit transfer edges, load add/subtract, congestion rerouting, and traffic-overlay colors.
 - In game, pan away and back after road edits to confirm deferred chunk uploads still catch up when visible.
 
 ## Related Guides

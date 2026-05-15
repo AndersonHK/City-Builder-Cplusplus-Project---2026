@@ -237,10 +237,12 @@ struct RendererFrameMetrics {
     long long groundRoadUploadMicros;
     long long elevatedRoadUploadMicros;
     long long roadGhostUploadMicros;
+    long long tileOverlayUploadMicros;
     long long lotUploadMicros;
     long long tileDrawMicros;
     long long elevatedRoadDrawMicros;
     long long roadGhostDrawMicros;
+    long long tileOverlayDrawMicros;
     long long lotDrawMicros;
     long long tileStateUploadedTileCount;
     long long tileStateUploadedBytes;
@@ -253,6 +255,8 @@ struct RendererFrameMetrics {
     int tileStateDeferredChunkCount;
     int tileLiftUploadedChunkCount;
     int tileLiftDeferredChunkCount;
+    int tileOverlayUploadedChunkCount;
+    int tileOverlayDeferredChunkCount;
     int dirtyGroundRoadChunkCount;
     int deferredGroundRoadChunkCount;
     int dirtyElevatedRoadChunkCount;
@@ -269,10 +273,12 @@ struct RendererFrameMetrics {
           groundRoadUploadMicros(0),
           elevatedRoadUploadMicros(0),
           roadGhostUploadMicros(0),
+          tileOverlayUploadMicros(0),
           lotUploadMicros(0),
           tileDrawMicros(0),
           elevatedRoadDrawMicros(0),
           roadGhostDrawMicros(0),
+          tileOverlayDrawMicros(0),
           lotDrawMicros(0),
           tileStateUploadedTileCount(0),
           tileStateUploadedBytes(0),
@@ -285,6 +291,8 @@ struct RendererFrameMetrics {
           tileStateDeferredChunkCount(0),
           tileLiftUploadedChunkCount(0),
           tileLiftDeferredChunkCount(0),
+          tileOverlayUploadedChunkCount(0),
+          tileOverlayDeferredChunkCount(0),
           dirtyGroundRoadChunkCount(0),
           deferredGroundRoadChunkCount(0),
           dirtyElevatedRoadChunkCount(0),
@@ -1497,6 +1505,31 @@ void UpdateGroundRoadChunkTexture(GLuint textureId, const PublishedWorldSnapshot
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 }
 
+void UpdateTileOverlayChunkTexture(GLuint textureId, const PublishedWorldSnapshot& snapshot, const ChunkRect& chunkRect) {
+    if (snapshot.tileOverlayState == 0 || snapshot.tileOverlayState->empty()) {
+        return;
+    }
+
+    const std::size_t startOffset =
+        (static_cast<std::size_t>(chunkRect.startY) * static_cast<std::size_t>(snapshot.width) + static_cast<std::size_t>(chunkRect.startX)) * 4u;
+    glActiveTexture(GL_TEXTURE5);
+    glBindTexture(GL_TEXTURE_2D, textureId);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, snapshot.width);
+    glTexSubImage2D(
+        GL_TEXTURE_2D,
+        0,
+        chunkRect.startX,
+        chunkRect.startY,
+        chunkRect.width,
+        chunkRect.height,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        &(*snapshot.tileOverlayState)[startOffset]);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+}
+
 // Deletes OpenGL objects owned by tile chunk caches.
 void DestroyTileChunkCaches(std::vector<TileChunkRenderCache>& chunkCaches) {
     std::size_t chunkIndex = 0;
@@ -1661,6 +1694,24 @@ int Renderer::run() {
         GL_UNSIGNED_BYTE,
         0);
 
+    GLuint tileOverlayTextureId = 0;
+    glGenTextures(1, &tileOverlayTextureId);
+    glBindTexture(GL_TEXTURE_2D, tileOverlayTextureId);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RGBA8,
+        simulationRuntime_.mapWidth(),
+        simulationRuntime_.mapHeight(),
+        0,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        0);
+
     const GLuint roadBaseAtlasTextureId = CreateRoadAtlasTexture(false);
     const GLuint roadArrowAtlasTextureId = CreateRoadAtlasTexture(true);
 
@@ -1713,6 +1764,7 @@ int Renderer::run() {
         glDeleteVertexArrays(1, &lotVertexArrayId);
         glDeleteTextures(1, &roadArrowAtlasTextureId);
         glDeleteTextures(1, &roadBaseAtlasTextureId);
+        glDeleteTextures(1, &tileOverlayTextureId);
         glDeleteTextures(1, &groundRoadStateTextureId);
         glDeleteTextures(1, &tileLiftTextureId);
         glDeleteTextures(1, &tileStateTextureId);
@@ -1728,6 +1780,7 @@ int Renderer::run() {
     const GLint renderModeLocation = glGetUniformLocation(shaderProgram.programId(), "uRenderMode");
     const GLint tileTextureLocation = glGetUniformLocation(shaderProgram.programId(), "uTileStateTexture");
     const GLint tileLiftTextureLocation = glGetUniformLocation(shaderProgram.programId(), "uTileLiftTexture");
+    const GLint tileOverlayTextureLocation = glGetUniformLocation(shaderProgram.programId(), "uTileOverlayTexture");
     const GLint groundRoadStateTextureLocation = glGetUniformLocation(shaderProgram.programId(), "uGroundRoadStateTexture");
     const GLint roadBaseAtlasTextureLocation = glGetUniformLocation(shaderProgram.programId(), "uRoadBaseAtlasTexture");
     const GLint roadArrowAtlasTextureLocation = glGetUniformLocation(shaderProgram.programId(), "uRoadArrowAtlasTexture");
@@ -1740,6 +1793,7 @@ int Renderer::run() {
     glUniform1i(roadBaseAtlasTextureLocation, 2);
     glUniform1i(roadArrowAtlasTextureLocation, 3);
     glUniform1i(tileLiftTextureLocation, 4);
+    glUniform1i(tileOverlayTextureLocation, 5);
     glUniform2f(roadAtlasGridLocation, static_cast<float>(kRoadAtlasColumns), static_cast<float>(kRoadAtlasRows));
     glUniform1f(roadAlphaScaleLocation, 1.0f);
     glUniform3f(roadTintColorLocation, 1.0f, 1.0f, 1.0f);
@@ -1751,6 +1805,7 @@ int Renderer::run() {
     std::vector<RoadInstanceData> roadGhostInstances;
     std::uint64_t lastUploadedLotRevision = std::numeric_limits<std::uint64_t>::max();
     std::vector<std::uint64_t> lastUploadedGroundRoadChunkRevisions(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
+    std::vector<std::uint64_t> lastUploadedTileOverlayChunkRevisions(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
 
     int renderedFrames = 0;
     RendererFrameMetrics lastFrameMetrics;
@@ -1891,6 +1946,26 @@ int Renderer::run() {
             }
             frameMetrics.groundRoadUploadMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - groundRoadUploadStart).count();
 
+            const std::chrono::steady_clock::time_point tileOverlayUploadStart = std::chrono::steady_clock::now();
+            if (viewState.overlayMode != OverlayMode::None && snapshot.tileOverlayState != 0 && snapshot.tileOverlayChunkRevisions != 0) {
+                for (uploadChunkIndex = 0; uploadChunkIndex < chunkCaches.size(); ++uploadChunkIndex) {
+                    const std::uint64_t publishedRevision = (*snapshot.tileOverlayChunkRevisions)[uploadChunkIndex];
+                    if (lastUploadedTileOverlayChunkRevisions[uploadChunkIndex] == publishedRevision) {
+                        continue;
+                    }
+
+                    if (visibleChunkFlags[uploadChunkIndex] == 0u) {
+                        ++frameMetrics.tileOverlayDeferredChunkCount;
+                        continue;
+                    }
+
+                    UpdateTileOverlayChunkTexture(tileOverlayTextureId, snapshot, chunkCaches[uploadChunkIndex].chunkRect);
+                    lastUploadedTileOverlayChunkRevisions[uploadChunkIndex] = publishedRevision;
+                    ++frameMetrics.tileOverlayUploadedChunkCount;
+                }
+            }
+            frameMetrics.tileOverlayUploadMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - tileOverlayUploadStart).count();
+
             const std::chrono::steady_clock::time_point elevatedRoadUploadStart = std::chrono::steady_clock::now();
             if (snapshot.roads != 0 && snapshot.elevatedRoadChunkRevisions != 0) {
                 for (uploadChunkIndex = 0; uploadChunkIndex < roadChunkCaches.size(); ++uploadChunkIndex) {
@@ -1944,6 +2019,8 @@ int Renderer::run() {
             glBindTexture(GL_TEXTURE_2D, roadArrowAtlasTextureId);
             glActiveTexture(GL_TEXTURE4);
             glBindTexture(GL_TEXTURE_2D, tileLiftTextureId);
+            glActiveTexture(GL_TEXTURE5);
+            glBindTexture(GL_TEXTURE_2D, tileOverlayTextureId);
 
             glUniform1i(renderModeLocation, 0);
             const std::chrono::steady_clock::time_point tileDrawStart = std::chrono::steady_clock::now();
@@ -1995,6 +2072,21 @@ int Renderer::run() {
                 frameMetrics.lotDrawMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - lotDrawStart).count();
             }
 
+            if (viewState.overlayMode != OverlayMode::None && snapshot.tileOverlayState != 0) {
+                glUniform1i(renderModeLocation, 3);
+                glDepthMask(GL_FALSE);
+                glDisable(GL_DEPTH_TEST);
+                const std::chrono::steady_clock::time_point tileOverlayDrawStart = std::chrono::steady_clock::now();
+                for (visibleIndex = 0; visibleIndex < visibleChunkIndices.size(); ++visibleIndex) {
+                    const TileChunkRenderCache& cache = chunkCaches[visibleChunkIndices[visibleIndex]];
+                    glBindVertexArray(cache.vertexArrayId);
+                    glDrawArraysInstanced(GL_TRIANGLES, 0, 6, cache.instanceCount);
+                }
+                frameMetrics.tileOverlayDrawMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - tileOverlayDrawStart).count();
+                glEnable(GL_DEPTH_TEST);
+                glDepthMask(GL_TRUE);
+            }
+
             glBindVertexArray(0);
         } else {
             appController_.setHoveredTile(0, 0, false);
@@ -2028,12 +2120,15 @@ int Renderer::run() {
                 << " liftChunks=" << lastFrameMetrics.tileLiftUploadedChunkCount << " defer=" << lastFrameMetrics.tileLiftDeferredChunkCount
                 << " liftBytes=" << lastFrameMetrics.tileLiftUploadedBytes
                 << " groundRoadUp=" << lastFrameMetrics.groundRoadUploadMicros
+                << " overlayUp=" << lastFrameMetrics.tileOverlayUploadMicros
+                << " overlayChunks=" << lastFrameMetrics.tileOverlayUploadedChunkCount << " defer=" << lastFrameMetrics.tileOverlayDeferredChunkCount
                 << " elevRoadUp=" << lastFrameMetrics.elevatedRoadUploadMicros
                 << " roadGhostUp=" << lastFrameMetrics.roadGhostUploadMicros
                 << " lotUp=" << lastFrameMetrics.lotUploadMicros
                 << " tileDraw=" << lastFrameMetrics.tileDrawMicros
                 << " elevRoadDraw=" << lastFrameMetrics.elevatedRoadDrawMicros
                 << " roadGhostDraw=" << lastFrameMetrics.roadGhostDrawMicros
+                << " overlayDraw=" << lastFrameMetrics.tileOverlayDrawMicros
                 << " lotDraw=" << lastFrameMetrics.lotDrawMicros
                 << " chunks=" << lastFrameMetrics.visibleChunkCount << "/" << lastFrameMetrics.totalChunkCount
                 << " elevChunks=" << lastFrameMetrics.visibleElevatedRoadChunkCount
@@ -2054,6 +2149,7 @@ int Renderer::run() {
     glDeleteVertexArrays(1, &lotVertexArrayId);
     glDeleteTextures(1, &roadArrowAtlasTextureId);
     glDeleteTextures(1, &roadBaseAtlasTextureId);
+    glDeleteTextures(1, &tileOverlayTextureId);
     glDeleteTextures(1, &groundRoadStateTextureId);
     glDeleteTextures(1, &tileLiftTextureId);
     glDeleteTextures(1, &tileStateTextureId);

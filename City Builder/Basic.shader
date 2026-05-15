@@ -45,7 +45,7 @@ void main()
         vRoadGlyphs = vec2(0.0);
         vRoadMasks = vec2(0.0);
         vSurfaceLift = 0.0;
-    } else {
+    } else if (uRenderMode == 2) {
         worldPosition = vec3(
             aLocalPosition.x + aInstanceData0.x,
             aInstanceData0.z,
@@ -55,6 +55,17 @@ void main()
         vLotColor = vec3(0.0);
         vRoadGlyphs = vec2(aInstanceData0.w, aInstanceData1.x);
         vRoadMasks = vec2(aInstanceData1.y, aInstanceData1.z);
+        vSurfaceLift = 0.0;
+    } else {
+        worldPosition = vec3(
+            aLocalPosition.x + aInstanceData0.x,
+            0.0,
+            aLocalPosition.z + aInstanceData0.y);
+        vTileUv = aInstanceData0.zw;
+        vLocalUv = aLocalPosition.xz;
+        vLotColor = vec3(0.0);
+        vRoadGlyphs = vec2(0.0);
+        vRoadMasks = vec2(0.0);
         vSurfaceLift = 0.0;
     }
 
@@ -69,6 +80,7 @@ layout(location = 0) out vec4 color;
 
 uniform sampler2D uTileStateTexture;
 uniform sampler2D uGroundRoadStateTexture;
+uniform sampler2D uTileOverlayTexture;
 uniform sampler2D uRoadBaseAtlasTexture;
 uniform sampler2D uRoadArrowAtlasTexture;
 uniform vec2 uRoadAtlasGrid;
@@ -188,6 +200,16 @@ void main()
         }
 
         color = vec4(finalColor, finalAlpha);
+        return;
+    }
+
+    if (vRenderMode == 3) {
+        vec4 overlayColor = texture(uTileOverlayTexture, vTileUv);
+        if (overlayColor.a <= 0.001) {
+            discard;
+        }
+
+        color = overlayColor;
         return;
     }
 

@@ -26,6 +26,7 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 - Lot occupancy lift is separated into a visible-chunk mask texture instead of causing tile instance rebuilds.
 - Ground roads piggyback on the tile pass through a packed road-state texture plus atlas lookups.
 - Ground-road and elevated-road uploads are lazy per visible dirty chunk.
+- Traffic capacity is the first generic per-tile overlay; `T` toggles it, and it draws above roads/lots.
 - Lots render through a separate world-space placeholder prism path and are not chunk-owned yet.
 - Mouse picking now raycasts from the perspective camera onto the ground plane.
 - Arrow-key panning was corrected after the renderer migration so movement now matches the camera-facing directions.
@@ -38,8 +39,10 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 - Published lot render data is rebuilt only when the lot set changes.
 - Published road data now includes:
   - resolved per-layer road cells
+  - directional transport cost-map derived traffic overlay state
   - packed ground-road render state
   - split ground/elevated road chunk revisions
+- `TransportCostMap` now owns directional `(tile, layer, mode)` costs, capacities, old/new traffic loads, transfer edges, and A* scratch-driven pathfinding.
 - Worker chunk dispatch no longer copies a hot-path `std::function`; it uses an enum-driven task path plus an atomic chunk cursor.
 - The simulation thread now participates in chunk work instead of only dispatching and waiting.
 - Write-buffer selection no longer uses the old 1 ms sleep polling path; it waits on the render condition variable.

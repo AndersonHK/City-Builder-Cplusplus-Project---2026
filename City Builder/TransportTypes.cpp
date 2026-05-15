@@ -85,3 +85,83 @@ bool HasHorizontalLane(std::uint8_t laneTravelMask) {
 bool HasVerticalLane(std::uint8_t laneTravelMask) {
     return (laneTravelMask & (kLaneIntentNorth | kLaneIntentSouth)) != 0;
 }
+
+std::uint8_t TransportModeMaskFor(TransportMode mode) {
+    return static_cast<std::uint8_t>(1u << static_cast<std::uint8_t>(mode));
+}
+
+int RoadDirectionIndex(std::uint8_t roadDirection) {
+    switch (roadDirection) {
+        case kRoadDirectionNorth:
+            return 0;
+        case kRoadDirectionEast:
+            return 1;
+        case kRoadDirectionSouth:
+            return 2;
+        case kRoadDirectionWest:
+            return 3;
+        case kRoadDirectionNorthEast:
+            return 4;
+        case kRoadDirectionSouthEast:
+            return 5;
+        case kRoadDirectionSouthWest:
+            return 6;
+        case kRoadDirectionNorthWest:
+            return 7;
+        default:
+            return -1;
+    }
+}
+
+std::uint8_t RoadDirectionFromIndex(int directionIndex) {
+    switch (directionIndex) {
+        case 0:
+            return kRoadDirectionNorth;
+        case 1:
+            return kRoadDirectionEast;
+        case 2:
+            return kRoadDirectionSouth;
+        case 3:
+            return kRoadDirectionWest;
+        case 4:
+            return kRoadDirectionNorthEast;
+        case 5:
+            return kRoadDirectionSouthEast;
+        case 6:
+            return kRoadDirectionSouthWest;
+        case 7:
+            return kRoadDirectionNorthWest;
+        default:
+            return 0;
+    }
+}
+
+int RoadDirectionDeltaX(std::uint8_t roadDirection) {
+    switch (roadDirection) {
+        case kRoadDirectionEast:
+        case kRoadDirectionNorthEast:
+        case kRoadDirectionSouthEast:
+            return 1;
+        case kRoadDirectionWest:
+        case kRoadDirectionSouthWest:
+        case kRoadDirectionNorthWest:
+            return -1;
+        default:
+            return 0;
+    }
+}
+
+int RoadDirectionDeltaY(std::uint8_t roadDirection) {
+    switch (roadDirection) {
+        case kRoadDirectionSouth:
+        case kRoadDirectionSouthEast:
+        case kRoadDirectionSouthWest:
+            return 1;
+        case kRoadDirectionNorth:
+        case kRoadDirectionNorthEast:
+        case kRoadDirectionNorthWest:
+            return -1;
+        default:
+            return 0;
+    }
+}

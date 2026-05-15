@@ -146,6 +146,7 @@ copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\
     <ClCompile Include="ShaderProgram.cpp" />
     <ClCompile Include="SimulationRuntime.cpp" />
     <ClCompile Include="Source.cpp" />
+    <ClCompile Include="TransportCostMap.cpp" />
     <ClCompile Include="TransportTile.cpp" />
     <ClCompile Include="TransportNetwork.cpp" />
     <ClCompile Include="TransportTypes.cpp" />
@@ -170,6 +171,7 @@ copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\
     <ClInclude Include="ShaderProgram.h" />
     <ClInclude Include="SimulationRuntime.h" />
     <ClInclude Include="Tile.h" />
+    <ClInclude Include="TransportCostMap.h" />
     <ClInclude Include="TransportTile.h" />
     <ClInclude Include="TransportNetwork.h" />
     <ClInclude Include="TransportTypes.h" />

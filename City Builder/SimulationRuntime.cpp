@@ -81,10 +81,13 @@ SimulationRuntime::SimulationRuntime(const RuntimeOptions& runtimeOptions)
         tileBuffers_[bufferIndex].publishedLotOccupancy.assign(totalTileCount, kInvalidLotId);
         tileBuffers_[bufferIndex].publishedRoads.assign(totalTileCount * TransportNetwork::layerCount(), ResolvedRoadCell());
         tileBuffers_[bufferIndex].publishedGroundRoadRenderState.assign(totalTileCount * kGroundRoadRenderChannelsPerTile, 0);
+        tileBuffers_[bufferIndex].publishedTileOverlayState.assign(totalTileCount * 4u, 0);
         tileBuffers_[bufferIndex].publishedGroundRoadChunkRevisions.assign(chunkCount, 1);
         tileBuffers_[bufferIndex].publishedElevatedRoadChunkRevisions.assign(chunkCount, 1);
+        tileBuffers_[bufferIndex].publishedTileOverlayChunkRevisions.assign(chunkCount, 1);
         tileBuffers_[bufferIndex].lotRenderRevision = 0;
         tileBuffers_[bufferIndex].roadRenderRevision = 0;
+        tileBuffers_[bufferIndex].overlayRenderRevision = 0;
         bufferUseCounts_[bufferIndex].store(0);
     }
 
@@ -315,13 +318,16 @@ PublishedWorldSnapshot SimulationRuntime::acquirePublishedSnapshot() {
     snapshot.lotOccupancy = &tileBuffers_[publishedBufferIndex_].publishedLotOccupancy;
     snapshot.roads = &tileBuffers_[publishedBufferIndex_].publishedRoads;
     snapshot.groundRoadRenderState = &tileBuffers_[publishedBufferIndex_].publishedGroundRoadRenderState;
+    snapshot.tileOverlayState = &tileBuffers_[publishedBufferIndex_].publishedTileOverlayState;
     snapshot.groundRoadChunkRevisions = &tileBuffers_[publishedBufferIndex_].publishedGroundRoadChunkRevisions;
     snapshot.elevatedRoadChunkRevisions = &tileBuffers_[publishedBufferIndex_].publishedElevatedRoadChunkRevisions;
+    snapshot.tileOverlayChunkRevisions = &tileBuffers_[publishedBufferIndex_].publishedTileOverlayChunkRevisions;
     snapshot.width = kMapWidth;
     snapshot.height = kMapHeight;
     snapshot.generation = publishedGeneration_;
     snapshot.lotRevision = tileBuffers_[publishedBufferIndex_].lotRenderRevision;
     snapshot.roadRevision = tileBuffers_[publishedBufferIndex_].roadRenderRevision;
+    snapshot.overlayRevision = tileBuffers_[publishedBufferIndex_].overlayRenderRevision;
 
     if (snapshot.bufferIndex >= 0) {
         bufferUseCounts_[snapshot.bufferIndex].fetch_add(1);
@@ -437,10 +443,13 @@ void SimulationRuntime::initializeWorld() {
         tileBuffers_[bufferIndex].publishedLotOccupancy.assign(static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight), kInvalidLotId);
         tileBuffers_[bufferIndex].publishedRoads.assign(static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight) * TransportNetwork::layerCount(), ResolvedRoadCell());
         tileBuffers_[bufferIndex].publishedGroundRoadRenderState.assign(static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight) * kGroundRoadRenderChannelsPerTile, 0);
+        tileBuffers_[bufferIndex].publishedTileOverlayState.assign(static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight) * 4u, 0);
         tileBuffers_[bufferIndex].publishedGroundRoadChunkRevisions.assign(chunkLayout_.size(), 1);
         tileBuffers_[bufferIndex].publishedElevatedRoadChunkRevisions.assign(chunkLayout_.size(), 1);
+        tileBuffers_[bufferIndex].publishedTileOverlayChunkRevisions.assign(chunkLayout_.size(), 1);
         tileBuffers_[bufferIndex].lotRenderRevision = 0;
         tileBuffers_[bufferIndex].roadRenderRevision = 0;
+        tileBuffers_[bufferIndex].overlayRenderRevision = 0;
     }
 
     lotOccupancy_.assign(static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight), kInvalidLotId);
@@ -863,15 +872,19 @@ void SimulationRuntime::refreshPublishedLotSnapshot(TileBuffer& completedBuffer)
 
 // Refreshes road render/query snapshots only when the road revision changed.
 void SimulationRuntime::refreshPublishedRoadSnapshot(TileBuffer& completedBuffer) {
-    if (completedBuffer.roadRenderRevision == transportNetwork_.revision()) {
-        return;
+    if (completedBuffer.roadRenderRevision != transportNetwork_.revision()) {
+        completedBuffer.publishedRoads = transportNetwork_.resolvedCells();
+        completedBuffer.publishedGroundRoadRenderState = transportNetwork_.groundRoadRenderState();
+        completedBuffer.publishedGroundRoadChunkRevisions = transportNetwork_.groundChunkRevisions();
+        completedBuffer.publishedElevatedRoadChunkRevisions = transportNetwork_.elevatedChunkRevisions();
+        completedBuffer.roadRenderRevision = transportNetwork_.revision();
     }
 
-    completedBuffer.publishedRoads = transportNetwork_.resolvedCells();
-    completedBuffer.publishedGroundRoadRenderState = transportNetwork_.groundRoadRenderState();
-    completedBuffer.publishedGroundRoadChunkRevisions = transportNetwork_.groundChunkRevisions();
-    completedBuffer.publishedElevatedRoadChunkRevisions = transportNetwork_.elevatedChunkRevisions();
-    completedBuffer.roadRenderRevision = transportNetwork_.revision();
+    if (completedBuffer.overlayRenderRevision != transportNetwork_.trafficOverlayRevision()) {
+        completedBuffer.publishedTileOverlayState = transportNetwork_.trafficOverlayState();
+        completedBuffer.publishedTileOverlayChunkRevisions = transportNetwork_.trafficOverlayChunkRevisions();
+        completedBuffer.overlayRenderRevision = transportNetwork_.trafficOverlayRevision();
+    }
 }
 
 // Carries render-topology chunk revisions forward into the next write buffer.

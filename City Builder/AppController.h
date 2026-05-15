@@ -13,6 +13,11 @@ enum class ActiveTool {
     Query
 };
 
+enum class OverlayMode {
+    None,
+    TrafficCapacity
+};
+
 struct ViewState {
     int cameraX;
     int cameraY;
@@ -33,6 +38,7 @@ struct ViewState {
     int roadLaneCount;
     RoadTrafficSide roadTrafficSide;
     RoadDirectionMode roadDirectionMode;
+    OverlayMode overlayMode;
 
     // Initializes the default camera span and active tool for a new session.
     ViewState()
@@ -54,7 +60,8 @@ struct ViewState {
           roadDragCurrentY(0),
           roadLaneCount(1),
           roadTrafficSide(RoadTrafficSide::RightHand),
-          roadDirectionMode(RoadDirectionMode::TwoWay) {
+          roadDirectionMode(RoadDirectionMode::TwoWay),
+          overlayMode(OverlayMode::None) {
     }
 };
 
@@ -80,6 +87,7 @@ private:
     void clampCameraToMap();
     void panCamera(int deltaX, int deltaY);
     void setActiveTool(ActiveTool activeTool);
+    void toggleTrafficOverlay();
     bool activeToolIsRoad() const;
     void beginRoadDrag(int tileX, int tileY);
     void commitRoadDrag(int tileX, int tileY);

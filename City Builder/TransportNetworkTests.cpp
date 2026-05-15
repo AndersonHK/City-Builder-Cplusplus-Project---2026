@@ -64,6 +64,29 @@ const ResolvedRoadCell& CellAt(const TransportNetwork& network, TransportLayerId
     return network.resolvedCells()[slot];
 }
 
+const TransportCostCell& CostCellAt(const TransportNetwork& network, TransportLayerId layer, TransportMode mode, int tileX, int tileY) {
+    const int tileIndex = tileY * network.width() + tileX;
+    return network.costMap().cell(layer, mode, tileIndex);
+}
+
+std::uint16_t DirectionCost(const TransportCostCell& cell, std::uint8_t roadDirection) {
+    const int directionIndex = RoadDirectionIndex(roadDirection);
+    return directionIndex < 0 ? 0u : cell.costs[directionIndex];
+}
+
+std::uint16_t DirectionCapacity(const TransportCostCell& cell, std::uint8_t roadDirection) {
+    const int directionIndex = RoadDirectionIndex(roadDirection);
+    return directionIndex < 0 ? 0u : cell.capacities[directionIndex];
+}
+
+TransportPathRequest MakePathRequest(std::uint32_t startNodeId, std::uint32_t goalNodeId, std::uint32_t routeSeed = 0) {
+    TransportPathRequest request;
+    request.startNodeIds.push_back(startNodeId);
+    request.goalNodeIds.push_back(goalNodeId);
+    request.routeSeed = routeSeed;
+    return request;
+}
+
 std::uint8_t SidewalkEdges(const ResolvedRoadCell& cell) {
     return cell.surfaceEdgeMask & kRoadSurfaceSidewalkEdgeMask;
 }
@@ -358,6 +381,174 @@ void TestGroundRoadRejectsLotOccupancy(TestRunner& runner) {
 
     runner.expect(!Place(network, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "ground road rejects occupied lot tile");
 }
+
+void TestDirectionalOneWayCostMap(TestRunner& runner) {
+    TransportNetwork network = MakeNetwork(12, 12);
+    std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(network, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground, RoadDirectionMode::OneWayForward), lotOccupancy), "directional one-way placement succeeds");
+    const TransportCostCell& carCell = CostCellAt(network, TransportLayerId::Ground, TransportMode::Car, 4, 5);
+    const TransportCostCell& pedestrianCell = CostCellAt(network, TransportLayerId::Ground, TransportMode::Pedestrian, 4, 5);
+
+    runner.expect(DirectionCost(carCell, kRoadDirectionEast) > 0u, "one-way car cost exists east");
+    runner.expect(DirectionCost(carCell, kRoadDirectionWest) == 0u, "one-way car cost does not exist west");
+    runner.expect(DirectionCost(pedestrianCell, kRoadDirectionEast) > 0u, "one-way street pedestrian cost exists east");
+    runner.expect(DirectionCost(pedestrianCell, kRoadDirectionWest) > 0u, "one-way street pedestrian cost exists west");
+}
+
+void TestCostMapLowerCostAndCapacityAccumulation(TestRunner& runner) {
+    TransportCostMap costMap;
+    costMap.initialize(2, 1);
+    const int tileIndex = 0;
+
+    costMap.addDirectionalCost(TransportLayerId::Ground, TransportMode::Car, tileIndex, kRoadDirectionEast, 20u, 10u);
+    costMap.addDirectionalCost(TransportLayerId::Ground, TransportMode::Car, tileIndex, kRoadDirectionEast, 10u, 20u);
+    const TransportCostCell& cell = costMap.cell(TransportLayerId::Ground, TransportMode::Car, tileIndex);
+
+    runner.expect(DirectionCost(cell, kRoadDirectionEast) == 10u, "cost map keeps lower directional cost");
+    runner.expect(DirectionCapacity(cell, kRoadDirectionEast) == 30u, "cost map accumulates compatible directional capacity");
+}
+
+void TestHighwayDoesNotExposeBuildingAccess(TestRunner& runner) {
+    TransportNetwork network = MakeNetwork(12, 12);
+    std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(network, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::Highway, TransportLayerId::Elevated), lotOccupancy), "highway access test placement succeeds");
+    const TransportCostCell& highwayCell = CostCellAt(network, TransportLayerId::Elevated, TransportMode::Car, 4, 5);
+    runner.expect(highwayCell.buildingAccessMask == 0u, "elevated highway has no adjacent building access");
+}
+
+void TestBuildingAccessCandidatesFromLocalStreet(TestRunner& runner) {
+    TransportNetwork network = MakeNetwork(12, 12);
+    std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(network, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "building access local street placement succeeds");
+
+    std::vector<std::uint32_t> accessNodes;
+    network.costMap().collectBuildingAccessNodes(4, 4, 1, 1, kTransportModeCar | kTransportModePedestrian, accessNodes);
+    bool foundCar = false;
+    bool foundPedestrian = false;
+    std::size_t nodeIndex = 0;
+    for (; nodeIndex < accessNodes.size(); ++nodeIndex) {
+        foundCar = foundCar || accessNodes[nodeIndex] == network.costMap().nodeId(TransportLayerId::Ground, TransportMode::Car, 4, 5);
+        foundPedestrian = foundPedestrian || accessNodes[nodeIndex] == network.costMap().nodeId(TransportLayerId::Ground, TransportMode::Pedestrian, 4, 5);
+    }
+
+    runner.expect(foundCar, "building access collects adjacent car node from local street");
+    runner.expect(foundPedestrian, "building access collects adjacent pedestrian node from local street");
+}
+
+void TestLayerIsolationWithoutTransfer(TestRunner& runner) {
+    TransportNetwork network = MakeNetwork(12, 12);
+    std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(network, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "layer isolation ground road succeeds");
+    runner.expect(Place(network, MakeStroke(Int2(5, 2), Int2(5, 8), RoadFamily::Highway, TransportLayerId::Elevated), lotOccupancy), "layer isolation elevated road succeeds");
+
+    TransportPathScratch scratch;
+    TransportPathResult result;
+    const std::uint32_t groundNode = network.costMap().nodeId(TransportLayerId::Ground, TransportMode::Car, 5, 5);
+    const std::uint32_t elevatedNode = network.costMap().nodeId(TransportLayerId::Elevated, TransportMode::Car, 5, 5);
+    runner.expect(!network.costMap().findPath(MakePathRequest(groundNode, elevatedNode), scratch, result), "overlapping ground and elevated roads do not connect implicitly");
+}
+
+void TestExplicitTransferConnectsModesAndLayers(TestRunner& runner) {
+    TransportCostMap costMap;
+    costMap.initialize(1, 1);
+    const std::uint32_t groundPedestrianNode = costMap.nodeId(TransportLayerId::Ground, TransportMode::Pedestrian, 0, 0);
+    const std::uint32_t elevatedCarNode = costMap.nodeId(TransportLayerId::Elevated, TransportMode::Car, 0, 0);
+    costMap.addTransferEdge(groundPedestrianNode, elevatedCarNode, 5u, 100u);
+    costMap.finalizeTransferEdges();
+
+    TransportPathScratch scratch;
+    TransportPathResult result;
+    runner.expect(costMap.findPath(MakePathRequest(groundPedestrianNode, elevatedCarNode), scratch, result), "explicit transfer edge connects modes and layers");
+    runner.expect(result.steps.size() == 1u && result.steps[0].kind == TransportPathStepKind::Transfer, "explicit transfer path records transfer step");
+}
+
+void TestPathLoadAssignmentAndOverlay(TestRunner& runner) {
+    TransportCostMap costMap;
+    costMap.initialize(2, 1);
+    costMap.addDirectionalCost(TransportLayerId::Ground, TransportMode::Car, 0, kRoadDirectionEast, 1u, 10u);
+
+    TransportPathScratch scratch;
+    TransportPathResult result;
+    runner.expect(costMap.findPath(MakePathRequest(costMap.nodeId(TransportLayerId::Ground, TransportMode::Car, 0), costMap.nodeId(TransportLayerId::Ground, TransportMode::Car, 1)), scratch, result), "load assignment path finds simple edge");
+
+    costMap.beginNextLoadFromOldLoad();
+    costMap.applyPathLoad(result, 7u, true);
+    costMap.commitNextLoad();
+    runner.expect(costMap.cell(TransportLayerId::Ground, TransportMode::Car, 0).oldLoads[RoadDirectionIndex(kRoadDirectionEast)] == 7u, "path load adds to old load after commit");
+
+    std::vector<std::uint8_t> overlayPixels;
+    costMap.buildTrafficOverlay(overlayPixels);
+    runner.expect(overlayPixels[3] == kTrafficOverlayAlphaByte, "traffic overlay marks relevant tile alpha");
+    runner.expect(overlayPixels[0] > overlayPixels[1], "traffic overlay shifts toward red under load");
+
+    costMap.beginNextLoadFromOldLoad();
+    costMap.applyPathLoad(result, 3u, false);
+    costMap.commitNextLoad();
+    runner.expect(costMap.cell(TransportLayerId::Ground, TransportMode::Car, 0).oldLoads[RoadDirectionIndex(kRoadDirectionEast)] == 4u, "path load subtraction removes previous assignment");
+}
+
+void TestCongestionReroutesPath(TestRunner& runner) {
+    TransportCostMap costMap;
+    costMap.initialize(3, 2);
+
+    costMap.addDirectionalCost(TransportLayerId::Ground, TransportMode::Car, 0, kRoadDirectionEast, 1u, 10u);
+    costMap.addDirectionalCost(TransportLayerId::Ground, TransportMode::Car, 1, kRoadDirectionEast, 1u, 10u);
+    costMap.addDirectionalCost(TransportLayerId::Ground, TransportMode::Car, 0, kRoadDirectionSouth, 1u, 100u);
+    costMap.addDirectionalCost(TransportLayerId::Ground, TransportMode::Car, 3, kRoadDirectionEast, 1u, 100u);
+    costMap.addDirectionalCost(TransportLayerId::Ground, TransportMode::Car, 4, kRoadDirectionEast, 1u, 100u);
+    costMap.addDirectionalCost(TransportLayerId::Ground, TransportMode::Car, 5, kRoadDirectionNorth, 1u, 100u);
+    costMap.cellForMutation(TransportLayerId::Ground, TransportMode::Car, 0).oldLoads[RoadDirectionIndex(kRoadDirectionEast)] = 100u;
+    costMap.cellForMutation(TransportLayerId::Ground, TransportMode::Car, 1).oldLoads[RoadDirectionIndex(kRoadDirectionEast)] = 100u;
+
+    TransportPathScratch scratch;
+    TransportPathResult result;
+    runner.expect(costMap.findPath(MakePathRequest(costMap.nodeId(TransportLayerId::Ground, TransportMode::Car, 0), costMap.nodeId(TransportLayerId::Ground, TransportMode::Car, 2)), scratch, result), "congestion reroute path succeeds");
+    runner.expect(!result.steps.empty() && result.steps[0].roadDirection == kRoadDirectionSouth, "congestion reroutes away from overloaded direct edge");
+}
+
+void TestEqualRouteJitterSpreadsChoices(TestRunner& runner) {
+    TransportCostMap costMap;
+    costMap.initialize(2, 2);
+    costMap.addDirectionalCost(TransportLayerId::Ground, TransportMode::Car, 0, kRoadDirectionEast, 1u, 100u);
+    costMap.addDirectionalCost(TransportLayerId::Ground, TransportMode::Car, 1, kRoadDirectionSouth, 1u, 100u);
+    costMap.addDirectionalCost(TransportLayerId::Ground, TransportMode::Car, 0, kRoadDirectionSouth, 1u, 100u);
+    costMap.addDirectionalCost(TransportLayerId::Ground, TransportMode::Car, 2, kRoadDirectionEast, 1u, 100u);
+
+    int eastFirstCount = 0;
+    int southFirstCount = 0;
+    int seed = 0;
+    for (; seed < 128; ++seed) {
+        TransportPathScratch scratch;
+        TransportPathResult result;
+        const bool found = costMap.findPath(MakePathRequest(costMap.nodeId(TransportLayerId::Ground, TransportMode::Car, 0), costMap.nodeId(TransportLayerId::Ground, TransportMode::Car, 3), static_cast<std::uint32_t>(seed)), scratch, result);
+        if (found && !result.steps.empty()) {
+            if (result.steps[0].roadDirection == kRoadDirectionEast) {
+                ++eastFirstCount;
+            } else if (result.steps[0].roadDirection == kRoadDirectionSouth) {
+                ++southFirstCount;
+            }
+        }
+    }
+
+    runner.expect(eastFirstCount > 0, "equal route jitter chooses east-first routes sometimes");
+    runner.expect(southFirstCount > 0, "equal route jitter chooses south-first routes sometimes");
+}
+
+void TestTrafficOverlayStartsGreenOnRoadCapacity(TestRunner& runner) {
+    TransportNetwork network = MakeNetwork(12, 12);
+    std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(network, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "traffic overlay road placement succeeds");
+    const int tileIndex = 5 * network.width() + 4;
+    const std::size_t pixelOffset = static_cast<std::size_t>(tileIndex) * 4u;
+    runner.expect(network.trafficOverlayState()[pixelOffset + 0u] == 0u, "traffic overlay starts with no red load");
+    runner.expect(network.trafficOverlayState()[pixelOffset + 1u] == 255u, "traffic overlay starts green where capacity exists");
+    runner.expect(network.trafficOverlayState()[pixelOffset + 3u] == kTrafficOverlayAlphaByte, "traffic overlay starts visible where capacity exists");
+}
 }
 
 int main() {
@@ -377,6 +568,16 @@ int main() {
     TestExactReplayDoesNotAdvanceRevision(runner);
     TestElevatedHighwayHasNoPedestrianGraphics(runner);
     TestGroundRoadRejectsLotOccupancy(runner);
+    TestDirectionalOneWayCostMap(runner);
+    TestCostMapLowerCostAndCapacityAccumulation(runner);
+    TestHighwayDoesNotExposeBuildingAccess(runner);
+    TestBuildingAccessCandidatesFromLocalStreet(runner);
+    TestLayerIsolationWithoutTransfer(runner);
+    TestExplicitTransferConnectsModesAndLayers(runner);
+    TestPathLoadAssignmentAndOverlay(runner);
+    TestCongestionReroutesPath(runner);
+    TestEqualRouteJitterSpreadsChoices(runner);
+    TestTrafficOverlayStartsGreenOnRoadCapacity(runner);
 
     std::cout << "TransportNetworkTests: " << runner.passed << " passed, " << runner.failed << " failed." << std::endl;
     return runner.failed == 0 ? 0 : 1;

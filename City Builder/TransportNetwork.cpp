@@ -1,6 +1,7 @@
 #include "TransportNetwork.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 
 namespace {
@@ -53,6 +54,44 @@ const std::uint8_t kCardinalDirections[] = {
     kRoadDirectionSouth,
     kRoadDirectionWest
 };
+
+bool LaneModeForPathing(const RoadLanePlacement& lanePlacement, TransportMode& mode) {
+    if (lanePlacement.laneType == RoadLaneTypeId::Car) {
+        mode = TransportMode::Car;
+        return true;
+    }
+    if (lanePlacement.laneType == RoadLaneTypeId::Pedestrian) {
+        mode = TransportMode::Pedestrian;
+        return true;
+    }
+
+    return false;
+}
+
+std::uint16_t TraversalCostForLane(const RoadLanePlacement& lanePlacement) {
+    RoadTemplateElement costElement;
+    costElement.laneType = lanePlacement.laneType;
+    costElement.surface = lanePlacement.surface;
+    costElement.laneRole = lanePlacement.role;
+    RoadLane costLane(costElement, lanePlacement.laneIndex);
+    return costLane.traversalCost(lanePlacement.family);
+}
+
+std::uint16_t FullLaneCapacityForLane(const RoadLanePlacement& lanePlacement) {
+    if (lanePlacement.laneType == RoadLaneTypeId::Pedestrian) {
+        return 1200u;
+    }
+    if (lanePlacement.laneType == RoadLaneTypeId::Car) {
+        return lanePlacement.family == RoadFamily::Highway ? 2500u : 1000u;
+    }
+
+    return 0u;
+}
+
+std::uint16_t CapacityContributionForLane(const RoadLanePlacement& lanePlacement) {
+    const float laneSpan = std::max(0.0f, std::min(1.0f, lanePlacement.sideMax) - std::max(0.0f, lanePlacement.sideMin));
+    return static_cast<std::uint16_t>(std::max(1.0f, std::floor(static_cast<float>(FullLaneCapacityForLane(lanePlacement)) * laneSpan + 0.5f)));
+}
 }
 
 TransportNetwork::TransportNetwork()
@@ -63,6 +102,7 @@ TransportNetwork::TransportNetwork()
       chunkHeight_(1),
       chunksPerRow_(1),
       revision_(0),
+      trafficOverlayRevision_(0),
       nextRoadStrokeId_(1) {
 }
 
@@ -77,20 +117,28 @@ void TransportNetwork::initialize(int width, int height, const std::vector<Chunk
 
     transportTiles_.assign(totalTileCount_ * layerCount(), TransportTile());
     resolvedCells_.assign(totalTileCount_ * layerCount(), ResolvedRoadCell());
+    costMap_.initialize(width_, height_);
     groundRoadRenderState_.assign(totalTileCount_ * kGroundRoadRenderChannelsPerTile, 0);
+    trafficOverlayState_.assign(totalTileCount_ * 4u, 0);
     groundChunkRevisions_.assign(chunkLayout_.size(), 1);
     elevatedChunkRevisions_.assign(chunkLayout_.size(), 1);
+    trafficOverlayChunkRevisions_.assign(chunkLayout_.size(), 1);
     revision_ = 0;
+    trafficOverlayRevision_ = 0;
     nextRoadStrokeId_ = 1;
 }
 
 void TransportNetwork::clear() {
     transportTiles_.assign(totalTileCount_ * layerCount(), TransportTile());
     resolvedCells_.assign(totalTileCount_ * layerCount(), ResolvedRoadCell());
+    costMap_.initialize(width_, height_);
     groundRoadRenderState_.assign(totalTileCount_ * kGroundRoadRenderChannelsPerTile, 0);
+    trafficOverlayState_.assign(totalTileCount_ * 4u, 0);
     groundChunkRevisions_.assign(chunkLayout_.size(), 1);
     elevatedChunkRevisions_.assign(chunkLayout_.size(), 1);
+    trafficOverlayChunkRevisions_.assign(chunkLayout_.size(), 1);
     revision_ = 0;
+    trafficOverlayRevision_ = 0;
     nextRoadStrokeId_ = 1;
 }
 
@@ -147,6 +195,7 @@ bool TransportNetwork::placeRoadStroke(const RoadStrokeCommand& roadStrokeComman
     }
 
     bumpDirtyChunkRevisions(roadStrokeCommand.layer, dirtyTileIndices);
+    rebuildCostMapAndTrafficOverlay();
     ++revision_;
     return true;
 }
@@ -155,8 +204,16 @@ const std::vector<ResolvedRoadCell>& TransportNetwork::resolvedCells() const {
     return resolvedCells_;
 }
 
+const TransportCostMap& TransportNetwork::costMap() const {
+    return costMap_;
+}
+
 const std::vector<std::uint8_t>& TransportNetwork::groundRoadRenderState() const {
     return groundRoadRenderState_;
+}
+
+const std::vector<std::uint8_t>& TransportNetwork::trafficOverlayState() const {
+    return trafficOverlayState_;
 }
 
 const std::vector<std::uint64_t>& TransportNetwork::groundChunkRevisions() const {
@@ -167,8 +224,16 @@ const std::vector<std::uint64_t>& TransportNetwork::elevatedChunkRevisions() con
     return elevatedChunkRevisions_;
 }
 
+const std::vector<std::uint64_t>& TransportNetwork::trafficOverlayChunkRevisions() const {
+    return trafficOverlayChunkRevisions_;
+}
+
 std::uint64_t TransportNetwork::revision() const {
     return revision_;
+}
+
+std::uint64_t TransportNetwork::trafficOverlayRevision() const {
+    return trafficOverlayRevision_;
 }
 
 bool TransportNetwork::hasOccupancy(TransportLayerId layer, int tileIndexValue) const {
@@ -447,6 +512,81 @@ void TransportNetwork::resolveDirtyTile(TransportLayerId layer, int tileX, int t
         groundRoadRenderState_[groundRenderOffset + 1u] = resolvedCell.arrowGlyph;
         groundRoadRenderState_[groundRenderOffset + 2u] = resolvedCell.surfaceEdgeMask;
         groundRoadRenderState_[groundRenderOffset + 3u] = resolvedCell.dividerMask;
+    }
+}
+
+void TransportNetwork::rebuildCostMapAndTrafficOverlay() {
+    costMap_.clear();
+
+    std::size_t layerIndex = 0;
+    for (; layerIndex < layerCount(); ++layerIndex) {
+        const TransportLayerId layer = static_cast<TransportLayerId>(layerIndex);
+        int tileY = 0;
+        for (; tileY < height_; ++tileY) {
+            int tileX = 0;
+            for (; tileX < width_; ++tileX) {
+                const TransportTile* tile = tileAt(layer, tileX, tileY);
+                if (tile == 0 || tile->empty()) {
+                    continue;
+                }
+
+                const std::vector<RoadLanePlacement>& lanes = tile->lanes();
+                std::size_t laneIndex = 0;
+                for (; laneIndex < lanes.size(); ++laneIndex) {
+                    if (lanes[laneIndex].active) {
+                        addLaneToCostMap(layer, tileX, tileY, lanes[laneIndex]);
+                    }
+                }
+            }
+        }
+    }
+
+    costMap_.finalizeTransferEdges();
+    refreshTrafficOverlayState();
+    bumpAllTrafficOverlayChunkRevisions();
+    ++trafficOverlayRevision_;
+}
+
+void TransportNetwork::addLaneToCostMap(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) {
+    TransportMode mode = TransportMode::Car;
+    if (!LaneModeForPathing(lanePlacement, mode)) {
+        return;
+    }
+
+    const std::uint16_t traversalCost = TraversalCostForLane(lanePlacement);
+    const std::uint16_t capacity = CapacityContributionForLane(lanePlacement);
+    std::size_t directionIndex = 0;
+    for (; directionIndex < sizeof(kCardinalDirections) / sizeof(kCardinalDirections[0]); ++directionIndex) {
+        const std::uint8_t direction = kCardinalDirections[directionIndex];
+        if (!lanePlacement.hasTravelDirection(direction)) {
+            continue;
+        }
+
+        const bool canExit = lanePlacement.isCar()
+            ? hasCompatibleCarNeighborLane(layer, tileX, tileY, lanePlacement, direction)
+            : hasCompatibleNeighborLane(layer, tileX, tileY, lanePlacement, direction, false);
+        if (canExit) {
+            costMap_.addDirectionalCost(layer, mode, lanePlacement.tileIndex, direction, traversalCost, capacity);
+        }
+    }
+
+    if (layer == TransportLayerId::Ground &&
+        lanePlacement.family == RoadFamily::LocalStreet &&
+        lanePlacement.isPedestrian() &&
+        lanePlacement.sidewalkEdgeMask != 0u) {
+        costMap_.addBuildingAccess(layer, TransportMode::Pedestrian, lanePlacement.tileIndex, lanePlacement.sidewalkEdgeMask);
+        costMap_.addBuildingAccess(layer, TransportMode::Car, lanePlacement.tileIndex, lanePlacement.sidewalkEdgeMask);
+    }
+}
+
+void TransportNetwork::refreshTrafficOverlayState() {
+    costMap_.buildTrafficOverlay(trafficOverlayState_);
+}
+
+void TransportNetwork::bumpAllTrafficOverlayChunkRevisions() {
+    std::size_t chunkIndex = 0;
+    for (; chunkIndex < trafficOverlayChunkRevisions_.size(); ++chunkIndex) {
+        ++trafficOverlayChunkRevisions_[chunkIndex];
     }
 }
 

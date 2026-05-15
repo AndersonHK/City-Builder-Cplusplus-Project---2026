@@ -31,7 +31,8 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
 - `[` / `]`: decrease / increase road lane count for new road strokes
 - `C`: toggle right-hand / left-hand road traffic side
 - `O`: cycle road direction mode between two-way, one-way forward, and one-way reverse
-- `T`: add park module to an adjacent lot footprint
+- `T`: toggle the traffic capacity overlay
+- `M`: add park module to an adjacent lot footprint
 - `Y`: remove the module under the hovered tile
 - `A`: query hovered tile
 
@@ -61,15 +62,16 @@ Transport topology has a standalone non-graphics test target:
 - Tile chunk geometry is static after renderer setup for the current flat-tile presentation.
 - Dynamic scalar tile debug color uploads only visible stale chunks through a compact texture.
 - Lot occupancy lift uploads only visible stale chunks through a small mask texture.
-- Roads live in a separate transport layer with their own published cell snapshot, packed ground-road render state, and split ground/elevated chunk revisions so `Tile` stays compact for the scalar simulation passes.
+- Roads live in a separate transport layer with their own published cell snapshot, directional pathfinding cost map, packed ground-road render state, traffic overlay state, and split ground/elevated chunk revisions so `Tile` stays compact for the scalar simulation passes.
 - Ground-road and elevated-road uploads are dirty visible-chunk only, and stale hidden chunks stay deferred until visible.
+- Traffic overlays use the same visible-dirty chunk upload pattern and draw above roads and lots as a presentation tint.
 - Road drag previews are renderer-only transient instances tinted with alpha; committed road topology still arrives through published snapshots.
 - The renderer timing print breaks out tile-state packing/upload bytes, lift uploads, ground-road uploads, elevated-road uploads, and draw costs.
 - Lots are not chunk-owned yet; they still use a separate renderer path for now.
 - Lot/module archetypes load from XML under `City Builder/Data`.
 
 ## Design guides
-- `docs/design/transport-network.md` - lane-owned road placement, transport tile self-resolution, crosswalk graphic rules, packed road state, and layer revisions. Main code anchors: `TransportTypes.h`, `RoadLane.h`, `Road.h`, `TransportTile.h`, `RoadRenderState.h`, and `TransportNetwork.h`.
+- `docs/design/transport-network.md` - lane-owned road placement, directional cost maps, pathfinding, crosswalk graphic rules, packed road state, and layer revisions. Main code anchors: `TransportTypes.h`, `TransportCostMap.h`, `RoadLane.h`, `Road.h`, `TransportTile.h`, `RoadRenderState.h`, and `TransportNetwork.h`.
 - `docs/design/renderer.md` - renderer upload, culling, texture, shader decisions, packed lane graphic masks, shared ground/elevated road render data, and road ghost previews. Main code anchors: `BuildRoadPreviewInstances` (`City Builder/Renderer.cpp:1192`), `BuildRoadChunkInstances` (`City Builder/Renderer.cpp:1261`), `UpdateGroundRoadChunkTexture` (`City Builder/Renderer.cpp:1474`), and `applyRoadEdgeOverlays` (`City Builder/Basic.shader:105`).
 - `docs/design/simulation-threading.md` - tile passes, triple buffering, chunk worker rules, and published snapshot ownership.
 - `docs/design/lots.md` - lot/module placement, occupancy, effects, and render snapshots.

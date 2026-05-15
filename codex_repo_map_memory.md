@@ -26,8 +26,17 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - shared transport enums/snapshot masks
   - lane-owned road placement/state
   - per-tile lane merge validation and local topology resolution
+  - directional pathfinding cost-map rebuilds
+  - traffic-capacity overlay publication
   - lane graphic/crosswalk render-state derivation
   - split ground/elevated road chunk revisions
+- `City Builder/TransportCostMap.h`
+- `City Builder/TransportCostMap.cpp`
+  - dense `(tile, layer, mode)` directional costs and capacities
+  - old/new traffic load buffers
+  - sparse transfer edges
+  - A* pathfinding with reusable scratch arrays
+  - traffic overlay color generation
 - `City Builder/TransportNetworkTests.vcxproj`
   - standalone non-graphics transport topology tests
 - `City Builder/Renderer.h`
@@ -97,6 +106,7 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - per-chunk render revisions
   - resolved road cells
   - packed ground-road render state
+  - traffic overlay state
   - split ground/elevated road chunk revisions
 
 ## Current renderer map
@@ -108,6 +118,10 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - ground roads render as a tile overlay from packed road-state bytes plus atlas lookups
   - ground and elevated road uploads are deferred while dirty chunks are hidden
   - elevated roads rebuild only when visible chunks have changed revisions
+- Overlays:
+  - traffic capacity is the first generic per-tile RGBA overlay
+  - overlay chunks upload lazily only when visible and stale
+  - overlay draw happens after roads and lots so the tint remains readable
 - Lots:
   - rebuilt only when the lot revision changes
   - rendered as separate world-space placeholder prisms
@@ -118,7 +132,8 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - holding left mouse in `Q` mode continuously paints pollution again
   - mouse wheel supports `512 / 256 / 128 / 64 / 32` visible-tile steps
   - `R` drag-places ground streets and `H` drag-places elevated highways
-  - `T` and `Y` still expose live module add/remove testing for the XML-backed lot system
+  - `T` toggles the traffic capacity overlay
+  - `M` and `Y` still expose live module add/remove testing for the XML-backed lot system
 
 ## Current migration doctrine
 - Keep the tile-object model for now.

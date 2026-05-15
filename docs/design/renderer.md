@@ -14,6 +14,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Tile scalar color comes from a persistent full-map `GL_RG16_SNORM` texture updated only for visible stale chunks.
 - Lot occupancy lift comes from a persistent full-map `GL_R8` mask texture updated only for visible stale chunks.
 - Ground roads render in the tile pass from packed road-state bytes and generated road atlases. The ground-road upload path is `UpdateGroundRoadChunkTexture` (`City Builder/Renderer.cpp:1474`).
+- Reusable tile overlays render from a published RGBA tile texture. Traffic capacity is the first overlay and uses visible-dirty chunk uploads.
 - Elevated roads use separate per-chunk instance buffers and rebuild lazily for visible stale chunks. They consume the same resolved road glyph, lane graphic, and divider masks through `BuildRoadChunkInstances` (`City Builder/Renderer.cpp:1261`).
 - Road placement ghost previews are transient renderer instances built from the active drag stroke and drawn with a blue alpha tint. They do not enter published road snapshots.
 - Lots still render through one global placeholder-prism instance buffer keyed by lot revision.
@@ -34,6 +35,8 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Add renderer metrics when adding new upload paths.
 - Keep ground and elevated road rendering fed by the same resolved road cell contract; do not fork road-template semantics in the renderer.
 - Keep road ghost previews presentation-only. They may reuse road templates and glyph helpers, but committed topology and validation must stay in the simulation/transport command path.
+- Draw overlays after roads and lots with depth disabled/restored so the tint remains presentation, not terrain truth.
+- Future overlays should publish the same RGBA tile payload and chunk revisions instead of adding one-off shader paths.
 
 ## Checks
 - Build `x64 Release`.
@@ -42,6 +45,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Pan after road or lot edits to confirm deferred chunks update before drawing.
 - Verify local-street crosswalk graphics appear only where pedestrian and car lanes both continue through the crossing, and elevated highways render without pedestrian lane graphics by default.
 - Drag local streets and elevated highways before release to confirm the alpha-tinted ghost follows the intended L-shaped stroke and disappears after commit.
+- Toggle `T` to verify the traffic capacity overlay appears above roads/lots and starts green at zero load.
 
 ## Related Guides
 - `docs/design/transport-network.md` owns road template placement, overlap validation, and resolved road-cell meaning.

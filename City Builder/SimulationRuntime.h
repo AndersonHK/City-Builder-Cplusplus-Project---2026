@@ -96,13 +96,16 @@ struct PublishedWorldSnapshot {
     const std::vector<int>* lotOccupancy;
     const std::vector<ResolvedRoadCell>* roads;
     const std::vector<std::uint8_t>* groundRoadRenderState;
+    const std::vector<std::uint8_t>* tileOverlayState;
     const std::vector<std::uint64_t>* groundRoadChunkRevisions;
     const std::vector<std::uint64_t>* elevatedRoadChunkRevisions;
+    const std::vector<std::uint64_t>* tileOverlayChunkRevisions;
     int width;
     int height;
     std::uint64_t generation;
     std::uint64_t lotRevision;
     std::uint64_t roadRevision;
+    std::uint64_t overlayRevision;
 
     // Defaults to an empty snapshot before acquirePublishedSnapshot fills it.
     PublishedWorldSnapshot()
@@ -113,13 +116,16 @@ struct PublishedWorldSnapshot {
           lotOccupancy(0),
           roads(0),
           groundRoadRenderState(0),
+          tileOverlayState(0),
           groundRoadChunkRevisions(0),
           elevatedRoadChunkRevisions(0),
+          tileOverlayChunkRevisions(0),
           width(0),
           height(0),
           generation(0),
           lotRevision(0),
-          roadRevision(0) {
+          roadRevision(0),
+          overlayRevision(0) {
     }
 };
 
@@ -183,15 +189,19 @@ private:
         std::vector<int> publishedLotOccupancy;
         std::vector<ResolvedRoadCell> publishedRoads;
         std::vector<std::uint8_t> publishedGroundRoadRenderState;
+        std::vector<std::uint8_t> publishedTileOverlayState;
         std::vector<std::uint64_t> publishedGroundRoadChunkRevisions;
         std::vector<std::uint64_t> publishedElevatedRoadChunkRevisions;
+        std::vector<std::uint64_t> publishedTileOverlayChunkRevisions;
         std::uint64_t lotRenderRevision;
         std::uint64_t roadRenderRevision;
+        std::uint64_t overlayRenderRevision;
 
         // Starts with no published render payloads for this buffer.
         TileBuffer()
             : lotRenderRevision(0),
-              roadRenderRevision(0) {
+              roadRenderRevision(0),
+              overlayRenderRevision(0) {
         }
     };
 

@@ -236,6 +236,7 @@ constexpr std::uint8_t kRoadDirectionNorthEast = 1u << 4;
 constexpr std::uint8_t kRoadDirectionSouthEast = 1u << 5;
 constexpr std::uint8_t kRoadDirectionSouthWest = 1u << 6;
 constexpr std::uint8_t kRoadDirectionNorthWest = 1u << 7;
+constexpr std::size_t kRoadDirectionCount = 8u;
 
 constexpr std::uint8_t kLaneIntentEast = 1u << 0;
 constexpr std::uint8_t kLaneIntentWest = 1u << 1;
@@ -246,6 +247,9 @@ constexpr std::uint8_t kRoadLaneTypeCar = 1u << static_cast<std::uint8_t>(RoadLa
 constexpr std::uint8_t kRoadLaneTypePedestrian = 1u << static_cast<std::uint8_t>(RoadLaneTypeId::Pedestrian);
 constexpr std::uint8_t kRoadLaneTypeBike = 1u << static_cast<std::uint8_t>(RoadLaneTypeId::Bike);
 constexpr std::uint8_t kRoadLaneTypeBus = 1u << static_cast<std::uint8_t>(RoadLaneTypeId::Bus);
+
+constexpr std::uint8_t kTransportModeCar = 1u << static_cast<std::uint8_t>(TransportMode::Car);
+constexpr std::uint8_t kTransportModePedestrian = 1u << static_cast<std::uint8_t>(TransportMode::Pedestrian);
 
 constexpr std::uint8_t kRoadSurfaceAsphalt = 1u << static_cast<std::uint8_t>(RoadLaneSurface::Asphalt);
 constexpr std::uint8_t kRoadSurfaceSidewalk = 1u << static_cast<std::uint8_t>(RoadLaneSurface::Sidewalk);
@@ -269,3 +273,8 @@ bool IsHorizontalAxis(RoadAxis axis);
 bool IsVerticalAxis(RoadAxis axis);
 bool HasHorizontalLane(std::uint8_t laneTravelMask);
 bool HasVerticalLane(std::uint8_t laneTravelMask);
+std::uint8_t TransportModeMaskFor(TransportMode mode);
+int RoadDirectionIndex(std::uint8_t roadDirection);
+std::uint8_t RoadDirectionFromIndex(int directionIndex);
+int RoadDirectionDeltaX(std::uint8_t roadDirection);
+int RoadDirectionDeltaY(std::uint8_t roadDirection);

@@ -6,6 +6,7 @@
 
 #include "ChunkConfig.h"
 #include "Road.h"
+#include "TransportCostMap.h"
 #include "TransportTile.h"
 
 class TransportNetwork {
@@ -18,10 +19,14 @@ public:
     bool placeRoadStroke(const RoadStrokeCommand& roadStrokeCommand, const std::vector<int>& lotOccupancy, int invalidLotId);
 
     const std::vector<ResolvedRoadCell>& resolvedCells() const;
+    const TransportCostMap& costMap() const;
     const std::vector<std::uint8_t>& groundRoadRenderState() const;
+    const std::vector<std::uint8_t>& trafficOverlayState() const;
     const std::vector<std::uint64_t>& groundChunkRevisions() const;
     const std::vector<std::uint64_t>& elevatedChunkRevisions() const;
+    const std::vector<std::uint64_t>& trafficOverlayChunkRevisions() const;
     std::uint64_t revision() const;
+    std::uint64_t trafficOverlayRevision() const;
 
     bool hasOccupancy(TransportLayerId layer, int tileIndex) const;
     bool hasGroundOccupancy(int tileIndex) const;
@@ -43,6 +48,10 @@ private:
     bool mergeReplayStrokeIds(TransportLayerId layer, const std::vector<RoadTilePlacement>& placements);
     bool mergeConnectedReplayStrokeId(TransportLayerId layer, const RoadLanePlacement& lanePlacement, std::uint32_t oldStrokeId);
     void resolveDirtyTile(TransportLayerId layer, int tileX, int tileY);
+    void rebuildCostMapAndTrafficOverlay();
+    void addLaneToCostMap(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement);
+    void refreshTrafficOverlayState();
+    void bumpAllTrafficOverlayChunkRevisions();
     void markDirtyNeighborhood(const std::vector<RoadTilePlacement>& placements, std::vector<int>& dirtyTileIndices) const;
     void bumpDirtyChunkRevisions(TransportLayerId layer, const std::vector<int>& dirtyTileIndices);
     bool pruneInvalidPedestrianLanes(TransportLayerId layer, const std::vector<int>& dirtyTileIndices);
@@ -69,9 +78,13 @@ private:
     std::vector<ChunkRect> chunkLayout_;
     std::vector<TransportTile> transportTiles_;
     std::vector<ResolvedRoadCell> resolvedCells_;
+    TransportCostMap costMap_;
     std::vector<std::uint8_t> groundRoadRenderState_;
+    std::vector<std::uint8_t> trafficOverlayState_;
     std::vector<std::uint64_t> groundChunkRevisions_;
     std::vector<std::uint64_t> elevatedChunkRevisions_;
+    std::vector<std::uint64_t> trafficOverlayChunkRevisions_;
     std::uint64_t revision_;
+    std::uint64_t trafficOverlayRevision_;
     std::uint32_t nextRoadStrokeId_;
 };

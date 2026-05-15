@@ -38,6 +38,7 @@ Primary design goals:
   - per-chunk render revision pointer
   - resolved road-cell snapshot pointer
   - packed ground-road render-state pointer
+  - traffic overlay state pointer
   - split ground/elevated road chunk-revision pointers
   - published generation
   - lot revision
@@ -55,6 +56,7 @@ Primary design goals:
   - stream compact scalar tile debug data only for visible stale chunks
   - stream lot lift masks only for visible stale chunks
   - stream ground-road placeholder visuals through a packed road-state texture in the tile pass
+  - stream reusable per-tile overlays through a published RGBA texture, starting with traffic capacity
   - keep elevated roads in a separate lazy visible-chunk pass
   - render lots as separate placeholder world-space prisms
 - The renderer should still transition to richer 3D in stages:
@@ -99,6 +101,7 @@ Primary design goals:
 ## Guardrails
 - Do not drift into object-heavy "simulate everything literally" design just because modern hardware allows more brute force.
 - Do not let graphics ambition erase the clarity and scalability of the tile-statistical core.
+- Keep traffic simulation statistical: pathfinding assigns aggregate loads, congestion reads old loads, and future building batches should write new loads through worker-local deltas before reduction.
 - Do not overfit chunk sizing to one exact CPU; detect and override should coexist.
 - Use comments only at load-bearing seams so future work stays explainable without drowning the code in narration.
 
