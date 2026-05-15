@@ -6,6 +6,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <cstdlib>
 #include <fstream>
 #include <set>
 #include <sstream>
@@ -19,12 +21,14 @@ struct ParsedTag {
     bool isClosing;
     bool isSelfClosing;
 
+    // Starts with an empty tag until ParseTag fills the fields.
     ParsedTag()
         : isClosing(false),
           isSelfClosing(false) {
     }
 };
 
+// Reads a whole UTF-8-ish asset file into memory for the small XML parser.
 std::string ReadTextFile(const std::string& path) {
     std::ifstream stream(path.c_str(), std::ios::in | std::ios::binary);
     if (!stream.is_open()) {
@@ -36,6 +40,7 @@ std::string ReadTextFile(const std::string& path) {
     return builder.str();
 }
 
+// Removes leading and trailing whitespace from XML tag fragments.
 std::string Trim(const std::string& text) {
     std::size_t startIndex = 0;
     while (startIndex < text.size() && std::isspace(static_cast<unsigned char>(text[startIndex])) != 0) {
@@ -50,6 +55,16 @@ std::string Trim(const std::string& text) {
     return text.substr(startIndex, endIndex - startIndex);
 }
 
+std::string ToLowerAscii(std::string text) {
+    std::size_t index = 0;
+    for (; index < text.size(); ++index) {
+        text[index] = static_cast<char>(std::tolower(static_cast<unsigned char>(text[index])));
+    }
+
+    return text;
+}
+
+// Uses the file stem as the fallback asset id.
 std::string StripExtension(const std::string& fileName) {
     const std::size_t extensionIndex = fileName.find_last_of('.');
     if (extensionIndex == std::string::npos) {
@@ -59,6 +74,7 @@ std::string StripExtension(const std::string& fileName) {
     return fileName.substr(0, extensionIndex);
 }
 
+// Splits one XML tag token into name, attributes, and closing flags.
 ParsedTag ParseTag(const std::string& token) {
     ParsedTag tag;
     std::string trimmedToken = Trim(token);
@@ -88,6 +104,7 @@ ParsedTag ParseTag(const std::string& token) {
     return tag;
 }
 
+// Fetches a required quoted XML attribute or throws with context.
 std::string GetRequiredAttribute(const std::string& attributes, const std::string& attributeName) {
     const std::string attributePattern = attributeName + "=\"";
     const std::size_t startIndex = attributes.find(attributePattern);
@@ -104,6 +121,7 @@ std::string GetRequiredAttribute(const std::string& attributes, const std::strin
     return attributes.substr(valueStartIndex, valueEndIndex - valueStartIndex);
 }
 
+// Fetches an optional quoted XML attribute with a caller-provided default.
 std::string GetOptionalAttribute(const std::string& attributes, const std::string& attributeName, const std::string& defaultValue) {
     const std::string attributePattern = attributeName + "=\"";
     const std::size_t startIndex = attributes.find(attributePattern);
@@ -120,10 +138,17 @@ std::string GetOptionalAttribute(const std::string& attributes, const std::strin
     return attributes.substr(valueStartIndex, valueEndIndex - valueStartIndex);
 }
 
+bool FileExists(const std::string& path) {
+    const DWORD attributes = GetFileAttributesA(path.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+// Parses a required integer XML attribute.
 int ParseRequiredInt(const std::string& attributes, const std::string& attributeName) {
     return std::stoi(GetRequiredAttribute(attributes, attributeName));
 }
 
+// Parses an optional float XML attribute.
 float ParseOptionalFloat(const std::string& attributes, const std::string& attributeName, float defaultValue) {
     const std::string value = GetOptionalAttribute(attributes, attributeName, "");
     if (value.empty()) {
@@ -133,6 +158,63 @@ float ParseOptionalFloat(const std::string& attributes, const std::string& attri
     return static_cast<float>(std::atof(value.c_str()));
 }
 
+// Parses a required float XML attribute.
+float ParseRequiredFloat(const std::string& attributes, const std::string& attributeName) {
+    return static_cast<float>(std::atof(GetRequiredAttribute(attributes, attributeName).c_str()));
+}
+
+std::uint8_t ParseDirectionName(const std::string& directionText) {
+    const std::string direction = ToLowerAscii(Trim(directionText));
+    if (direction == "north" || direction == "n") {
+        return kRoadDirectionNorth;
+    }
+    if (direction == "east" || direction == "e") {
+        return kRoadDirectionEast;
+    }
+    if (direction == "south" || direction == "s") {
+        return kRoadDirectionSouth;
+    }
+    if (direction == "west" || direction == "w") {
+        return kRoadDirectionWest;
+    }
+
+    throw std::runtime_error("Unknown direction: " + directionText);
+}
+
+std::uint8_t ParseTransportModeMask(const std::string& modesText) {
+    std::uint8_t modeMask = 0;
+    std::string token;
+    std::size_t index = 0;
+    for (; index <= modesText.size(); ++index) {
+        const char character = index < modesText.size() ? modesText[index] : ',';
+        if (character == ',' || character == '|' || std::isspace(static_cast<unsigned char>(character)) != 0) {
+            const std::string normalizedToken = ToLowerAscii(Trim(token));
+            token.clear();
+            if (normalizedToken.empty()) {
+                continue;
+            }
+
+            if (normalizedToken == "car" || normalizedToken == "cars") {
+                modeMask |= kTransportModeCar;
+            } else if (normalizedToken == "pedestrian" || normalizedToken == "pedestrians" || normalizedToken == "walk") {
+                modeMask |= kTransportModePedestrian;
+            } else {
+                throw std::runtime_error("Unknown transport mode in access declaration: " + normalizedToken);
+            }
+            continue;
+        }
+
+        token.push_back(character);
+    }
+
+    if (modeMask == 0u) {
+        throw std::runtime_error("Access declaration must include at least one transport mode.");
+    }
+
+    return modeMask;
+}
+
+// Extracts XML tags while skipping declarations and comments.
 std::vector<std::string> ExtractTagTokens(const std::string& xmlText) {
     std::vector<std::string> tokens;
     std::size_t openIndex = xmlText.find('<');
@@ -153,7 +235,8 @@ std::vector<std::string> ExtractTagTokens(const std::string& xmlText) {
     return tokens;
 }
 
-LotModule LoadModuleAsset(const std::string& filePath, const std::string& fileName) {
+// Loads one module archetype from XML and validates its required fields.
+LotModule LoadModuleAsset(const std::string& filePath, const std::string& fileName, const CityParameterRegistry& parameterRegistry) {
     const std::vector<std::string> tokens = ExtractTagTokens(ReadTextFile(filePath));
     if (tokens.empty()) {
         throw std::runtime_error("Empty module XML: " + filePath);
@@ -172,11 +255,17 @@ LotModule LoadModuleAsset(const std::string& filePath, const std::string& fileNa
 
     bool hasSize = false;
     bool hasEffects = false;
+    bool isInsideParametersBlock = false;
 
     std::size_t tokenIndex = 1;
     for (; tokenIndex < tokens.size(); ++tokenIndex) {
         const ParsedTag tag = ParseTag(tokens[tokenIndex]);
         if (tag.isClosing) {
+            if (tag.name == "parameters") {
+                isInsideParametersBlock = false;
+                continue;
+            }
+
             if (tag.name != "module") {
                 throw std::runtime_error("Unexpected closing tag in module XML: " + filePath);
             }
@@ -206,6 +295,30 @@ LotModule LoadModuleAsset(const std::string& filePath, const std::string& fileNa
             continue;
         }
 
+        if (tag.name == "parameters" && !tag.isSelfClosing) {
+            isInsideParametersBlock = true;
+            continue;
+        }
+
+        if ((tag.name == "driver" || tag.name == "satisfaction") && tag.isSelfClosing && isInsideParametersBlock) {
+            const std::string parameterId = GetRequiredAttribute(tag.attributes, "id");
+            const int resolvedParameterId = parameterRegistry.parameterId(parameterId);
+            if (resolvedParameterId < 0) {
+                throw std::runtime_error("Module '" + module.id + "' references unknown city parameter '" + parameterId + "' in " + filePath);
+            }
+
+            const CityParameterKind expectedKind = tag.name == "driver" ? CityParameterKind::Driver : CityParameterKind::Satisfaction;
+            if (parameterRegistry.definition(resolvedParameterId).kind != expectedKind) {
+                throw std::runtime_error("Module '" + module.id + "' parameter '" + parameterId + "' uses the wrong parameter kind in " + filePath);
+            }
+
+            CityParameterContribution contribution;
+            contribution.parameterId = resolvedParameterId;
+            contribution.amount = ParseRequiredFloat(tag.attributes, "amount");
+            module.parameterContributions.push_back(contribution);
+            continue;
+        }
+
         throw std::runtime_error("Unsupported module tag: <" + tag.name + "> in " + filePath);
     }
 
@@ -220,6 +333,7 @@ LotModule LoadModuleAsset(const std::string& filePath, const std::string& fileNa
     return module;
 }
 
+// Loads one lot archetype and its initial module placements from XML.
 LotAsset LoadLotAsset(const std::string& filePath, const std::string& fileName) {
     const std::vector<std::string> tokens = ExtractTagTokens(ReadTextFile(filePath));
     if (tokens.empty()) {
@@ -238,7 +352,9 @@ LotAsset LoadLotAsset(const std::string& filePath, const std::string& fileName) 
     }
 
     bool hasAnchor = false;
+    bool hasFootprint = false;
     bool isInsideModulesBlock = false;
+    bool isInsideAccessBlock = false;
 
     std::size_t tokenIndex = 1;
     for (; tokenIndex < tokens.size(); ++tokenIndex) {
@@ -246,6 +362,11 @@ LotAsset LoadLotAsset(const std::string& filePath, const std::string& fileName) 
         if (tag.isClosing) {
             if (tag.name == "modules") {
                 isInsideModulesBlock = false;
+                continue;
+            }
+
+            if (tag.name == "access") {
+                isInsideAccessBlock = false;
                 continue;
             }
 
@@ -263,6 +384,21 @@ LotAsset LoadLotAsset(const std::string& filePath, const std::string& fileName) 
             continue;
         }
 
+        if (tag.name == "footprint" && tag.isSelfClosing) {
+            lotAsset.footprintOrigin.x = ParseRequiredInt(tag.attributes, "x");
+            lotAsset.footprintOrigin.y = ParseRequiredInt(tag.attributes, "y");
+            lotAsset.footprintWidth = ParseRequiredInt(tag.attributes, "width");
+            lotAsset.footprintHeight = ParseRequiredInt(tag.attributes, "height");
+            hasFootprint = true;
+            continue;
+        }
+
+        if (tag.name == "front" && tag.isSelfClosing) {
+            lotAsset.frontDirection = ParseDirectionName(GetRequiredAttribute(tag.attributes, "direction"));
+            lotAsset.hasFrontDirection = true;
+            continue;
+        }
+
         if (tag.name == "renderOrigin" && tag.isSelfClosing) {
             lotAsset.renderOrigin.x = ParseRequiredInt(tag.attributes, "x");
             lotAsset.renderOrigin.y = ParseRequiredInt(tag.attributes, "y");
@@ -271,6 +407,29 @@ LotAsset LoadLotAsset(const std::string& filePath, const std::string& fileName) 
 
         if (tag.name == "modules" && !tag.isSelfClosing) {
             isInsideModulesBlock = true;
+            continue;
+        }
+
+        if (tag.name == "access" && !tag.isSelfClosing) {
+            isInsideAccessBlock = true;
+            continue;
+        }
+
+        if (tag.name == "connection" && tag.isSelfClosing && isInsideAccessBlock) {
+            LotAccessDefinition accessDefinition;
+            accessDefinition.localTile.x = ParseRequiredInt(tag.attributes, "x");
+            accessDefinition.localTile.y = ParseRequiredInt(tag.attributes, "y");
+            const std::string directionText = GetOptionalAttribute(tag.attributes, "direction", "");
+            if (directionText.empty()) {
+                if (!lotAsset.hasFrontDirection) {
+                    throw std::runtime_error("Lot access connection without direction requires a <front> direction in " + filePath);
+                }
+                accessDefinition.direction = lotAsset.frontDirection;
+            } else {
+                accessDefinition.direction = ParseDirectionName(directionText);
+            }
+            accessDefinition.modeMask = ParseTransportModeMask(GetRequiredAttribute(tag.attributes, "modes"));
+            lotAsset.accessDefinitions.push_back(accessDefinition);
             continue;
         }
 
@@ -294,9 +453,14 @@ LotAsset LoadLotAsset(const std::string& filePath, const std::string& fileName) 
         throw std::runtime_error("Lot XML must define at least one initial module: " + filePath);
     }
 
+    if (hasFootprint && (lotAsset.footprintWidth <= 0 || lotAsset.footprintHeight <= 0)) {
+        throw std::runtime_error("Lot XML footprint dimensions must be positive: " + filePath);
+    }
+
     return lotAsset;
 }
 
+// Verifies that a lot references real modules and has a valid footprint.
 void ValidateLotAsset(LotAsset& lotAsset, const std::vector<LotModule>& modules) {
     std::set<std::string> moduleIds;
     std::size_t moduleIndex = 0;
@@ -304,7 +468,7 @@ void ValidateLotAsset(LotAsset& lotAsset, const std::vector<LotModule>& modules)
         moduleIds.insert(modules[moduleIndex].id);
     }
 
-    std::vector<Int2> occupiedTiles;
+    std::vector<Int2> moduleTiles;
     std::size_t placementIndex = 0;
     for (; placementIndex < lotAsset.initialModules.size(); ++placementIndex) {
         const LotModulePlacementDefinition& placement = lotAsset.initialModules[placementIndex];
@@ -322,7 +486,7 @@ void ValidateLotAsset(LotAsset& lotAsset, const std::vector<LotModule>& modules)
             for (; tileY < modules[candidateModuleIndex].height; ++tileY) {
                 int tileX = 0;
                 for (; tileX < modules[candidateModuleIndex].width; ++tileX) {
-                    occupiedTiles.push_back(Int2(placement.localOrigin.x + tileX, placement.localOrigin.y + tileY));
+                    moduleTiles.push_back(Int2(placement.localOrigin.x + tileX, placement.localOrigin.y + tileY));
                 }
             }
 
@@ -330,17 +494,41 @@ void ValidateLotAsset(LotAsset& lotAsset, const std::vector<LotModule>& modules)
         }
     }
 
-    bool anchorIsOccupied = false;
-    std::size_t tileIndex = 0;
-    for (; tileIndex < occupiedTiles.size(); ++tileIndex) {
-        if (occupiedTiles[tileIndex] == lotAsset.anchor) {
-            anchorIsOccupied = true;
-            break;
-        }
+    if (moduleTiles.empty()) {
+        throw std::runtime_error("Lot asset '" + lotAsset.id + "' does not occupy any module tiles.");
     }
 
-    if (!anchorIsOccupied) {
-        throw std::runtime_error("Lot asset '" + lotAsset.id + "' anchor must be inside the tiles occupied by its initial modules.");
+    if (lotAsset.footprintWidth <= 0 || lotAsset.footprintHeight <= 0) {
+        int minX = moduleTiles[0].x;
+        int minY = moduleTiles[0].y;
+        int maxX = moduleTiles[0].x;
+        int maxY = moduleTiles[0].y;
+        std::size_t tileIndex = 1;
+        for (; tileIndex < moduleTiles.size(); ++tileIndex) {
+            minX = std::min(minX, moduleTiles[tileIndex].x);
+            minY = std::min(minY, moduleTiles[tileIndex].y);
+            maxX = std::max(maxX, moduleTiles[tileIndex].x);
+            maxY = std::max(maxY, moduleTiles[tileIndex].y);
+        }
+
+        lotAsset.footprintOrigin = Int2(minX, minY);
+        lotAsset.footprintWidth = maxX - minX + 1;
+        lotAsset.footprintHeight = maxY - minY + 1;
+    }
+
+    const int footprintMaxX = lotAsset.footprintOrigin.x + lotAsset.footprintWidth;
+    const int footprintMaxY = lotAsset.footprintOrigin.y + lotAsset.footprintHeight;
+    if (lotAsset.anchor.x < lotAsset.footprintOrigin.x || lotAsset.anchor.x >= footprintMaxX ||
+        lotAsset.anchor.y < lotAsset.footprintOrigin.y || lotAsset.anchor.y >= footprintMaxY) {
+        throw std::runtime_error("Lot asset '" + lotAsset.id + "' anchor must be inside its footprint.");
+    }
+
+    std::size_t tileIndex = 0;
+    for (; tileIndex < moduleTiles.size(); ++tileIndex) {
+        if (moduleTiles[tileIndex].x < lotAsset.footprintOrigin.x || moduleTiles[tileIndex].x >= footprintMaxX ||
+            moduleTiles[tileIndex].y < lotAsset.footprintOrigin.y || moduleTiles[tileIndex].y >= footprintMaxY) {
+            throw std::runtime_error("Lot asset '" + lotAsset.id + "' has an initial module outside its footprint.");
+        }
     }
 
     for (placementIndex = 0; placementIndex < lotAsset.initialModules.size(); ++placementIndex) {
@@ -348,11 +536,93 @@ void ValidateLotAsset(LotAsset& lotAsset, const std::vector<LotModule>& modules)
         lotAsset.initialModules[placementIndex].localOrigin.y -= lotAsset.anchor.y;
     }
 
+    std::size_t accessIndex = 0;
+    for (; accessIndex < lotAsset.accessDefinitions.size(); ++accessIndex) {
+        LotAccessDefinition& accessDefinition = lotAsset.accessDefinitions[accessIndex];
+        if (accessDefinition.localTile.x < lotAsset.footprintOrigin.x || accessDefinition.localTile.x >= footprintMaxX ||
+            accessDefinition.localTile.y < lotAsset.footprintOrigin.y || accessDefinition.localTile.y >= footprintMaxY) {
+            throw std::runtime_error("Lot asset '" + lotAsset.id + "' has an access connection outside its footprint.");
+        }
+
+        const int exteriorX = accessDefinition.localTile.x + RoadDirectionDeltaX(accessDefinition.direction);
+        const int exteriorY = accessDefinition.localTile.y + RoadDirectionDeltaY(accessDefinition.direction);
+        if (exteriorX >= lotAsset.footprintOrigin.x && exteriorX < footprintMaxX &&
+            exteriorY >= lotAsset.footprintOrigin.y && exteriorY < footprintMaxY) {
+            throw std::runtime_error("Lot asset '" + lotAsset.id + "' has an access connection that points inside the footprint.");
+        }
+
+        accessDefinition.localTile.x -= lotAsset.anchor.x;
+        accessDefinition.localTile.y -= lotAsset.anchor.y;
+    }
+
+    lotAsset.footprintOrigin.x -= lotAsset.anchor.x;
+    lotAsset.footprintOrigin.y -= lotAsset.anchor.y;
     lotAsset.renderOrigin.x -= lotAsset.anchor.x;
     lotAsset.renderOrigin.y -= lotAsset.anchor.y;
     lotAsset.anchor = Int2(0, 0);
 }
 
+TransportCongestionCurve LoadCongestionCurve(const std::string& filePath) {
+    const std::vector<std::string> tokens = ExtractTagTokens(ReadTextFile(filePath));
+    if (tokens.empty()) {
+        throw std::runtime_error("Empty congestion XML: " + filePath);
+    }
+
+    const ParsedTag rootTag = ParseTag(tokens[0]);
+    if (rootTag.name != "congestion" || rootTag.isClosing) {
+        throw std::runtime_error("Congestion XML must start with <congestion>: " + filePath);
+    }
+
+    TransportCongestionCurve congestionCurve;
+    congestionCurve.points.clear();
+
+    std::size_t tokenIndex = 1;
+    for (; tokenIndex < tokens.size(); ++tokenIndex) {
+        const ParsedTag tag = ParseTag(tokens[tokenIndex]);
+        if (tag.isClosing) {
+            if (tag.name == "congestion") {
+                break;
+            }
+
+            throw std::runtime_error("Unexpected closing tag in congestion XML: " + filePath);
+        }
+
+        if (tag.name == "point" && tag.isSelfClosing) {
+            const float utilization = ParseRequiredFloat(tag.attributes, "utilization");
+            const float speedMultiplier = ParseRequiredFloat(tag.attributes, "speedMultiplier");
+            if (utilization < 0.0f) {
+                throw std::runtime_error("Congestion utilization must be non-negative in " + filePath);
+            }
+            if (speedMultiplier <= 0.0f) {
+                throw std::runtime_error("Congestion speedMultiplier must be positive in " + filePath);
+            }
+
+            congestionCurve.points.push_back(TransportCongestionPoint(utilization, speedMultiplier));
+            continue;
+        }
+
+        throw std::runtime_error("Unsupported congestion tag: <" + tag.name + "> in " + filePath);
+    }
+
+    if (congestionCurve.points.empty()) {
+        throw std::runtime_error("Congestion XML must contain at least one <point>: " + filePath);
+    }
+
+    std::sort(congestionCurve.points.begin(), congestionCurve.points.end(), [](const TransportCongestionPoint& left, const TransportCongestionPoint& right) {
+        return left.utilization < right.utilization;
+    });
+
+    std::size_t pointIndex = 1;
+    for (; pointIndex < congestionCurve.points.size(); ++pointIndex) {
+        if (std::fabs(congestionCurve.points[pointIndex].utilization - congestionCurve.points[pointIndex - 1u].utilization) <= 0.0001f) {
+            throw std::runtime_error("Congestion XML has duplicate utilization points: " + filePath);
+        }
+    }
+
+    return congestionCurve;
+}
+
+// Enumerates XML files in a data directory using the Win32 file API.
 std::vector<std::string> CollectXmlFiles(const std::string& directoryPath) {
     std::vector<std::string> files;
     std::string searchPattern = directoryPath + "\\*.xml";
@@ -377,13 +647,16 @@ std::vector<std::string> CollectXmlFiles(const std::string& directoryPath) {
 }
 }
 
-bool LoadGameAssets(const std::string& dataDirectory, LoadedGameAssets& assets, std::string& errorMessage) {
+// Loads all module and lot archetypes, returning errors instead of throwing across the runtime boundary.
+bool LoadGameAssets(const std::string& dataDirectory, const CityParameterRegistry& parameterRegistry, LoadedGameAssets& assets, std::string& errorMessage) {
     assets.modules.clear();
     assets.lots.clear();
+    assets.congestionCurve = TransportCongestionCurve();
 
     try {
         const std::string modulesDirectory = dataDirectory + "\\Modules";
         const std::string lotsDirectory = dataDirectory + "\\Lots";
+        const std::string congestionPath = dataDirectory + "\\TransportNetwork\\congestion.xml";
 
         const std::vector<std::string> moduleFiles = CollectXmlFiles(modulesDirectory);
         const std::vector<std::string> lotFiles = CollectXmlFiles(lotsDirectory);
@@ -398,7 +671,7 @@ bool LoadGameAssets(const std::string& dataDirectory, LoadedGameAssets& assets, 
         std::unordered_set<std::string> seenIds;
         std::size_t fileIndex = 0;
         for (; fileIndex < moduleFiles.size(); ++fileIndex) {
-            LotModule module = LoadModuleAsset(modulesDirectory + "\\" + moduleFiles[fileIndex], moduleFiles[fileIndex]);
+            LotModule module = LoadModuleAsset(modulesDirectory + "\\" + moduleFiles[fileIndex], moduleFiles[fileIndex], parameterRegistry);
             if (!seenIds.insert(module.id).second) {
                 throw std::runtime_error("Duplicate asset id: " + module.id);
             }
@@ -417,10 +690,15 @@ bool LoadGameAssets(const std::string& dataDirectory, LoadedGameAssets& assets, 
 
             assets.lots.push_back(lotAsset);
         }
+
+        if (FileExists(congestionPath)) {
+            assets.congestionCurve = LoadCongestionCurve(congestionPath);
+        }
     } catch (const std::exception& error) {
         errorMessage = error.what();
         assets.modules.clear();
         assets.lots.clear();
+        assets.congestionCurve = TransportCongestionCurve();
         return false;
     }
 

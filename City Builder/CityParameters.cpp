@@ -1,0 +1,91 @@
+#include "CityParameters.h"
+
+#include <stdexcept>
+
+CityParameterRegistry::CityParameterRegistry()
+    : residentsLowWealthId_(-1),
+      jobsDirtyIndustryId_(-1),
+      jobsLowWealthId_(-1),
+      satisfactionLowWealthCommuteId_(-1),
+      satisfactionDirtyIndustryStaffingId_(-1) {
+    residentsLowWealthId_ = addParameter("residents.low_wealth", CityParameterKind::Driver);
+    jobsDirtyIndustryId_ = addParameter("jobs.dirty_industry", CityParameterKind::Driver);
+    jobsLowWealthId_ = addParameter("jobs.low_wealth", CityParameterKind::Driver);
+    satisfactionLowWealthCommuteId_ = addParameter("satisfaction.low_wealth_commute", CityParameterKind::Satisfaction);
+    satisfactionDirtyIndustryStaffingId_ = addParameter("satisfaction.dirty_industry_staffing", CityParameterKind::Satisfaction);
+
+    addImpact("jobs.dirty_industry", "jobs.low_wealth", 1.0f);
+}
+
+int CityParameterRegistry::parameterId(const std::string& id) const {
+    const std::unordered_map<std::string, int>::const_iterator iterator = indexById_.find(id);
+    return iterator == indexById_.end() ? -1 : iterator->second;
+}
+
+bool CityParameterRegistry::hasParameter(const std::string& id) const {
+    return parameterId(id) >= 0;
+}
+
+std::size_t CityParameterRegistry::count() const {
+    return definitions_.size();
+}
+
+const CityParameterDefinition& CityParameterRegistry::definition(int parameterIdValue) const {
+    if (parameterIdValue < 0 || parameterIdValue >= static_cast<int>(definitions_.size())) {
+        throw std::out_of_range("City parameter id is out of range.");
+    }
+
+    return definitions_[parameterIdValue];
+}
+
+int CityParameterRegistry::residentsLowWealthId() const {
+    return residentsLowWealthId_;
+}
+
+int CityParameterRegistry::jobsDirtyIndustryId() const {
+    return jobsDirtyIndustryId_;
+}
+
+int CityParameterRegistry::jobsLowWealthId() const {
+    return jobsLowWealthId_;
+}
+
+int CityParameterRegistry::satisfactionLowWealthCommuteId() const {
+    return satisfactionLowWealthCommuteId_;
+}
+
+int CityParameterRegistry::satisfactionDirtyIndustryStaffingId() const {
+    return satisfactionDirtyIndustryStaffingId_;
+}
+
+int CityParameterRegistry::addParameter(const std::string& id, CityParameterKind kind) {
+    if (id.empty()) {
+        throw std::runtime_error("City parameter id cannot be empty.");
+    }
+
+    if (indexById_.find(id) != indexById_.end()) {
+        throw std::runtime_error("Duplicate city parameter id: " + id);
+    }
+
+    CityParameterDefinition definition;
+    definition.id = id;
+    definition.kind = kind;
+    const int idValue = static_cast<int>(definitions_.size());
+    definitions_.push_back(definition);
+    indexById_[id] = idValue;
+    return idValue;
+}
+
+void CityParameterRegistry::addImpact(const std::string& sourceId, const std::string& targetId, float multiplier) {
+    const int sourceParameterId = parameterId(sourceId);
+    const int targetParameterId = parameterId(targetId);
+    if (sourceParameterId < 0 || targetParameterId < 0) {
+        throw std::runtime_error("City parameter impact references an unknown parameter.");
+    }
+
+    CityParameterImpact impact;
+    impact.targetParameterId = targetParameterId;
+    impact.multiplier = multiplier;
+    definitions_[sourceParameterId].impacts.push_back(impact);
+}
+

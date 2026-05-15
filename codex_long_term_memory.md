@@ -1,6 +1,6 @@
 # Codex long-term working memory
 
-Snapshot: 2026-04-21
+Snapshot: 2026-04-22
 
 ## Project identity
 This project is a modern heir to SC2000 and SC4 built around tile-based statistical simulation rather than full real-time object truth.
@@ -36,8 +36,13 @@ Primary design goals:
   - tile buffer pointer
   - lot render snapshot pointer
   - per-chunk render revision pointer
+  - resolved road-cell snapshot pointer
+  - packed ground-road render-state pointer
+  - traffic overlay state pointer
+  - split ground/elevated road chunk-revision pointers
   - published generation
   - lot revision
+  - road revision
 - `fast_forward` is allowed to let simulation outrun presentation; if disabled, simulation may wait for the renderer to catch up.
 
 ## Renderer doctrine
@@ -46,10 +51,13 @@ Primary design goals:
   - constrained pitched perspective camera
   - view/projection matrices
   - raycast picking onto the ground plane
-  - per-chunk persistent tile instance buffers
-  - dirty-only tile chunk rebuilds keyed by chunk revision
+  - per-chunk persistent tile instance buffers for static tile origin/UV payloads
   - frustum-cull chunks before drawing
-  - stream scalar tile debug data through a texture each published generation
+  - stream compact scalar tile debug data only for visible stale chunks
+  - stream lot lift masks only for visible stale chunks
+  - stream ground-road placeholder visuals through a packed road-state texture in the tile pass
+  - stream reusable per-tile overlays through a published RGBA texture, starting with traffic capacity
+  - keep elevated roads in a separate lazy visible-chunk pass
   - render lots as separate placeholder world-space prisms
 - The renderer should still transition to richer 3D in stages:
   - world-space projected tiles/lots first
@@ -68,10 +76,15 @@ Primary design goals:
   - tracked debug output artifacts
   - the empty `LotModule.cpp` stub
 - Per-pass timing now exists in the runtime/renderer status print, so future optimization work should start from measured behavior instead of guesswork.
+- Current renderer timing splits now expose:
+  - tile upload/draw
+  - ground-road upload
+  - elevated-road upload/draw
+  - lot upload/draw
 
 ## Next optimization doctrine
 - Prefer structural wins first:
-  - cheaper tile-state upload or partial upload strategy if it shows up in profiling
+  - continue measuring visible-chunk tile-state upload and packing cost
   - cheaper lot-effects iteration
   - better renderer code organization now that `Renderer.cpp` is carrying a lot of camera/math/GPU setup logic
   - only then deeper data-layout or SIMD experiments
@@ -81,15 +94,23 @@ Primary design goals:
 
 ## Compile/doctrine notes
 - Current release settings include the important baseline optimization path and now also enable `/MP` in `Release|x64`.
-- The local shell environment can expose duplicate `Path` and `PATH` entries; clear the process `PATH` first before invoking MSBuild here.
+- MSBuild is expected to be available through `PATH` in the current local environment.
 - User-local Visual Studio state and build products should stay ignored rather than tracked in the repo.
 - Prefer structural wins before raising the machine baseline with ISA-specific flags.
 
 ## Guardrails
 - Do not drift into object-heavy "simulate everything literally" design just because modern hardware allows more brute force.
 - Do not let graphics ambition erase the clarity and scalability of the tile-statistical core.
+- Keep traffic simulation statistical: pathfinding assigns aggregate loads, congestion reads old loads, and future building batches should write new loads through worker-local deltas before reduction.
 - Do not overfit chunk sizing to one exact CPU; detect and override should coexist.
 - Use comments only at load-bearing seams so future work stays explainable without drowning the code in narration.
+
+## Focused design guides
+- `docs/design/renderer.md` captures renderer upload, culling, and shader decisions.
+- `docs/design/simulation-threading.md` captures tile update and triple-buffer rules.
+- `docs/design/lots.md` captures lot/module placement and effect rules.
+- `docs/design/xml-assets.md` captures archetype import assumptions.
+- `docs/design/transport-network.md` captures road topology and render-state rules.
 
 ## Short mnemonic
 Tile-first simulation, cache-aware chunking, real buffer swapping, renderer as presentation only, world-space chunk instancing, and enough architectural discipline to let the prototype grow into the game you actually want.

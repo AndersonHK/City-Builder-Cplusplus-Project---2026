@@ -9,6 +9,7 @@
 #include <vector>
 
 namespace {
+// Counts logical processors sharing a reported cache mask.
 std::size_t CountBits(ULONG_PTR mask) {
     std::size_t bitCount = 0;
     while (mask != 0) {
@@ -19,6 +20,7 @@ std::size_t CountBits(ULONG_PTR mask) {
     return bitCount;
 }
 
+// Lists legal chunk dimensions that evenly divide a map axis.
 std::vector<int> CollectDivisors(int value) {
     std::vector<int> divisors;
     int candidate = 1;
@@ -31,12 +33,14 @@ std::vector<int> CollectDivisors(int value) {
     return divisors;
 }
 
+// Estimates the read-plus-write tile footprint for one simulation chunk.
 std::size_t CalculateChunkWorkingSetBytes(int chunkWidth, int chunkHeight, std::size_t tileSize) {
     const std::size_t sourceTileCount = static_cast<std::size_t>(chunkWidth + 2) * static_cast<std::size_t>(chunkHeight + 2);
     const std::size_t destinationTileCount = static_cast<std::size_t>(chunkWidth) * static_cast<std::size_t>(chunkHeight);
     return (sourceTileCount + destinationTileCount) * tileSize;
 }
 
+// Prefers larger, squarer chunks while staying within the cache budget.
 bool IsBetterChunkCandidate(int width, int height, std::size_t workingSetBytes, int bestWidth, int bestHeight, std::size_t bestWorkingSetBytes) {
     if ((width * height) != (bestWidth * bestHeight)) {
         return (width * height) > (bestWidth * bestHeight);
@@ -52,6 +56,7 @@ bool IsBetterChunkCandidate(int width, int height, std::size_t workingSetBytes, 
 }
 }
 
+// Queries Windows cache topology and returns a conservative per-thread L2 budget.
 std::size_t DetectL2BytesPerLogicalThread() {
     DWORD bufferSize = 0;
     GetLogicalProcessorInformationEx(RelationCache, 0, &bufferSize);
@@ -86,6 +91,7 @@ std::size_t DetectL2BytesPerLogicalThread() {
     return bestPerLogicalThreadBytes;
 }
 
+// Chooses a rectangular chunk size from cache budget, divisibility, and job-count constraints.
 ChunkConfig CalculateChunkConfig(int mapWidth, int mapHeight, std::size_t tileSize, int workerThreadCount, std::size_t manualL2BytesPerLogicalThread, bool detectL2CacheSize, double usableCacheFraction, int minimumJobsPerWorkerMultiplier) {
     ChunkConfig chunkConfig;
     chunkConfig.workerThreadCount = std::max(1, workerThreadCount);
@@ -171,6 +177,7 @@ ChunkConfig CalculateChunkConfig(int mapWidth, int mapHeight, std::size_t tileSi
     return chunkConfig;
 }
 
+// Builds the row-major chunk rectangles consumed by simulation and rendering.
 std::vector<ChunkRect> BuildChunkLayout(int mapWidth, int mapHeight, int chunkWidth, int chunkHeight) {
     std::vector<ChunkRect> chunkLayout;
     int startY = 0;

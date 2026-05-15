@@ -1,6 +1,6 @@
 # Codex repository map and implementation memory
 
-Snapshot: 2026-04-21
+Snapshot: 2026-04-22
 Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 
 ## Top-level layout that matters now
@@ -14,7 +14,31 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - command queue
   - published render snapshots
   - per-chunk render revisions
+  - transport network publication
   - per-pass timing
+- `City Builder/TransportTypes.h`
+- `City Builder/RoadLane.h`
+- `City Builder/Road.h`
+- `City Builder/TransportTile.h`
+- `City Builder/RoadRenderState.h`
+- `City Builder/TransportNetwork.h`
+- `City Builder/TransportNetwork.cpp`
+  - shared transport enums/snapshot masks
+  - lane-owned road placement/state
+  - per-tile lane merge validation and local topology resolution
+  - directional pathfinding cost-map rebuilds
+  - traffic-capacity overlay publication
+  - lane graphic/crosswalk render-state derivation
+  - split ground/elevated road chunk revisions
+- `City Builder/TransportCostMap.h`
+- `City Builder/TransportCostMap.cpp`
+  - dense `(tile, layer, mode)` directional costs and capacities
+  - old/new traffic load buffers
+  - sparse transfer edges
+  - A* pathfinding with reusable scratch arrays
+  - traffic overlay color generation
+- `City Builder/TransportNetworkTests.vcxproj`
+  - standalone non-graphics transport topology tests
 - `City Builder/Renderer.h`
 - `City Builder/Renderer.cpp`
   - GLFW window/context ownership
@@ -22,9 +46,12 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - renderer-local math helpers
   - perspective camera state
   - ground-plane picking
-  - chunk instance buffer ownership
+  - static tile chunk instance buffer ownership
+  - visible-chunk tile-state and tile-lift texture uploads
+  - lazy visible-chunk ground-road texture upload
+  - road atlas generation
+  - lazy visible-chunk elevated-road buffer ownership
   - lot instance buffer ownership
-  - tile-state texture upload
   - chunk frustum culling
 - `City Builder/AppController.h`
 - `City Builder/AppController.cpp`
@@ -57,6 +84,10 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 - `City Builder/Data/Lots/*.xml`
 - `City Builder/Data/Modules/*.xml`
   - runtime lot/module archetype data copied beside the executable
+- `City Builder/Data/UI/*.xml`
+  - runtime in-game window layout data copied beside the executable
+- `docs/design/*.md`
+  - focused design guides for renderer, simulation threading, lots, XML assets, transport network, region/save, and window-system work
 
 ## Build/project facts
 - Primary target is `x64 Release`.
@@ -75,25 +106,42 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - tiles
   - lots
   - per-chunk render revisions
+  - resolved road cells
+  - packed ground-road render state
+  - traffic overlay state
+  - split ground/elevated road chunk revisions
 
 ## Current renderer map
 - Tiles:
-  - built into per-chunk world-space instance caches
-  - rebuilt only when a chunk revision changes
-  - colored from a streamed tile-state texture each publish
+  - built into static per-chunk world-space instance caches
+  - colored from compact tile-state texture uploads for visible stale chunks
+  - lifted from a small lot-occupancy mask texture for visible stale chunks
+- Roads:
+  - ground roads render as a tile overlay from packed road-state bytes plus atlas lookups
+  - ground and elevated road uploads are deferred while dirty chunks are hidden
+  - elevated roads rebuild only when visible chunks have changed revisions
+- Overlays:
+  - traffic capacity is the first generic per-tile RGBA overlay
+  - overlay chunks upload lazily only when visible and stale
+  - overlay draw happens after roads and lots so the tint remains readable
 - Lots:
   - rebuilt only when the lot revision changes
   - rendered as separate world-space placeholder prisms
 - Input:
   - mouse hit testing uses renderer-driven raycasts
   - arrow-key pan semantics now match the current fixed camera heading
+  - `Alt+Enter` toggles fullscreen on the primary monitor
   - holding left mouse in `Q` mode continuously paints pollution again
-  - `R`, `T`, and `Y` expose live module-add/remove testing for the XML-backed lot system
+  - mouse wheel supports `2048 / 1024 / 512 / 256 / 128 / 64 / 32` visible-tile steps
+  - `R` drag-places ground streets and `H` drag-places elevated highways
+  - `T` toggles the traffic capacity overlay
+  - `M` and `Y` still expose live module add/remove testing for the XML-backed lot system
 
 ## Current migration doctrine
 - Keep the tile-object model for now.
 - Use contiguous storage and chunk-based passes to improve cache behavior without jumping to full structure-of-arrays immediately.
 - Add comments only where they preserve future reasoning about cache sizing, swap rules, command timing, and render/sim ownership.
+- When changing architecture, update the nearest `docs/design/*.md` guide, keep `README.md` as the navigable index, and cite important code symbols/line references where practical so future sessions can find the source of truth quickly.
 - The next likely renderer seam is one of:
   - split `Renderer.cpp` into smaller renderer support units
   - move lots into chunk ownership

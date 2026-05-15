@@ -21,10 +21,28 @@
     <ClCompile Include="AppController.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="City.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="ChunkConfig.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="GameSession.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="InGameWindow.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Lot.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Road.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="RoadLane.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="RoadRenderState.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Renderer.cpp">
@@ -39,6 +57,18 @@
     <ClCompile Include="Source.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="TransportCostMap.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="TransportTile.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="TransportNetwork.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="TransportTypes.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="Basic.shader">
@@ -50,10 +80,34 @@
     <None Include="Data\Lots\smokestack_lot.xml">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="Data\Lots\factory_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\house_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\driveway_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\garden_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\house_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
     <None Include="Data\Modules\park_module.xml">
       <Filter>Resource Files</Filter>
     </None>
     <None Include="Data\Modules\smokestack_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\warehouse_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\TransportNetwork\congestion.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\UI\lot_query.xml">
       <Filter>Resource Files</Filter>
     </None>
   </ItemGroup>
@@ -64,13 +118,31 @@
     <ClInclude Include="AppController.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="City.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="ChunkConfig.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="GameSession.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="InGameWindow.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Lot.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="LotModule.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Road.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RoadLane.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RoadRenderState.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Renderer.h">
@@ -83,6 +155,18 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Tile.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="TransportCostMap.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="TransportTile.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="TransportNetwork.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="TransportTypes.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

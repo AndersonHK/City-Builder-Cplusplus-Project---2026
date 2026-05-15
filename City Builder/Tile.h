@@ -8,6 +8,7 @@ struct Tile {
     bool isVacant;
     std::uint16_t zoningType;
 
+    // Seeds a vacant tile with neutral early-prototype statistics.
     Tile()
         : landValue(160000),
           airPollution(0),

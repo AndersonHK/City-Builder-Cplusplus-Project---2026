@@ -1,0 +1,11 @@
+<window id="lot_query" x="24" y="24" width="460" height="232" margin="16" spacing="6" hugElements="true">
+  <textField id="title" height="18" />
+  <textField id="line0" height="18" />
+  <textField id="line1" height="18" />
+  <textField id="line2" height="18" />
+  <textField id="line3" height="18" />
+  <textField id="line4" height="18" />
+  <textField id="line5" height="18" />
+  <textField id="line6" height="18" />
+  <textField id="line7" height="18" />
+</window>

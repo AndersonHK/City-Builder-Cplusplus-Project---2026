@@ -1,16 +1,21 @@
 #pragma once
 
 #include <string>
+#include <vector>
+
+#include "CityParameters.h"
 
 struct Int2 {
     int x;
     int y;
 
+    // Defaults to the origin tile.
     Int2()
         : x(0),
           y(0) {
     }
 
+    // Stores an explicit tile-space coordinate.
     Int2(int xValue, int yValue)
         : x(xValue),
           y(yValue) {
@@ -31,7 +36,9 @@ struct LotModule {
     float colorR;
     float colorG;
     float colorB;
+    std::vector<CityParameterContribution> parameterContributions;
 
+    // Starts an unloaded module archetype with neutral render/effect values.
     LotModule()
         : width(1),
           height(1),
@@ -57,10 +64,15 @@ struct LotModulePlacement {
     int instanceId;
     const LotModule* module;
     Int2 localOrigin;
+    int footprintWidth;
+    int footprintHeight;
 
+    // Starts an unbound module placement until a lot attaches an archetype.
     LotModulePlacement()
         : instanceId(0),
           module(0),
-          localOrigin(0, 0) {
+          localOrigin(0, 0),
+          footprintWidth(1),
+          footprintHeight(1) {
     }
 };

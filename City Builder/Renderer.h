@@ -1,14 +1,14 @@
 #pragma once
 
 #include "AppController.h"
-#include "SimulationRuntime.h"
+#include "GameSession.h"
 
 class Renderer {
 public:
-    Renderer(SimulationRuntime& simulationRuntime, AppController& appController);
+    Renderer(GameSession& gameSession, AppController& appController);
     int run();
 
 private:
-    SimulationRuntime& simulationRuntime_;
+    GameSession& gameSession_;
     AppController& appController_;
 };

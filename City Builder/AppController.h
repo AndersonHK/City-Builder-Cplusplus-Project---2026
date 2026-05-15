@@ -1,15 +1,28 @@
 #pragma once
 
-#include "SimulationRuntime.h"
+#include <chrono>
+#include <string>
+#include <vector>
+
+#include "GameSession.h"
 
 enum class ActiveTool {
     PollutionBrush,
     SmokestackLot,
     ParkLot,
-    AddSmokestackModule,
+    FactoryLot,
+    HouseLot,
+    RoadStreet,
+    RoadHighway,
     AddParkModule,
     RemoveModule,
+    Bulldozer,
     Query
+};
+
+enum class OverlayMode {
+    None,
+    TrafficCapacity
 };
 
 struct ViewState {
@@ -24,10 +37,28 @@ struct ViewState {
     double mouseX;
     double mouseY;
     ActiveTool activeTool;
+    bool roadDragActive;
+    int roadDragStartX;
+    int roadDragStartY;
+    int roadDragCurrentX;
+    int roadDragCurrentY;
+    int roadLaneCount;
+    RoadTrafficSide roadTrafficSide;
+    RoadDirectionMode roadDirectionMode;
+    int lotRotationSteps;
+    OverlayMode overlayMode;
+    int queriedLotId;
+    std::uint64_t queryRouteRevision;
+    std::vector<CommuteRouteSegment> queriedCommuteRouteSegments;
+    std::vector<std::string> queryWindowLines;
+    int hoveredRegionX;
+    int hoveredRegionY;
+    bool hasHoveredRegion;
 
+    // Initializes the default camera span and active tool for a new session.
     ViewState()
-        : cameraX(0),
-          cameraY(0),
+        : cameraX(384),
+          cameraY(384),
           visibleTiles(256),
           framebufferWidth(2048),
           framebufferHeight(2048),
@@ -36,21 +67,41 @@ struct ViewState {
           hasHoveredTile(false),
           mouseX(0.0),
           mouseY(0.0),
-          activeTool(ActiveTool::PollutionBrush) {
+          activeTool(ActiveTool::PollutionBrush),
+          roadDragActive(false),
+          roadDragStartX(0),
+          roadDragStartY(0),
+          roadDragCurrentX(0),
+          roadDragCurrentY(0),
+          roadLaneCount(1),
+          roadTrafficSide(RoadTrafficSide::RightHand),
+          roadDirectionMode(RoadDirectionMode::TwoWay),
+          lotRotationSteps(0),
+          overlayMode(OverlayMode::None),
+          queriedLotId(-1),
+          queryRouteRevision(0),
+          hoveredRegionX(0),
+          hoveredRegionY(0),
+          hasHoveredRegion(false) {
     }
 };
 
 class AppController {
 public:
-    explicit AppController(SimulationRuntime& simulationRuntime);
+    explicit AppController(GameSession& gameSession);
 
     void onCursorMoved(double mouseX, double mouseY);
     void onLeftMouseButtonPressed();
+    void onLeftMouseButtonReleased();
     void onLeftMouseButtonHeld();
     void onKeyPressed(int key, int action);
     void onScroll(double yOffset);
     void setFramebufferSize(int framebufferWidth, int framebufferHeight);
     void setHoveredTile(int tileX, int tileY, bool isValid);
+    void setHoveredRegionCity(int regionX, int regionY, bool isValid);
+    bool roadPreviewStroke(RoadStrokeCommand& roadStrokeCommand) const;
+    bool lotPreviewRequest(std::string& lotAssetId, int& tileX, int& tileY, int& rotationSteps) const;
+    void processPendingRegionClick();
 
     ViewState viewState() const;
 
@@ -60,11 +111,26 @@ private:
     void clampCameraToMap();
     void panCamera(int deltaX, int deltaY);
     void setActiveTool(ActiveTool activeTool);
-    void printQueryResult() const;
+    void toggleTrafficOverlay();
+    void rotatePlacement(int deltaSteps);
+    bool activeToolIsRoad() const;
+    bool handleRegionClick();
+    void applyCameraFromActiveCity();
+    void syncActiveCityCameraToSession();
+    void beginRoadDrag(int tileX, int tileY);
+    void commitRoadDrag(int tileX, int tileY);
+    RoadTemplate currentRoadTemplate(RoadFamily family, TransportLayerId layer) const;
+    void printRoadTemplate() const;
+    void printQueryResult();
 
-    static const int kMinimumVisibleTiles = 128;
-    static const int kMaximumVisibleTiles = 512;
+    static const int kMinimumVisibleTiles = 32;
+    static const int kMaximumVisibleTiles = 2048;
 
-    SimulationRuntime& simulationRuntime_;
+    GameSession& gameSession_;
     ViewState viewState_;
+    bool regionClickPending_;
+    bool hasLastRegionClick_;
+    int lastRegionClickX_;
+    int lastRegionClickY_;
+    std::chrono::steady_clock::time_point lastRegionClickTime_;
 };
