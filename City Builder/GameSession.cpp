@@ -4,7 +4,9 @@
 #include <cstdint>
 #include <direct.h>
 #include <fstream>
+#include <future>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <vector>
 
@@ -14,7 +16,10 @@
 
 namespace {
 const std::uint32_t kRegionSaveMagic = 0x52424743u; // CBGR
-const std::uint32_t kRegionSaveVersion = 1u;
+const std::uint32_t kRegionSaveVersion = 2u;
+const std::uint32_t kCitySaveMagic = 0x59544243u; // CBTY
+const std::uint32_t kCitySaveVersion = 3u;
+const int kMaximumPreviewBuildsInFlight = 2;
 
 std::string GetExecutableDirectory() {
     char modulePath[MAX_PATH];
@@ -169,6 +174,8 @@ void WriteLotRenderInstance(std::ostream& stream, const LotRenderInstance& lot) 
     WriteValue(stream, lot.colorR);
     WriteValue(stream, lot.colorG);
     WriteValue(stream, lot.colorB);
+    WriteValue(stream, lot.surfacePattern);
+    WriteValue(stream, lot.surfaceDirection);
 }
 
 LotRenderInstance ReadLotRenderInstance(std::istream& stream) {
@@ -182,6 +189,8 @@ LotRenderInstance ReadLotRenderInstance(std::istream& stream) {
     ReadValue(stream, lot.colorR);
     ReadValue(stream, lot.colorG);
     ReadValue(stream, lot.colorB);
+    ReadValue(stream, lot.surfacePattern);
+    ReadValue(stream, lot.surfaceDirection);
     return lot;
 }
 
@@ -189,6 +198,9 @@ void WriteCityState(std::ostream& stream, const CitySaveState& state) {
     WriteValue(stream, state.width);
     WriteValue(stream, state.height);
     WriteValue(stream, state.nextLotId);
+    WriteValue(stream, state.cameraX);
+    WriteValue(stream, state.cameraY);
+    WriteValue(stream, state.visibleTiles);
 
     std::uint32_t count = static_cast<std::uint32_t>(state.tiles.size());
     WriteValue(stream, count);
@@ -251,6 +263,9 @@ CitySaveState ReadCityState(std::istream& stream) {
     ReadValue(stream, state.width);
     ReadValue(stream, state.height);
     ReadValue(stream, state.nextLotId);
+    ReadValue(stream, state.cameraX);
+    ReadValue(stream, state.cameraY);
+    ReadValue(stream, state.visibleTiles);
 
     std::uint32_t count = 0u;
     ReadValue(stream, count);
@@ -386,6 +401,12 @@ std::uint64_t GameSession::renderStateRevision() const {
     return renderStateRevision_;
 }
 
+void GameSession::setActiveCityCamera(int cameraX, int cameraY, int visibleTiles) {
+    if (activeCity_ != 0) {
+        activeCity_->setCamera(cameraX, cameraY, visibleTiles);
+    }
+}
+
 bool GameSession::enterCity(int regionX, int regionY) {
     City* city = region_.cityAt(regionX, regionY);
     if (city == 0) {
@@ -400,7 +421,10 @@ bool GameSession::enterCity(int regionX, int regionY) {
         }
 
         runtime_->stop();
-        runtime_->importCitySaveState(city->saveState());
+        CitySaveState saveState = loadCitySaveState(*city);
+        runtime_->importCitySaveState(saveState);
+        city->setMetadataFromSaveState(saveState);
+        city->unloadCleanSaveState();
         activeCity_ = city;
         mode_ = GameMode::City;
         runtime_->start();
@@ -465,7 +489,10 @@ bool GameSession::loadAutoslot() {
         if (reloadActiveCity) {
             City* city = region_.cityAt(activeRegionX, activeRegionY);
             if (city != 0) {
-                runtime_->importCitySaveState(city->saveState());
+                CitySaveState saveState = loadCitySaveState(*city);
+                runtime_->importCitySaveState(saveState);
+                city->setMetadataFromSaveState(saveState);
+                city->unloadCleanSaveState();
                 activeCity_ = city;
                 mode_ = GameMode::City;
                 importedCity = true;
@@ -517,10 +544,30 @@ bool GameSession::loadRegionFromDisk() {
             ReadValue(stream, regionY);
             ReadValue(stream, width);
             ReadValue(stream, height);
+            int cameraX = City::centeredCameraCoordinate(width, City::kDefaultVisibleTiles);
+            int cameraY = City::centeredCameraCoordinate(height, City::kDefaultVisibleTiles);
+            int visibleTiles = City::kDefaultVisibleTiles;
+            ReadValue(stream, cameraX);
+            ReadValue(stream, cameraY);
+            ReadValue(stream, visibleTiles);
+
+            std::uint32_t parameterCount = 0u;
+            ReadValue(stream, parameterCount);
+            std::vector<float> cityParameters(parameterCount, 0.0f);
+            std::size_t parameterIndex = 0;
+            for (; parameterIndex < cityParameters.size(); ++parameterIndex) {
+                ReadValue(stream, cityParameters[parameterIndex]);
+            }
 
             std::unique_ptr<City> city(new City(cityName, regionX, regionY, width, height));
-            CitySaveState state = ReadCityState(stream);
-            city->setSaveState(state);
+            CitySaveState summaryState;
+            summaryState.width = width;
+            summaryState.height = height;
+            summaryState.cameraX = cameraX;
+            summaryState.cameraY = cameraY;
+            summaryState.visibleTiles = visibleTiles;
+            summaryState.cityParameters = cityParameters;
+            city->setMetadataFromSaveState(summaryState);
             region_.addCity(std::move(city));
         }
 
@@ -534,9 +581,21 @@ bool GameSession::loadRegionFromDisk() {
     return false;
 }
 
-bool GameSession::saveRegionToDisk() const {
+bool GameSession::saveRegionToDisk() {
     try {
         ensureSaveDirectory();
+        std::size_t cityIndex = 0;
+        for (; cityIndex < region_.cities().size(); ++cityIndex) {
+            City& city = *region_.cities()[cityIndex];
+            CitySaveState cityState = loadCitySaveState(city);
+            if (!saveCityStateToDisk(city, cityState)) {
+                return false;
+            }
+            city.setMetadataFromSaveState(cityState);
+            city.markSaveStateClean();
+            city.unloadCleanSaveState();
+        }
+
         std::ofstream stream(saveFilePath().c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
         if (!stream) {
             std::cout << "Could not open region save for writing." << std::endl;
@@ -547,17 +606,26 @@ bool GameSession::saveRegionToDisk() const {
         WriteValue(stream, kRegionSaveVersion);
         const std::uint32_t cityCount = static_cast<std::uint32_t>(region_.cities().size());
         WriteValue(stream, cityCount);
-        std::size_t cityIndex = 0;
-        for (; cityIndex < region_.cities().size(); ++cityIndex) {
+        for (cityIndex = 0; cityIndex < region_.cities().size(); ++cityIndex) {
             const City& city = *region_.cities()[cityIndex];
             WriteString(stream, city.name());
             WriteValue(stream, city.regionX());
             WriteValue(stream, city.regionY());
             WriteValue(stream, city.width());
             WriteValue(stream, city.height());
-            WriteCityState(stream, city.saveState());
+            WriteValue(stream, city.cameraX());
+            WriteValue(stream, city.cameraY());
+            WriteValue(stream, city.visibleTiles());
+            const std::vector<float>& cityParameters = city.cityParameters();
+            const std::uint32_t parameterCount = static_cast<std::uint32_t>(cityParameters.size());
+            WriteValue(stream, parameterCount);
+            std::size_t parameterIndex = 0;
+            for (; parameterIndex < cityParameters.size(); ++parameterIndex) {
+                WriteValue(stream, cityParameters[parameterIndex]);
+            }
         }
 
+        region_.recalculateRegionParameters();
         std::cout << "Saved region autoslot: " << saveFilePath() << std::endl;
         return true;
     } catch (const std::exception& error) {
@@ -567,12 +635,130 @@ bool GameSession::saveRegionToDisk() const {
     return false;
 }
 
+CitySaveState GameSession::loadCitySaveState(City& city) {
+    if (city.hasPreviewBuildInFlight()) {
+        CitySaveState saveState = city.takePreviewBuildState();
+        city.setMetadataFromSaveState(saveState);
+        return saveState;
+    }
+
+    if (city.hasSaveState()) {
+        return city.saveState();
+    }
+
+    std::ifstream stream(citySaveFilePath(city).c_str(), std::ios::in | std::ios::binary);
+    if (stream) {
+        try {
+            std::uint32_t magic = 0u;
+            std::uint32_t version = 0u;
+            ReadValue(stream, magic);
+            ReadValue(stream, version);
+            if (magic != kCitySaveMagic || version != kCitySaveVersion) {
+                std::cout << "City save version mismatch for " << city.name() << "." << std::endl;
+            } else {
+                CitySaveState saveState = ReadCityState(stream);
+                city.setMetadataFromSaveState(saveState);
+                return saveState;
+            }
+        } catch (const std::exception& error) {
+            std::cout << "Could not load city save for " << city.name() << ": " << error.what() << std::endl;
+        }
+    }
+
+    CitySaveState defaultState = City::createDefaultSaveState(
+        City::seedForRegionCoordinate(city.regionX(), city.regionY()),
+        city.width(),
+        city.height());
+    city.setMetadataFromSaveState(defaultState);
+    return defaultState;
+}
+
+bool GameSession::saveCityStateToDisk(City& city, const CitySaveState& saveState) {
+    try {
+        std::ofstream stream(citySaveFilePath(city).c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
+        if (!stream) {
+            std::cout << "Could not open city save for writing: " << citySaveFilePath(city) << std::endl;
+            return false;
+        }
+
+        WriteValue(stream, kCitySaveMagic);
+        WriteValue(stream, kCitySaveVersion);
+        WriteCityState(stream, saveState);
+        return true;
+    } catch (const std::exception& error) {
+        std::cout << "Could not save city " << city.name() << ": " << error.what() << std::endl;
+    }
+
+    return false;
+}
+
+bool GameSession::requestCityPreviewBuild(City& city) {
+    if (city.hasSaveState() || city.hasPreviewBuildInFlight()) {
+        return false;
+    }
+
+    int buildsInFlight = 0;
+    std::size_t cityIndex = 0;
+    for (; cityIndex < region_.cities().size(); ++cityIndex) {
+        if (region_.cities()[cityIndex]->hasPreviewBuildInFlight()) {
+            ++buildsInFlight;
+        }
+    }
+
+    if (buildsInFlight >= kMaximumPreviewBuildsInFlight) {
+        return false;
+    }
+
+    const std::string path = citySaveFilePath(city);
+    const std::string cityName = city.name();
+    const int regionX = city.regionX();
+    const int regionY = city.regionY();
+    const int width = city.width();
+    const int height = city.height();
+    std::future<CitySaveState> previewBuildFuture = std::async(std::launch::async, [path, cityName, regionX, regionY, width, height]() {
+        std::ifstream stream(path.c_str(), std::ios::in | std::ios::binary);
+        if (stream) {
+            try {
+                std::uint32_t magic = 0u;
+                std::uint32_t version = 0u;
+                ReadValue(stream, magic);
+                ReadValue(stream, version);
+                if (magic == kCitySaveMagic && version == kCitySaveVersion) {
+                    return ReadCityState(stream);
+                }
+                std::cout << "City save version mismatch for preview " << cityName << "." << std::endl;
+            } catch (const std::exception& error) {
+                std::cout << "Could not load city preview state for " << cityName << ": " << error.what() << std::endl;
+            }
+        }
+
+        return City::createDefaultSaveState(City::seedForRegionCoordinate(regionX, regionY), width, height);
+    });
+
+    city.startPreviewBuild(std::move(previewBuildFuture));
+    return true;
+}
+
+bool GameSession::takeReadyCityPreviewState(City& city, CitySaveState& saveState) {
+    if (!city.hasPreviewBuildInFlight() || !city.isPreviewBuildReady()) {
+        return false;
+    }
+
+    saveState = city.takePreviewBuildState();
+    city.setMetadataFromSaveState(saveState);
+    return true;
+}
+
 void GameSession::exportActiveCity() {
     if (activeCity_ == 0) {
         return;
     }
 
-    activeCity_->setSaveState(runtime_->exportCitySaveState());
+    CitySaveState saveState = runtime_->exportCitySaveState();
+    saveState.cameraX = activeCity_->cameraX();
+    saveState.cameraY = activeCity_->cameraY();
+    saveState.visibleTiles = activeCity_->visibleTiles();
+    activeCity_->setSaveState(saveState, true);
     region_.recalculateRegionParameters();
 }
 
@@ -596,6 +782,12 @@ std::string GameSession::saveDirectory() const {
 
 std::string GameSession::saveFilePath() const {
     return saveDirectory() + "\\region.bin";
+}
+
+std::string GameSession::citySaveFilePath(const City& city) const {
+    std::ostringstream fileName;
+    fileName << saveDirectory() << "\\city_" << city.regionX() << "_" << city.regionY() << ".bin";
+    return fileName.str();
 }
 
 void GameSession::ensureSaveDirectory() const {

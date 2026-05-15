@@ -669,6 +669,7 @@ void TestFactoryHouseAssetsAndParameters(TestRunner& runner) {
     }
 
     const LotModule* warehouseModule = FindModule(assets, "warehouse_module");
+    const LotModule* smokestackModule = FindModule(assets, "smokestack_module");
     const LotModule* houseModule = FindModule(assets, "house_module");
     const LotModule* drivewayModule = FindModule(assets, "driveway_module");
     const LotModule* gardenModule = FindModule(assets, "garden_module");
@@ -676,22 +677,106 @@ void TestFactoryHouseAssetsAndParameters(TestRunner& runner) {
     const LotAsset* houseLot = FindLotAsset(assets, "house_lot");
 
     runner.expect(warehouseModule != 0, "warehouse module exists");
+    runner.expect(smokestackModule != 0, "smokestack module exists");
     runner.expect(houseModule != 0, "house module exists");
     runner.expect(drivewayModule != 0, "driveway module exists");
     runner.expect(gardenModule != 0, "garden module exists");
     runner.expect(factoryLot != 0, "factory lot exists");
     runner.expect(houseLot != 0, "house lot exists");
-    if (warehouseModule == 0 || houseModule == 0 || drivewayModule == 0 || gardenModule == 0 || factoryLot == 0 || houseLot == 0) {
+    if (warehouseModule == 0 || smokestackModule == 0 || houseModule == 0 || drivewayModule == 0 || gardenModule == 0 || factoryLot == 0 || houseLot == 0) {
         return;
     }
 
     runner.expect(ModuleParameterAmount(*warehouseModule, registry.jobsDirtyIndustryId()) == 6.0f, "warehouse contributes six dirty industry jobs");
     runner.expect(ModuleParameterAmount(*houseModule, registry.residentsLowWealthId()) == 5.0f, "house contributes five low wealth residents");
-    runner.expect(factoryLot->footprintWidth == 2 && factoryLot->footprintHeight == 2, "factory footprint is 2x2");
+    runner.expect(factoryLot->footprintWidth == 3 && factoryLot->footprintHeight == 2, "factory footprint fits warehouse and adjacent smokestack");
     runner.expect(houseLot->footprintWidth == 2 && houseLot->footprintHeight == 4, "house footprint is 2x4");
-    runner.expect(factoryLot->accessDefinitions.size() == 4u, "factory declares access on all four warehouse tiles");
+    runner.expect(factoryLot->accessDefinitions.size() == 8u, "factory declares car and pedestrian access around all warehouse edges");
     runner.expect(houseLot->accessDefinitions.size() == 2u, "house declares driveway and garden access");
     runner.expect(!assets.congestionCurve.points.empty() && assets.congestionCurve.points[0].speedMultiplier > 0.0f, "transport congestion XML loads");
+
+    bool foundFactoryWarehousePlacement = false;
+    bool foundFactorySmokestackPlacement = false;
+    std::size_t factoryPlacementIndex = 0;
+    for (; factoryPlacementIndex < factoryLot->initialModules.size(); ++factoryPlacementIndex) {
+        const LotModulePlacementDefinition& placement = factoryLot->initialModules[factoryPlacementIndex];
+        if (placement.moduleId == "warehouse_module" && placement.localOrigin.x == 0 && placement.localOrigin.y == 0) {
+            foundFactoryWarehousePlacement = true;
+        }
+        if (placement.moduleId == "smokestack_module" && placement.localOrigin.x == 2 && placement.localOrigin.y == 0) {
+            foundFactorySmokestackPlacement = true;
+        }
+    }
+    runner.expect(foundFactoryWarehousePlacement, "factory includes warehouse module");
+    runner.expect(foundFactorySmokestackPlacement, "factory includes smokestack module");
+
+    bool foundFactoryNorthwestAccess = false;
+    bool foundFactoryWestNorthAccess = false;
+    bool foundFactoryNortheastAccess = false;
+    bool foundFactoryEastNorthAccess = false;
+    bool foundFactorySouthwestAccess = false;
+    bool foundFactoryWestSouthAccess = false;
+    bool foundFactorySoutheastAccess = false;
+    bool foundFactoryEastSouthAccess = false;
+    const std::uint8_t factoryModeMask = static_cast<std::uint8_t>(kTransportModeCar | kTransportModePedestrian);
+    std::size_t factoryAccessIndex = 0;
+    for (; factoryAccessIndex < factoryLot->accessDefinitions.size(); ++factoryAccessIndex) {
+        const LotAccessDefinition& access = factoryLot->accessDefinitions[factoryAccessIndex];
+        if (access.modeMask != factoryModeMask) {
+            continue;
+        }
+
+        if (access.localTile.x == 0 && access.localTile.y == 0 && access.direction == kRoadDirectionNorth) {
+            foundFactoryNorthwestAccess = true;
+        }
+        if (access.localTile.x == 0 && access.localTile.y == 0 && access.direction == kRoadDirectionWest) {
+            foundFactoryWestNorthAccess = true;
+        }
+        if (access.localTile.x == 1 && access.localTile.y == 0 && access.direction == kRoadDirectionNorth) {
+            foundFactoryNortheastAccess = true;
+        }
+        if (access.localTile.x == 2 && access.localTile.y == 0 && access.direction == kRoadDirectionEast) {
+            foundFactoryEastNorthAccess = true;
+        }
+        if (access.localTile.x == 0 && access.localTile.y == 1 && access.direction == kRoadDirectionSouth) {
+            foundFactorySouthwestAccess = true;
+        }
+        if (access.localTile.x == 0 && access.localTile.y == 1 && access.direction == kRoadDirectionWest) {
+            foundFactoryWestSouthAccess = true;
+        }
+        if (access.localTile.x == 1 && access.localTile.y == 1 && access.direction == kRoadDirectionSouth) {
+            foundFactorySoutheastAccess = true;
+        }
+        if (access.localTile.x == 2 && access.localTile.y == 1 && access.direction == kRoadDirectionEast) {
+            foundFactoryEastSouthAccess = true;
+        }
+    }
+    runner.expect(foundFactoryNorthwestAccess && foundFactoryWestNorthAccess &&
+        foundFactoryNortheastAccess && foundFactoryEastNorthAccess &&
+        foundFactorySouthwestAccess && foundFactoryWestSouthAccess &&
+        foundFactorySoutheastAccess && foundFactoryEastSouthAccess,
+        "factory access accepts car and pedestrians on every exterior factory edge");
+
+    Lot rotatedFactoryInstance(2, factoryLot->id, 20, 20, 1);
+    rotatedFactoryInstance.setExplicitFootprint(Int2(-1, 0), 2, 3, 64);
+    rotatedFactoryInstance.addModule(*warehouseModule, Int2(-1, 0), 64, 2, 2);
+    rotatedFactoryInstance.addModule(*smokestackModule, Int2(-1, 2), 64, 2, 1);
+    std::vector<LotRenderInstance> rotatedFactoryRenderInstances;
+    rotatedFactoryInstance.buildRenderInstances(rotatedFactoryRenderInstances);
+    bool foundRotatedWarehouseRender = false;
+    bool foundRotatedSmokestackRender = false;
+    std::size_t renderInstanceIndex = 0;
+    for (; renderInstanceIndex < rotatedFactoryRenderInstances.size(); ++renderInstanceIndex) {
+        const LotRenderInstance& renderInstance = rotatedFactoryRenderInstances[renderInstanceIndex];
+        if (renderInstance.originX == 19 && renderInstance.originY == 20 && renderInstance.width == 2 && renderInstance.height == 2) {
+            foundRotatedWarehouseRender = true;
+        }
+        if (renderInstance.originX == 19 && renderInstance.originY == 22 && renderInstance.width == 2 && renderInstance.height == 1) {
+            foundRotatedSmokestackRender = true;
+        }
+    }
+    runner.expect(foundRotatedWarehouseRender, "rotated factory renders warehouse in rotated footprint");
+    runner.expect(foundRotatedSmokestackRender, "rotated factory renders smokestack beside warehouse");
 
     bool foundHousePlacement = false;
     bool foundDrivewayAccess = false;

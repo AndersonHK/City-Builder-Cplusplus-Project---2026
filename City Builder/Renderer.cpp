@@ -13,10 +13,12 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <vector>
 
 #include "City.h"
+#include "InGameWindow.h"
 #include "RoadRenderState.h"
 #include "ShaderProgram.h"
 
@@ -174,6 +176,10 @@ struct LotInstanceData {
     float colorR;
     float colorG;
     float colorB;
+    float surfacePattern;
+    float surfaceDirection;
+    float padding0;
+    float padding1;
 };
 
 struct RoadInstanceData {
@@ -227,6 +233,17 @@ struct RegionPreviewTextureCache {
           textureId(0),
           previewRevision(std::numeric_limits<std::uint64_t>::max()) {
     }
+};
+
+struct UiQuadInstanceData {
+    float x;
+    float y;
+    float width;
+    float height;
+    float colorR;
+    float colorG;
+    float colorB;
+    float colorA;
 };
 
 struct RoadPreviewAxisKey {
@@ -1152,11 +1169,212 @@ std::string BuildShaderPath() {
     return GetExecutableDirectory() + "\\Basic.shader";
 }
 
+std::string BuildDataPath(const std::string& relativePath) {
+    return GetExecutableDirectory() + "\\Data\\" + relativePath;
+}
+
 // Configures one instanced vertex attribute for OpenGL.
 void SetupInstanceAttribute(GLuint attributeIndex, GLint componentCount, GLsizei stride, std::size_t offsetBytes) {
     glEnableVertexAttribArray(attributeIndex);
     glVertexAttribPointer(attributeIndex, componentCount, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<const void*>(offsetBytes));
     glVertexAttribDivisor(attributeIndex, 1);
+}
+
+struct GlyphPattern {
+    std::uint32_t codepoint;
+    const char* rows[7];
+};
+
+const char* const* GlyphRows(std::uint32_t codepoint) {
+    if (codepoint >= 'a' && codepoint <= 'z') {
+        codepoint = codepoint - 'a' + 'A';
+    }
+
+    static const GlyphPattern glyphs[] = {
+        {' ', {"00000", "00000", "00000", "00000", "00000", "00000", "00000"}},
+        {'0', {"01110", "10001", "10011", "10101", "11001", "10001", "01110"}},
+        {'1', {"00100", "01100", "00100", "00100", "00100", "00100", "01110"}},
+        {'2', {"01110", "10001", "00001", "00010", "00100", "01000", "11111"}},
+        {'3', {"11110", "00001", "00001", "01110", "00001", "00001", "11110"}},
+        {'4', {"00010", "00110", "01010", "10010", "11111", "00010", "00010"}},
+        {'5', {"11111", "10000", "10000", "11110", "00001", "00001", "11110"}},
+        {'6', {"01110", "10000", "10000", "11110", "10001", "10001", "01110"}},
+        {'7', {"11111", "00001", "00010", "00100", "01000", "01000", "01000"}},
+        {'8', {"01110", "10001", "10001", "01110", "10001", "10001", "01110"}},
+        {'9', {"01110", "10001", "10001", "01111", "00001", "00001", "01110"}},
+        {'A', {"01110", "10001", "10001", "11111", "10001", "10001", "10001"}},
+        {'B', {"11110", "10001", "10001", "11110", "10001", "10001", "11110"}},
+        {'C', {"01110", "10001", "10000", "10000", "10000", "10001", "01110"}},
+        {'D', {"11110", "10001", "10001", "10001", "10001", "10001", "11110"}},
+        {'E', {"11111", "10000", "10000", "11110", "10000", "10000", "11111"}},
+        {'F', {"11111", "10000", "10000", "11110", "10000", "10000", "10000"}},
+        {'G', {"01110", "10001", "10000", "10111", "10001", "10001", "01111"}},
+        {'H', {"10001", "10001", "10001", "11111", "10001", "10001", "10001"}},
+        {'I', {"01110", "00100", "00100", "00100", "00100", "00100", "01110"}},
+        {'J', {"00111", "00010", "00010", "00010", "10010", "10010", "01100"}},
+        {'K', {"10001", "10010", "10100", "11000", "10100", "10010", "10001"}},
+        {'L', {"10000", "10000", "10000", "10000", "10000", "10000", "11111"}},
+        {'M', {"10001", "11011", "10101", "10101", "10001", "10001", "10001"}},
+        {'N', {"10001", "11001", "10101", "10011", "10001", "10001", "10001"}},
+        {'O', {"01110", "10001", "10001", "10001", "10001", "10001", "01110"}},
+        {'P', {"11110", "10001", "10001", "11110", "10000", "10000", "10000"}},
+        {'Q', {"01110", "10001", "10001", "10001", "10101", "10010", "01101"}},
+        {'R', {"11110", "10001", "10001", "11110", "10100", "10010", "10001"}},
+        {'S', {"01111", "10000", "10000", "01110", "00001", "00001", "11110"}},
+        {'T', {"11111", "00100", "00100", "00100", "00100", "00100", "00100"}},
+        {'U', {"10001", "10001", "10001", "10001", "10001", "10001", "01110"}},
+        {'V', {"10001", "10001", "10001", "10001", "10001", "01010", "00100"}},
+        {'W', {"10001", "10001", "10001", "10101", "10101", "10101", "01010"}},
+        {'X', {"10001", "10001", "01010", "00100", "01010", "10001", "10001"}},
+        {'Y', {"10001", "10001", "01010", "00100", "00100", "00100", "00100"}},
+        {'Z', {"11111", "00001", "00010", "00100", "01000", "10000", "11111"}},
+        {'#', {"01010", "01010", "11111", "01010", "11111", "01010", "01010"}},
+        {':', {"00000", "00100", "00100", "00000", "00100", "00100", "00000"}},
+        {'/', {"00001", "00010", "00010", "00100", "01000", "01000", "10000"}},
+        {'-', {"00000", "00000", "00000", "11111", "00000", "00000", "00000"}},
+        {'_', {"00000", "00000", "00000", "00000", "00000", "00000", "11111"}},
+        {',', {"00000", "00000", "00000", "00000", "00100", "00100", "01000"}},
+        {'.', {"00000", "00000", "00000", "00000", "00000", "01100", "01100"}},
+        {'(', {"00010", "00100", "01000", "01000", "01000", "00100", "00010"}},
+        {')', {"01000", "00100", "00010", "00010", "00010", "00100", "01000"}},
+        {'+', {"00000", "00100", "00100", "11111", "00100", "00100", "00000"}},
+        {'=', {"00000", "00000", "11111", "00000", "11111", "00000", "00000"}},
+        {'?', {"01110", "10001", "00001", "00010", "00100", "00000", "00100"}}
+    };
+
+    std::size_t glyphIndex = 0;
+    for (; glyphIndex < sizeof(glyphs) / sizeof(glyphs[0]); ++glyphIndex) {
+        if (glyphs[glyphIndex].codepoint == codepoint) {
+            return glyphs[glyphIndex].rows;
+        }
+    }
+
+    return glyphs[sizeof(glyphs) / sizeof(glyphs[0]) - 1u].rows;
+}
+
+bool NextUtf8Codepoint(const std::string& text, std::size_t& byteIndex, std::uint32_t& codepoint) {
+    if (byteIndex >= text.size()) {
+        return false;
+    }
+
+    const unsigned char first = static_cast<unsigned char>(text[byteIndex++]);
+    if (first < 0x80u) {
+        codepoint = first;
+        return true;
+    }
+
+    int continuationCount = 0;
+    std::uint32_t value = 0u;
+    if ((first & 0xE0u) == 0xC0u) {
+        continuationCount = 1;
+        value = first & 0x1Fu;
+    } else if ((first & 0xF0u) == 0xE0u) {
+        continuationCount = 2;
+        value = first & 0x0Fu;
+    } else if ((first & 0xF8u) == 0xF0u) {
+        continuationCount = 3;
+        value = first & 0x07u;
+    } else {
+        codepoint = '?';
+        return true;
+    }
+
+    int continuationIndex = 0;
+    for (; continuationIndex < continuationCount; ++continuationIndex) {
+        if (byteIndex >= text.size()) {
+            codepoint = '?';
+            return true;
+        }
+
+        const unsigned char next = static_cast<unsigned char>(text[byteIndex++]);
+        if ((next & 0xC0u) != 0x80u) {
+            codepoint = '?';
+            return true;
+        }
+
+        value = (value << 6) | static_cast<std::uint32_t>(next & 0x3Fu);
+    }
+
+    codepoint = value;
+    return true;
+}
+
+void AddUiQuad(std::vector<UiQuadInstanceData>& quads, float x, float y, float width, float height, const Vec4& color) {
+    if (width <= 0.0f || height <= 0.0f || color.w <= 0.0f) {
+        return;
+    }
+
+    UiQuadInstanceData quad;
+    quad.x = x;
+    quad.y = y;
+    quad.width = width;
+    quad.height = height;
+    quad.colorR = color.x;
+    quad.colorG = color.y;
+    quad.colorB = color.z;
+    quad.colorA = color.w;
+    quads.push_back(quad);
+}
+
+void BuildTextQuads(const TextFieldElement& field, float windowX, float windowY, std::vector<UiQuadInstanceData>& quads) {
+    const float scale = 2.0f;
+    const float characterAdvance = 6.0f * scale;
+    const float originX = windowX + static_cast<float>(field.x());
+    const float originY = windowY + static_cast<float>(field.y());
+    const float maxX = originX + static_cast<float>(field.width());
+    const float maxY = originY + static_cast<float>(field.height());
+    const Vec4 textColor(0.88f, 0.94f, 0.91f, 1.0f);
+
+    float cursorX = originX;
+    std::size_t byteIndex = 0;
+    while (byteIndex < field.text().size()) {
+        std::uint32_t codepoint = 0u;
+        if (!NextUtf8Codepoint(field.text(), byteIndex, codepoint) || codepoint == '\n') {
+            break;
+        }
+
+        if (cursorX + (5.0f * scale) > maxX || originY + (7.0f * scale) > maxY) {
+            break;
+        }
+
+        const char* const* rows = GlyphRows(codepoint);
+        int row = 0;
+        for (; row < 7; ++row) {
+            int column = 0;
+            for (; column < 5; ++column) {
+                if (rows[row][column] == '1') {
+                    AddUiQuad(quads, cursorX + static_cast<float>(column) * scale, originY + static_cast<float>(row) * scale, scale, scale, textColor);
+                }
+            }
+        }
+
+        cursorX += characterAdvance;
+    }
+}
+
+std::vector<UiQuadInstanceData> BuildWindowQuads(const InGameWindow& window) {
+    std::vector<UiQuadInstanceData> quads;
+    if (!window.visible()) {
+        return quads;
+    }
+
+    const float x = static_cast<float>(window.x());
+    const float y = static_cast<float>(window.y());
+    const float width = static_cast<float>(window.width());
+    const float height = static_cast<float>(window.height());
+    AddUiQuad(quads, x, y, width, height, Vec4(0.035f, 0.047f, 0.058f, 0.90f));
+    AddUiQuad(quads, x, y, width, 2.0f, Vec4(0.36f, 0.52f, 0.47f, 0.92f));
+    AddUiQuad(quads, x, y + height - 2.0f, width, 2.0f, Vec4(0.13f, 0.18f, 0.19f, 0.92f));
+    AddUiQuad(quads, x, y, 2.0f, height, Vec4(0.22f, 0.31f, 0.30f, 0.92f));
+    AddUiQuad(quads, x + width - 2.0f, y, 2.0f, height, Vec4(0.13f, 0.18f, 0.19f, 0.92f));
+
+    const std::vector<TextFieldElement>& textFields = window.textFields();
+    std::size_t fieldIndex = 0;
+    for (; fieldIndex < textFields.size(); ++fieldIndex) {
+        BuildTextQuads(textFields[fieldIndex], x, y, quads);
+    }
+
+    return quads;
 }
 
 // Wires static tile vertices and per-tile instance data for a chunk VAO.
@@ -1184,6 +1402,7 @@ void ConfigureLotVertexArray(GLuint vertexArrayId, GLuint boxVertexBufferId, GLu
     glBindBuffer(GL_ARRAY_BUFFER, instanceBufferId);
     SetupInstanceAttribute(1, 4, sizeof(LotInstanceData), 0);
     SetupInstanceAttribute(2, 4, sizeof(LotInstanceData), sizeof(float) * 4);
+    SetupInstanceAttribute(3, 4, sizeof(LotInstanceData), sizeof(float) * 8);
 
     glBindVertexArray(0);
 }
@@ -1232,6 +1451,20 @@ void ConfigureRegionPreviewVertexArray(GLuint vertexArrayId, GLuint tileVertexBu
     glBindVertexArray(0);
 }
 
+void ConfigureUiVertexArray(GLuint vertexArrayId, GLuint tileVertexBufferId, GLuint instanceBufferId) {
+    glBindVertexArray(vertexArrayId);
+
+    glBindBuffer(GL_ARRAY_BUFFER, tileVertexBufferId);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(float) * 3, 0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, instanceBufferId);
+    SetupInstanceAttribute(1, 4, sizeof(UiQuadInstanceData), 0);
+    SetupInstanceAttribute(2, 4, sizeof(UiQuadInstanceData), sizeof(float) * 4);
+
+    glBindVertexArray(0);
+}
+
 // Builds conservative world bounds used to cull one chunk.
 Aabb BuildChunkBounds(const ChunkRect& chunkRect) {
     Aabb bounds;
@@ -1274,6 +1507,10 @@ LotInstanceData BuildLotInstance(const LotRenderInstance& lot) {
     instance.colorR = lot.colorR;
     instance.colorG = lot.colorG;
     instance.colorB = lot.colorB;
+    instance.surfacePattern = static_cast<float>(lot.surfacePattern);
+    instance.surfaceDirection = static_cast<float>(lot.surfaceDirection);
+    instance.padding0 = 0.0f;
+    instance.padding1 = 0.0f;
     return instance;
 }
 
@@ -1943,27 +2180,44 @@ void SynchronizeRegionPreviewTextures(const Region& region, std::vector<RegionPr
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-            cache.previewRevision = std::numeric_limits<std::uint64_t>::max();
-        }
-
-        if (cache.previewRevision != city.previewRevision() && !city.previewPixels().empty()) {
-            glActiveTexture(GL_TEXTURE6);
-            glBindTexture(GL_TEXTURE_2D, cache.textureId);
+            const std::uint8_t placeholderPixels[4] = {20u, 28u, 38u, 255u};
             glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
             glTexImage2D(
                 GL_TEXTURE_2D,
                 0,
                 GL_RGBA8,
-                city.previewWidth(),
-                city.previewHeight(),
+                1,
+                1,
                 0,
                 GL_RGBA,
                 GL_UNSIGNED_BYTE,
-                &city.previewPixels()[0]);
+                placeholderPixels);
             glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-            cache.previewRevision = city.previewRevision();
+            cache.previewRevision = std::numeric_limits<std::uint64_t>::max();
         }
     }
+}
+
+void UploadRegionPreviewTexture(RegionPreviewTextureCache& cache, const City& city, const std::vector<std::uint8_t>& previewPixels) {
+    if (cache.textureId == 0 || previewPixels.empty()) {
+        return;
+    }
+
+    glActiveTexture(GL_TEXTURE6);
+    glBindTexture(GL_TEXTURE_2D, cache.textureId);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RGBA8,
+        city.previewWidth(),
+        city.previewHeight(),
+        0,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        &previewPixels[0]);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    cache.previewRevision = city.previewRevision();
 }
 
 }
@@ -2183,6 +2437,12 @@ int Renderer::run() {
     glGenBuffers(1, &regionPreviewInstanceBufferId);
     ConfigureRegionPreviewVertexArray(regionPreviewVertexArrayId, tileVertexBufferId, regionPreviewInstanceBufferId);
 
+    GLuint uiVertexArrayId = 0;
+    GLuint uiInstanceBufferId = 0;
+    glGenVertexArrays(1, &uiVertexArrayId);
+    glGenBuffers(1, &uiInstanceBufferId);
+    ConfigureUiVertexArray(uiVertexArrayId, tileVertexBufferId, uiInstanceBufferId);
+
     GLuint cityPreviewFramebufferId = 0;
     GLuint cityPreviewColorTextureId = 0;
     GLuint cityPreviewDepthRenderbufferId = 0;
@@ -2213,6 +2473,8 @@ int Renderer::run() {
         glDeleteRenderbuffers(1, &cityPreviewDepthRenderbufferId);
         glDeleteTextures(1, &cityPreviewColorTextureId);
         glDeleteFramebuffers(1, &cityPreviewFramebufferId);
+        glDeleteBuffers(1, &uiInstanceBufferId);
+        glDeleteVertexArrays(1, &uiVertexArrayId);
         glDeleteBuffers(1, &regionPreviewInstanceBufferId);
         glDeleteVertexArrays(1, &regionPreviewVertexArrayId);
         glDeleteBuffers(1, &roadGhostInstanceBufferId);
@@ -2276,6 +2538,9 @@ int Renderer::run() {
     std::vector<RoadInstanceData> roadGhostInstances;
     std::vector<RouteArrowInstanceData> routeArrowInstances;
     std::vector<RegionPreviewTextureCache> regionPreviewTextureCaches;
+    std::vector<UiQuadInstanceData> uiQuadInstances;
+    InGameWindow queryWindow;
+    queryWindow.loadFromXmlFile(BuildDataPath("UI\\lot_query.xml"));
     std::uint64_t lastUploadedLotRevision = std::numeric_limits<std::uint64_t>::max();
     std::uint64_t lastUploadedQueryRouteRevision = std::numeric_limits<std::uint64_t>::max();
     std::vector<std::uint64_t> lastUploadedGroundRoadChunkRevisions(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
@@ -2284,6 +2549,8 @@ int Renderer::run() {
     std::uint64_t lastHandledRenderStateRevision = gameSession_.renderStateRevision();
     std::uint64_t lastRegionPreviewCacheRevision = std::numeric_limits<std::uint64_t>::max();
     std::vector<std::uint8_t> cityPreviewReadPixels(static_cast<std::size_t>(City::kPreviewWidth) * static_cast<std::size_t>(City::kPreviewHeight) * 4u, 0u);
+    bool roadGhostPlacementValid = true;
+    bool lotGhostPlacementValid = true;
 
     auto invalidateCityRenderCaches = [&] () {
         std::size_t cacheIndex = 0;
@@ -2308,13 +2575,13 @@ int Renderer::run() {
         routeArrowInstances.clear();
     };
 
-    auto renderCityPreview = [&] (City& city) -> bool {
+    auto renderCityPreview = [&] (const CitySaveState& citySaveState) -> bool {
         if (!cityPreviewFramebufferComplete) {
             return false;
         }
 
         simulationRuntime.stop();
-        simulationRuntime.importCitySaveState(city.saveState());
+        simulationRuntime.importCitySaveState(citySaveState);
         const PublishedWorldSnapshot snapshot = simulationRuntime.acquirePublishedSnapshot();
         if (snapshot.tiles == 0 || snapshot.chunkRevisions == 0) {
             simulationRuntime.releasePublishedSnapshot(snapshot);
@@ -2424,8 +2691,59 @@ int Renderer::run() {
         glReadPixels(0, 0, City::kPreviewWidth, City::kPreviewHeight, GL_RGBA, GL_UNSIGNED_BYTE, &cityPreviewReadPixels[0]);
         glPixelStorei(GL_PACK_ALIGNMENT, 4);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        city.setPreviewPixels(cityPreviewReadPixels);
         simulationRuntime.releasePublishedSnapshot(snapshot);
+        return true;
+    };
+
+    auto updateRegionPreviewTextures = [&] () -> bool {
+        if (lastRegionPreviewCacheRevision != gameSession_.region().revision()) {
+            DestroyRegionPreviewTextureCaches(regionPreviewTextureCaches);
+            lastRegionPreviewCacheRevision = gameSession_.region().revision();
+        }
+        SynchronizeRegionPreviewTextures(gameSession_.region(), regionPreviewTextureCaches);
+
+        bool allPreviewsReady = true;
+        std::size_t previewCityIndex = 0;
+        for (; previewCityIndex < gameSession_.region().cities().size() && previewCityIndex < regionPreviewTextureCaches.size(); ++previewCityIndex) {
+            City& city = *gameSession_.region().cities()[previewCityIndex];
+            RegionPreviewTextureCache& cache = regionPreviewTextureCaches[previewCityIndex];
+            if (cache.previewRevision == city.previewRevision()) {
+                continue;
+            }
+
+            allPreviewsReady = false;
+            CitySaveState previewState;
+            bool hasPreviewState = false;
+            if (city.hasSaveState()) {
+                previewState = city.saveState();
+                hasPreviewState = true;
+            } else if (gameSession_.takeReadyCityPreviewState(city, previewState)) {
+                hasPreviewState = true;
+            } else {
+                gameSession_.requestCityPreviewBuild(city);
+            }
+
+            if (hasPreviewState && renderCityPreview(previewState)) {
+                UploadRegionPreviewTexture(cache, city, cityPreviewReadPixels);
+                city.unloadCleanSaveState();
+                if (cache.previewRevision == city.previewRevision()) {
+                    continue;
+                }
+            }
+        }
+
+        if (regionPreviewTextureCaches.size() != gameSession_.region().cities().size()) {
+            return false;
+        }
+
+        std::size_t cacheIndex = 0;
+        for (; cacheIndex < gameSession_.region().cities().size(); ++cacheIndex) {
+            if (regionPreviewTextureCaches[cacheIndex].previewRevision != gameSession_.region().cities()[cacheIndex]->previewRevision()) {
+                return false;
+            }
+        }
+
+        (void)allPreviewsReady;
         return true;
     };
 
@@ -2444,36 +2762,26 @@ int Renderer::run() {
             continue;
         }
 
-        glViewport(0, 0, framebufferWidth, framebufferHeight);
-        glClearColor(0.08f, 0.11f, 0.15f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
         const ViewState viewState = appController_.viewState();
         if (gameSession_.isRegionMode()) {
+            if (!updateRegionPreviewTextures()) {
+                appController_.setHoveredRegionCity(0, 0, false);
+                glfwPollEvents();
+                lastFrameWasRegion = true;
+                continue;
+            }
+
             const CameraState regionCameraState = BuildRegionCameraState(viewState, gameSession_.region());
             int hoveredRegionX = 0;
             int hoveredRegionY = 0;
             const bool hasHoveredRegion = TryPickRegionCity(viewState, regionCameraState, gameSession_.region(), hoveredRegionX, hoveredRegionY);
             appController_.setHoveredRegionCity(hoveredRegionX, hoveredRegionY, hasHoveredRegion);
 
-            std::size_t previewCityIndex = 0;
-            for (; previewCityIndex < gameSession_.region().cities().size(); ++previewCityIndex) {
-                City& city = *gameSession_.region().cities()[previewCityIndex];
-                if (!city.hasPreviewPixels()) {
-                    renderCityPreview(city);
-                }
-            }
-
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             glViewport(0, 0, framebufferWidth, framebufferHeight);
             glClearColor(0.08f, 0.11f, 0.15f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-            if (lastRegionPreviewCacheRevision != gameSession_.region().revision()) {
-                DestroyRegionPreviewTextureCaches(regionPreviewTextureCaches);
-                lastRegionPreviewCacheRevision = gameSession_.region().revision();
-            }
-            SynchronizeRegionPreviewTextures(gameSession_.region(), regionPreviewTextureCaches);
             shaderProgram.bind();
             glUniformMatrix4fv(viewProjectionLocation, 1, GL_FALSE, regionCameraState.viewProjection.data);
             glUniform1i(renderModeLocation, 5);
@@ -2508,8 +2816,16 @@ int Renderer::run() {
             continue;
         }
 
+        glViewport(0, 0, framebufferWidth, framebufferHeight);
+        glClearColor(0.08f, 0.11f, 0.15f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
         const std::uint64_t renderStateRevision = gameSession_.renderStateRevision();
         if (lastFrameWasRegion || lastHandledRenderStateRevision != renderStateRevision) {
+            if (lastFrameWasRegion) {
+                DestroyRegionPreviewTextureCaches(regionPreviewTextureCaches);
+                lastRegionPreviewCacheRevision = std::numeric_limits<std::uint64_t>::max();
+            }
             invalidateCityRenderCaches();
             lastFrameWasRegion = false;
             lastHandledRenderStateRevision = renderStateRevision;
@@ -2534,6 +2850,7 @@ int Renderer::run() {
         if (appController_.roadPreviewStroke(roadGhostCommand)) {
             const std::chrono::steady_clock::time_point roadGhostUploadStart = std::chrono::steady_clock::now();
             roadGhostInstances = BuildRoadPreviewInstances(roadGhostCommand, simulationRuntime.mapWidth(), simulationRuntime.mapHeight());
+            roadGhostPlacementValid = simulationRuntime.canPlaceRoadStroke(roadGhostCommand);
             glBindBuffer(GL_ARRAY_BUFFER, roadGhostInstanceBufferId);
             glBufferData(
                 GL_ARRAY_BUFFER,
@@ -2544,6 +2861,7 @@ int Renderer::run() {
             frameMetrics.roadGhostInstanceCount = static_cast<int>(roadGhostInstances.size());
         } else {
             roadGhostInstances.clear();
+            roadGhostPlacementValid = true;
         }
 
         std::string lotGhostAssetId;
@@ -2552,10 +2870,15 @@ int Renderer::run() {
         int lotGhostRotationSteps = 0;
         if (appController_.lotPreviewRequest(lotGhostAssetId, lotGhostTileX, lotGhostTileY, lotGhostRotationSteps)) {
             const std::chrono::steady_clock::time_point lotGhostUploadStart = std::chrono::steady_clock::now();
-            LotRenderInstance lotGhostRenderInstance;
+            std::vector<LotRenderInstance> lotGhostRenderInstances;
             lotGhostInstances.clear();
-            if (simulationRuntime.buildLotPreviewInstance(lotGhostAssetId, lotGhostTileX, lotGhostTileY, lotGhostRotationSteps, lotGhostRenderInstance)) {
-                lotGhostInstances.push_back(BuildLotInstance(lotGhostRenderInstance));
+            if (simulationRuntime.buildLotPreviewInstances(lotGhostAssetId, lotGhostTileX, lotGhostTileY, lotGhostRotationSteps, lotGhostRenderInstances, lotGhostPlacementValid)) {
+                std::size_t lotGhostIndex = 0;
+                for (; lotGhostIndex < lotGhostRenderInstances.size(); ++lotGhostIndex) {
+                    lotGhostInstances.push_back(BuildLotInstance(lotGhostRenderInstances[lotGhostIndex]));
+                }
+            } else {
+                lotGhostPlacementValid = false;
             }
             glBindBuffer(GL_ARRAY_BUFFER, lotGhostInstanceBufferId);
             glBufferData(
@@ -2567,6 +2890,7 @@ int Renderer::run() {
             frameMetrics.lotGhostInstanceCount = static_cast<int>(lotGhostInstances.size());
         } else {
             lotGhostInstances.clear();
+            lotGhostPlacementValid = true;
         }
 
         if (viewState.queryRouteRevision != lastUploadedQueryRouteRevision) {
@@ -2778,9 +3102,14 @@ int Renderer::run() {
             frameMetrics.elevatedRoadDrawMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - elevatedRoadDrawStart).count();
 
             if (!roadGhostInstances.empty()) {
-                glUniform1f(roadAlphaScaleLocation, kRoadGhostAlpha);
-                glUniform3f(roadTintColorLocation, 0.55f, 0.82f, 1.0f);
-                glUniform1f(roadTintStrengthLocation, 0.38f);
+                glUniform1f(roadAlphaScaleLocation, roadGhostPlacementValid ? kRoadGhostAlpha : 0.55f);
+                if (roadGhostPlacementValid) {
+                    glUniform3f(roadTintColorLocation, 0.55f, 0.82f, 1.0f);
+                    glUniform1f(roadTintStrengthLocation, 0.38f);
+                } else {
+                    glUniform3f(roadTintColorLocation, 1.0f, 0.12f, 0.09f);
+                    glUniform1f(roadTintStrengthLocation, 0.72f);
+                }
                 glDepthMask(GL_FALSE);
                 const std::chrono::steady_clock::time_point roadGhostDrawStart = std::chrono::steady_clock::now();
                 glBindVertexArray(roadGhostVertexArrayId);
@@ -2794,9 +3123,14 @@ int Renderer::run() {
 
             if (!lotGhostInstances.empty()) {
                 glUniform1i(renderModeLocation, 1);
-                glUniform1f(lotAlphaScaleLocation, kLotGhostAlpha);
-                glUniform3f(lotTintColorLocation, 0.76f, 1.0f, 0.58f);
-                glUniform1f(lotTintStrengthLocation, 0.42f);
+                glUniform1f(lotAlphaScaleLocation, lotGhostPlacementValid ? kLotGhostAlpha : 0.55f);
+                if (lotGhostPlacementValid) {
+                    glUniform3f(lotTintColorLocation, 0.76f, 1.0f, 0.58f);
+                    glUniform1f(lotTintStrengthLocation, 0.42f);
+                } else {
+                    glUniform3f(lotTintColorLocation, 1.0f, 0.12f, 0.09f);
+                    glUniform1f(lotTintStrengthLocation, 0.72f);
+                }
                 glDepthMask(GL_FALSE);
                 const std::chrono::steady_clock::time_point lotGhostDrawStart = std::chrono::steady_clock::now();
                 glBindVertexArray(lotGhostVertexArrayId);
@@ -2842,6 +3176,38 @@ int Renderer::run() {
                 glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(routeArrowInstances.size()));
                 glEnable(GL_DEPTH_TEST);
                 glDepthMask(GL_TRUE);
+            }
+
+            queryWindow.clearText();
+            queryWindow.setVisible(!viewState.queryWindowLines.empty());
+            if (!viewState.queryWindowLines.empty()) {
+                queryWindow.setText("title", viewState.queryWindowLines[0]);
+                std::size_t lineIndex = 1;
+                for (; lineIndex < viewState.queryWindowLines.size(); ++lineIndex) {
+                    queryWindow.setLineText(lineIndex - 1u, viewState.queryWindowLines[lineIndex]);
+                }
+                queryWindow.updateLayout();
+
+                uiQuadInstances = BuildWindowQuads(queryWindow);
+                glBindBuffer(GL_ARRAY_BUFFER, uiInstanceBufferId);
+                glBufferData(
+                    GL_ARRAY_BUFFER,
+                    static_cast<GLsizeiptr>(uiQuadInstances.size() * sizeof(UiQuadInstanceData)),
+                    uiQuadInstances.empty() ? 0 : &uiQuadInstances[0],
+                    GL_DYNAMIC_DRAW);
+
+                if (!uiQuadInstances.empty()) {
+                    const Mat4 uiProjection = Orthographic(0.0f, static_cast<float>(framebufferWidth), static_cast<float>(framebufferHeight), 0.0f, -1.0f, 1.0f);
+                    shaderProgram.bind();
+                    glUniformMatrix4fv(viewProjectionLocation, 1, GL_FALSE, uiProjection.data);
+                    glUniform1i(renderModeLocation, 6);
+                    glDepthMask(GL_FALSE);
+                    glDisable(GL_DEPTH_TEST);
+                    glBindVertexArray(uiVertexArrayId);
+                    glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(uiQuadInstances.size()));
+                    glEnable(GL_DEPTH_TEST);
+                    glDepthMask(GL_TRUE);
+                }
             }
 
             glBindVertexArray(0);
@@ -2907,6 +3273,8 @@ int Renderer::run() {
     glDeleteRenderbuffers(1, &cityPreviewDepthRenderbufferId);
     glDeleteTextures(1, &cityPreviewColorTextureId);
     glDeleteFramebuffers(1, &cityPreviewFramebufferId);
+    glDeleteBuffers(1, &uiInstanceBufferId);
+    glDeleteVertexArrays(1, &uiVertexArrayId);
     glDeleteBuffers(1, &regionPreviewInstanceBufferId);
     glDeleteVertexArrays(1, &regionPreviewVertexArrayId);
     glDeleteBuffers(1, &roadGhostInstanceBufferId);

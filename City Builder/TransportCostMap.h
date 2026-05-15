@@ -69,6 +69,7 @@ struct TransportPathRequest {
     std::vector<std::uint32_t> goalNodeIds;
     std::uint32_t routeSeed;
     std::uint16_t demand;
+    float maximumCost;
     bool useCongestion;
 
     TransportPathRequest();

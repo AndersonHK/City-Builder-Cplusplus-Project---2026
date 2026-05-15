@@ -7,13 +7,14 @@ This plan covers a full migration from the current OpenGL renderer to Vulkan. Th
 - The simulation side is already in a good shape for Vulkan. `SimulationRuntime` publishes immutable `PublishedWorldSnapshot` data, and rendering acquires/releases a pinned snapshot instead of reading mutable simulation buffers.
 - The OpenGL blast radius is concentrated in `City Builder/Renderer.cpp`, `City Builder/ShaderProgram.*`, `City Builder/Basic.shader`, and `City Builder/City Builder.vcxproj`.
 - `Renderer.cpp` currently owns too many concerns at once: GLFW window setup, OpenGL object lifetime, camera math, picking, culling, upload freshness, procedural road atlas generation, region preview textures, draw ordering, and metrics.
-- The current renderer has six shader modes:
+- The current renderer has seven shader modes:
   - `0`: tile pass with tile-state color, lot lift, and ground-road texture overlays.
   - `1`: committed and ghost lot prisms.
   - `2`: elevated roads and road ghost previews.
   - `3`: tile overlays such as traffic capacity.
   - `4`: queried commute route arrows.
   - `5`: region city previews.
+  - `6`: screen-space in-game UI window quads.
 - Current persistent textures map cleanly to Vulkan images:
   - tile state: full-map `GL_RG16_SNORM` -> `VK_FORMAT_R16G16_SNORM`.
   - lot lift: full-map `GL_R8` -> `VK_FORMAT_R8_UNORM`.
@@ -54,7 +55,7 @@ Before introducing Vulkan, split `Renderer.cpp` into smaller units so Vulkan cod
 Recommended slices:
 
 - `RenderMath.*`: `Vec2`, `Vec3`, `Vec4`, `Mat4`, frustum, projection, picking.
-- `RenderInstances.*`: `TileInstanceData`, `LotInstanceData`, `RoadInstanceData`, `RouteArrowInstanceData`, builders.
+- `RenderInstances.*`: `TileInstanceData`, `LotInstanceData`, `RoadInstanceData`, `RouteArrowInstanceData`, `UiQuadInstanceData`, builders.
 - `RoadAtlas.*`: CPU road atlas painting.
 - `RendererOpenGL.*`: current OpenGL backend.
 - `Renderer.*`: high-level frame loop, snapshot acquisition, controller hookup, metrics.
@@ -120,6 +121,7 @@ Create Vulkan buffers for:
 - dynamic road ghost instances.
 - dynamic lot instances and lot ghosts.
 - dynamic query route arrow instances.
+- dynamic in-game UI window quad instances.
 - one region preview instance buffer.
 
 Use VMA-backed buffers and staging uploads. For dynamic payloads, use a per-frame upload ring so `glBufferData(..., GL_DYNAMIC_DRAW)` behavior becomes explicit and does not stall on GPU use.
@@ -156,10 +158,11 @@ Record command buffers in the existing order:
 5. committed lots.
 6. tile overlays with depth test disabled.
 7. query route arrows with depth test disabled.
+8. in-game UI windows with depth test disabled and screen-space projection.
 
 Use dynamic rendering. Keep depth test `less-or-equal` behavior for world geometry and preserve alpha blending for ghosts, overlays, and route arrows.
 
-Acceptance check: controls and visual checks from `docs/design/renderer.md` pass at `32`, `64`, `128`, `256`, and `512` visible-tile zoom.
+Acceptance check: controls and visual checks from `docs/design/renderer.md` pass at `32`, `64`, `128`, `256`, `512`, `1024`, and `2048` visible-tile zoom.
 
 ### Phase 8: Integrate Frames In Flight With Snapshot Lifetimes
 
@@ -230,4 +233,5 @@ The safest first slice is not Vulkan code. First split `Renderer.cpp` into backe
 - Place and rotate each lot ghost; confirm committed lots match previews.
 - Toggle `T`; confirm traffic overlay draws above roads/lots.
 - Query a lot; confirm route arrows draw above overlays.
+- Query a lot; confirm the UI window draws above route arrows and uses the XML/fallback layout rules.
 - Save to region and return; confirm region preview texture updates.

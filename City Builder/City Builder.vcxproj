@@ -144,6 +144,7 @@ if exist "$(OutDir)Data\Saves" rmdir /S /Q "$(OutDir)Data\Saves"</Command>
     <ClCompile Include="City.cpp" />
     <ClCompile Include="CityParameters.cpp" />
     <ClCompile Include="GameSession.cpp" />
+    <ClCompile Include="InGameWindow.cpp" />
     <ClCompile Include="ChunkConfig.cpp" />
     <ClCompile Include="Lot.cpp" />
     <ClCompile Include="Road.cpp" />
@@ -171,6 +172,7 @@ if exist "$(OutDir)Data\Saves" rmdir /S /Q "$(OutDir)Data\Saves"</Command>
     <None Include="Data\Modules\smokestack_module.xml" />
     <None Include="Data\Modules\warehouse_module.xml" />
     <None Include="Data\TransportNetwork\congestion.xml" />
+    <None Include="Data\UI\lot_query.xml" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AssetLoader.h" />
@@ -178,6 +180,7 @@ if exist "$(OutDir)Data\Saves" rmdir /S /Q "$(OutDir)Data\Saves"</Command>
     <ClInclude Include="City.h" />
     <ClInclude Include="CityParameters.h" />
     <ClInclude Include="GameSession.h" />
+    <ClInclude Include="InGameWindow.h" />
     <ClInclude Include="ChunkConfig.h" />
     <ClInclude Include="CommuteTypes.h" />
     <ClInclude Include="Lot.h" />

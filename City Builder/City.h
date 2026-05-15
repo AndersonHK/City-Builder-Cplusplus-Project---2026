@@ -1,6 +1,8 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
+#include <future>
 #include <memory>
 #include <string>
 #include <vector>
@@ -58,6 +60,9 @@ struct CitySaveState {
     int width;
     int height;
     int nextLotId;
+    int cameraX;
+    int cameraY;
+    int visibleTiles;
     std::vector<Tile> tiles;
     std::vector<CitySaveLotState> lots;
     std::vector<LotRenderInstance> previewLots;
@@ -67,7 +72,10 @@ struct CitySaveState {
     CitySaveState()
         : width(1024),
           height(1024),
-          nextLotId(1) {
+          nextLotId(1),
+          cameraX(384),
+          cameraY(384),
+          visibleTiles(256) {
     }
 };
 
@@ -81,30 +89,57 @@ public:
     int regionY() const;
     int width() const;
     int height() const;
+    int cameraX() const;
+    int cameraY() const;
+    int visibleTiles() const;
+    const std::vector<float>& cityParameters() const;
+    bool hasSaveState() const;
+    bool isSaveStateDirty() const;
     const CitySaveState& saveState() const;
-    const std::vector<std::uint8_t>& previewPixels() const;
     int previewWidth() const;
     int previewHeight() const;
     std::uint64_t previewRevision() const;
-    bool hasPreviewPixels() const;
+    bool hasPreviewBuildInFlight() const;
+    bool isPreviewBuildReady() const;
 
-    void setSaveState(const CitySaveState& saveState);
-    void generateDefaultState(std::uint32_t seed);
-    void setPreviewPixels(const std::vector<std::uint8_t>& previewPixels);
-    void clearPreviewPixels();
+    void setSaveState(const CitySaveState& saveState, bool isDirty = true);
+    void setMetadataFromSaveState(const CitySaveState& saveState);
+    void setCamera(int cameraX, int cameraY, int visibleTiles);
+    void markSaveStateClean();
+    void unloadCleanSaveState();
+    void unloadSaveState();
+    void clearPreview();
+    void startPreviewBuild(std::future<CitySaveState>&& previewBuildFuture);
+    CitySaveState takePreviewBuildState();
 
     static const int kDefaultWidth = 1024;
     static const int kDefaultHeight = 1024;
     static const int kPreviewWidth = 4096;
     static const int kPreviewHeight = 4096;
+    static const int kDefaultVisibleTiles = 256;
+
+    static std::uint32_t seedForRegionCoordinate(int regionX, int regionY);
+    static CitySaveState createDefaultSaveState(std::uint32_t seed, int width = kDefaultWidth, int height = kDefaultHeight);
+    static int centeredCameraCoordinate(int mapSize, int visibleTiles);
 
 private:
+    void applySaveStateMetadata(const CitySaveState& saveState);
+    void bumpPreviewRevision();
+
     std::string name_;
     int regionX_;
     int regionY_;
-    CitySaveState saveState_;
-    std::vector<std::uint8_t> previewPixels_;
+    int width_;
+    int height_;
+    int cameraX_;
+    int cameraY_;
+    int visibleTiles_;
+    std::vector<float> cityParameters_;
+    std::unique_ptr<CitySaveState> saveState_;
+    bool saveStateDirty_;
     std::uint64_t previewRevision_;
+    bool previewBuildInFlight_;
+    std::future<CitySaveState> previewBuildFuture_;
 };
 
 class Region {

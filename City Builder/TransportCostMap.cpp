@@ -121,6 +121,7 @@ TransportPathStep::TransportPathStep()
 TransportPathRequest::TransportPathRequest()
     : routeSeed(0),
       demand(1),
+      maximumCost(static_cast<float>(kTransportMaxCost)),
       useCongestion(true) {
 }
 
@@ -526,6 +527,9 @@ bool TransportCostMap::findPath(const TransportPathRequest& request, TransportPa
                 ? movementCostWithCongestion(currentCell, static_cast<int>(directionIndex), request.routeSeed, currentNodeId)
                 : static_cast<float>(currentCell.costs[directionIndex]) + routeJitter(request.routeSeed, currentNodeId, roadDirection);
             const float candidateCost = scratch.costs[currentNodeId] + edgeCost;
+            if (candidateCost > request.maximumCost) {
+                continue;
+            }
 
             if (scratch.stamps[neighborNodeId] != stamp || candidateCost < scratch.costs[neighborNodeId]) {
                 scratch.stamps[neighborNodeId] = stamp;
@@ -554,6 +558,9 @@ bool TransportCostMap::findPath(const TransportPathRequest& request, TransportPa
                 : static_cast<float>(transferEdge.cost) + routeJitter(request.routeSeed, currentNodeId, transferIndex + 257u);
             const float candidateCost = scratch.costs[currentNodeId] + edgeCost;
             const std::uint32_t neighborNodeId = transferEdge.toNodeId;
+            if (candidateCost > request.maximumCost) {
+                continue;
+            }
 
             if (scratch.stamps[neighborNodeId] != stamp || candidateCost < scratch.costs[neighborNodeId]) {
                 scratch.stamps[neighborNodeId] = stamp;

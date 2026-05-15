@@ -5,6 +5,43 @@
 #include <map>
 #include <sstream>
 
+namespace {
+int NormalizeRotationSteps(int rotationSteps) {
+    return ((rotationSteps % 4) + 4) % 4;
+}
+
+Int2 RotateLocalTile(const Int2& localTile, int rotationSteps) {
+    switch (NormalizeRotationSteps(rotationSteps)) {
+        case 1:
+            return Int2(-localTile.y, localTile.x);
+        case 2:
+            return Int2(-localTile.x, -localTile.y);
+        case 3:
+            return Int2(localTile.y, -localTile.x);
+        default:
+            return localTile;
+    }
+}
+
+std::uint8_t RotateRoadDirection(std::uint8_t roadDirection, int rotationSteps) {
+    std::uint8_t direction = roadDirection;
+    int step = 0;
+    for (; step < NormalizeRotationSteps(rotationSteps); ++step) {
+        if (direction == kRoadDirectionNorth) {
+            direction = kRoadDirectionEast;
+        } else if (direction == kRoadDirectionEast) {
+            direction = kRoadDirectionSouth;
+        } else if (direction == kRoadDirectionSouth) {
+            direction = kRoadDirectionWest;
+        } else if (direction == kRoadDirectionWest) {
+            direction = kRoadDirectionNorth;
+        }
+    }
+
+    return direction;
+}
+}
+
 // Creates an empty placeholder lot used before an archetype is applied.
 Lot::Lot()
     : lotId_(-1),
@@ -14,6 +51,12 @@ Lot::Lot()
       nextModuleInstanceId_(1),
       commuteDemand_(0),
       commuteSatisfied_(0),
+      lowWealthResidentsTotal_(0),
+      lowWealthJobsTotal_(0),
+      lowWealthJobsFilled_(0),
+      lowWealthResidentsHaveRoadAccess_(true),
+      lowWealthJobsHaveRoadAccess_(true),
+      hasLongCommuteComplaint_(false),
       airPollutionEmit_(0),
       landValueEmit_(0),
       minimumOccupiedOffset_(0, 0),
@@ -34,6 +77,12 @@ Lot::Lot(int lotId, const std::string& assetId, int anchorTileX, int anchorTileY
       nextModuleInstanceId_(1),
       commuteDemand_(0),
       commuteSatisfied_(0),
+      lowWealthResidentsTotal_(0),
+      lowWealthJobsTotal_(0),
+      lowWealthJobsFilled_(0),
+      lowWealthResidentsHaveRoadAccess_(true),
+      lowWealthJobsHaveRoadAccess_(true),
+      hasLongCommuteComplaint_(false),
       airPollutionEmit_(0),
       landValueEmit_(0),
       minimumOccupiedOffset_(0, 0),
@@ -104,6 +153,27 @@ int Lot::commuteSatisfied() const {
     return commuteSatisfied_;
 }
 
+int Lot::lowWealthResidentsTotal() const {
+    return lowWealthResidentsTotal_;
+}
+
+int Lot::lowWealthJobsTotal() const {
+    return lowWealthJobsTotal_;
+}
+
+int Lot::lowWealthJobsFilled() const {
+    return lowWealthJobsFilled_;
+}
+
+bool Lot::hasMissingRoadAccessComplaint() const {
+    return (lowWealthResidentsTotal_ > 0 && !lowWealthResidentsHaveRoadAccess_) ||
+        (lowWealthJobsTotal_ > 0 && !lowWealthJobsHaveRoadAccess_);
+}
+
+bool Lot::hasLongCommuteComplaint() const {
+    return hasLongCommuteComplaint_;
+}
+
 // Returns the world-space minimum x tile of the lot footprint.
 int Lot::minimumTileX() const {
     return anchorTileX_ + minimumOccupiedOffset_.x;
@@ -144,11 +214,13 @@ void Lot::setExplicitFootprint(const Int2& localOrigin, int width, int height, i
 }
 
 // Adds a module placement and refreshes the lot footprint caches.
-int Lot::addModule(const LotModule& module, const Int2& localOrigin, int mapWidth) {
+int Lot::addModule(const LotModule& module, const Int2& localOrigin, int mapWidth, int footprintWidth, int footprintHeight) {
     LotModulePlacement placement;
     placement.instanceId = nextModuleInstanceId_++;
     placement.module = &module;
     placement.localOrigin = localOrigin;
+    placement.footprintWidth = footprintWidth > 0 ? footprintWidth : module.width;
+    placement.footprintHeight = footprintHeight > 0 ? footprintHeight : module.height;
     modules_.push_back(placement);
     rebuildCachedState(mapWidth);
     return placement.instanceId;
@@ -177,8 +249,8 @@ int Lot::moduleInstanceIdAtLocalTile(const Int2& localTile) const {
         const LotModulePlacement& placement = modules_[moduleIndex];
         const int minimumX = placement.localOrigin.x;
         const int minimumY = placement.localOrigin.y;
-        const int maximumX = placement.localOrigin.x + placement.module->width;
-        const int maximumY = placement.localOrigin.y + placement.module->height;
+        const int maximumX = placement.localOrigin.x + placement.footprintWidth;
+        const int maximumY = placement.localOrigin.y + placement.footprintHeight;
         if (localTile.x >= minimumX && localTile.x < maximumX && localTile.y >= minimumY && localTile.y < maximumY) {
             return placement.instanceId;
         }
@@ -248,6 +320,55 @@ LotRenderInstance Lot::buildRenderInstance() const {
     return renderInstance;
 }
 
+void Lot::buildRenderInstances(std::vector<LotRenderInstance>& instances) const {
+    float groundR = 0.0f;
+    float groundG = 0.0f;
+    float groundB = 0.0f;
+    lotGroundColor(groundR, groundG, groundB);
+
+    std::size_t occupiedIndex = 0;
+    for (; occupiedIndex < occupiedOffsets_.size(); ++occupiedIndex) {
+        LotRenderInstance groundInstance;
+        groundInstance.lotId = lotId_;
+        groundInstance.originX = anchorTileX_ + occupiedOffsets_[occupiedIndex].x;
+        groundInstance.originY = anchorTileY_ + occupiedOffsets_[occupiedIndex].y;
+        groundInstance.width = 1;
+        groundInstance.height = 1;
+        groundInstance.renderHeight = 0.055f;
+        groundInstance.colorR = groundR;
+        groundInstance.colorG = groundG;
+        groundInstance.colorB = groundB;
+        if (assetId_ == "house_lot") {
+            const Int2 pedestrianAccessTile = RotateLocalTile(Int2(0, 0), rotationSteps_);
+            if (occupiedOffsets_[occupiedIndex].x == pedestrianAccessTile.x && occupiedOffsets_[occupiedIndex].y == pedestrianAccessTile.y) {
+                groundInstance.surfacePattern = 1u;
+                groundInstance.surfaceDirection = RotateRoadDirection(kRoadDirectionNorth, rotationSteps_);
+            }
+        }
+        instances.push_back(groundInstance);
+    }
+
+    std::size_t moduleIndex = 0;
+    for (; moduleIndex < modules_.size(); ++moduleIndex) {
+        const LotModulePlacement& placement = modules_[moduleIndex];
+        if (placement.module == 0) {
+            continue;
+        }
+
+        LotRenderInstance moduleInstance;
+        moduleInstance.lotId = lotId_;
+        moduleInstance.originX = anchorTileX_ + placement.localOrigin.x;
+        moduleInstance.originY = anchorTileY_ + placement.localOrigin.y;
+        moduleInstance.width = placement.footprintWidth;
+        moduleInstance.height = placement.footprintHeight;
+        moduleInstance.renderHeight = placement.module->renderHeight;
+        moduleInstance.colorR = placement.module->colorR;
+        moduleInstance.colorG = placement.module->colorG;
+        moduleInstance.colorB = placement.module->colorB;
+        instances.push_back(moduleInstance);
+    }
+}
+
 // Produces a compact module count string for tile queries.
 std::string Lot::moduleSummary() const {
     std::map<std::string, int> moduleCounts;
@@ -303,11 +424,57 @@ std::string Lot::parameterSummary(const CityParameterRegistry& registry) const {
     return summary.str();
 }
 
+std::string Lot::complaintSummary() const {
+    if (hasMissingRoadAccessComplaint()) {
+        return "lack of road access";
+    }
+
+    if (hasLongCommuteComplaint_) {
+        return "commute time";
+    }
+
+    if (lowWealthResidentsTotal_ > 0 && commuteSatisfied_ < commuteDemand_) {
+        return "lack of jobs";
+    }
+
+    if (lowWealthJobsTotal_ > 0 && lowWealthJobsFilled_ < lowWealthJobsTotal_) {
+        return "lack of workers";
+    }
+
+    if (airPollutionEmit_ > 0) {
+        return "pollution";
+    }
+
+    return std::string();
+}
+
 // Clears committed commute visualization/statistics for a fresh assignment pass.
 void Lot::clearCommutes() {
     commuteRouteSegments_.clear();
     commuteDemand_ = 0;
     commuteSatisfied_ = 0;
+    lowWealthResidentsTotal_ = 0;
+    lowWealthJobsTotal_ = 0;
+    lowWealthJobsFilled_ = 0;
+    lowWealthResidentsHaveRoadAccess_ = true;
+    lowWealthJobsHaveRoadAccess_ = true;
+    hasLongCommuteComplaint_ = false;
+}
+
+void Lot::setLowWealthResidentsTotal(int residents) {
+    lowWealthResidentsTotal_ = std::max(0, residents);
+}
+
+void Lot::setLowWealthJobsTotal(int jobs) {
+    lowWealthJobsTotal_ = std::max(0, jobs);
+}
+
+void Lot::setLowWealthResidentsRoadAccess(bool hasRoadAccess) {
+    lowWealthResidentsHaveRoadAccess_ = hasRoadAccess;
+}
+
+void Lot::setLowWealthJobsRoadAccess(bool hasRoadAccess) {
+    lowWealthJobsHaveRoadAccess_ = hasRoadAccess;
 }
 
 // Adds commute demand whether or not it finds a route this pass.
@@ -325,6 +492,16 @@ void Lot::addCommuteRoute(int demand, const std::vector<CommuteRouteSegment>& se
 
     commuteSatisfied_ += demand;
     commuteRouteSegments_.insert(commuteRouteSegments_.end(), segments.begin(), segments.end());
+}
+
+void Lot::addLowWealthJobsFilled(int jobs) {
+    if (jobs > 0) {
+        lowWealthJobsFilled_ += jobs;
+    }
+}
+
+void Lot::flagLongCommute() {
+    hasLongCommuteComplaint_ = true;
 }
 
 // Recomputes occupied tiles, bounds, render height, and aggregate color.
@@ -388,16 +565,16 @@ void Lot::rebuildCachedState(int mapWidth) {
             }
         }
 
-        const float moduleWeight = static_cast<float>(placement.module->width * placement.module->height);
+        const float moduleWeight = static_cast<float>(placement.footprintWidth * placement.footprintHeight);
         weightedColorR += placement.module->colorR * moduleWeight;
         weightedColorG += placement.module->colorG * moduleWeight;
         weightedColorB += placement.module->colorB * moduleWeight;
         totalWeight += moduleWeight;
 
         int tileY = 0;
-        for (; tileY < placement.module->height; ++tileY) {
+        for (; tileY < placement.footprintHeight; ++tileY) {
             int tileX = 0;
-            for (; tileX < placement.module->width; ++tileX) {
+            for (; tileX < placement.footprintWidth; ++tileX) {
                 const Int2 localTile(placement.localOrigin.x + tileX, placement.localOrigin.y + tileY);
                 occupiedOffsets_.push_back(localTile);
                 minX = std::min(minX, localTile.x);
@@ -446,4 +623,17 @@ void Lot::rebuildCachedState(int mapWidth) {
         const int tileY = anchorTileY_ + occupiedOffset.y;
         occupiedTileIndices_.push_back((tileY * mapWidth) + tileX);
     }
+}
+
+void Lot::lotGroundColor(float& red, float& green, float& blue) const {
+    if (assetId_ == "house_lot" || assetId_ == "park_lot") {
+        red = 0.18f;
+        green = 0.48f;
+        blue = 0.22f;
+        return;
+    }
+
+    red = 0.43f;
+    green = 0.43f;
+    blue = 0.41f;
 }

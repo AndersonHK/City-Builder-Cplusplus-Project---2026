@@ -32,19 +32,25 @@ public:
     bool isLoading() const;
     std::uint64_t renderStateRevision() const;
 
+    void setActiveCityCamera(int cameraX, int cameraY, int visibleTiles);
     bool enterCity(int regionX, int regionY);
     void exitToRegion();
     bool saveAutoslot();
     bool loadAutoslot();
+    bool requestCityPreviewBuild(City& city);
+    bool takeReadyCityPreviewState(City& city, CitySaveState& saveState);
 
 private:
     bool loadRegionFromDisk();
-    bool saveRegionToDisk() const;
+    bool saveRegionToDisk();
+    CitySaveState loadCitySaveState(City& city);
+    bool saveCityStateToDisk(City& city, const CitySaveState& saveState);
     void exportActiveCity();
     void beginLoadingStage();
     void finishLoadingStage(bool invalidatesRenderState);
     std::string saveDirectory() const;
     std::string saveFilePath() const;
+    std::string citySaveFilePath(const City& city) const;
     void ensureSaveDirectory() const;
 
     RuntimeOptions runtimeOptions_;

@@ -24,6 +24,7 @@ const int kKeyM = 77;
 const int kKeyT = 84;
 const int kKeyY = 89;
 const int kKeyA = 65;
+const int kKeyB = 66;
 const int kKeyC = 67;
 const int kKeyComma = 44;
 const int kKeyPeriod = 46;
@@ -90,6 +91,9 @@ const char* ActiveToolName(ActiveTool activeTool) {
 
         case ActiveTool::RemoveModule:
             return "remove module";
+
+        case ActiveTool::Bulldozer:
+            return "bulldozer";
 
         case ActiveTool::Query:
             return "query";
@@ -303,6 +307,10 @@ void AppController::onLeftMouseButtonPressed() {
             gameSession_.runtime().queueRemoveModuleAtTile(tileX, tileY);
             break;
 
+        case ActiveTool::Bulldozer:
+            gameSession_.runtime().queueBulldozeAtTile(tileX, tileY);
+            break;
+
         case ActiveTool::Query:
             printQueryResult();
             break;
@@ -346,17 +354,20 @@ void AppController::onKeyPressed(int key, int action) {
     }
 
     if (action == kKeyActionPress && key == kKeyF1) {
+        syncActiveCityCameraToSession();
         gameSession_.saveAutoslot();
         return;
     }
 
     if (action == kKeyActionPress && key == kKeyF2) {
         gameSession_.loadAutoslot();
+        applyCameraFromActiveCity();
         viewState_.roadDragActive = false;
         return;
     }
 
     if (action == kKeyActionPress && key == kKeyF3) {
+        syncActiveCityCameraToSession();
         gameSession_.exitToRegion();
         viewState_.roadDragActive = false;
         return;
@@ -425,6 +436,10 @@ void AppController::onKeyPressed(int key, int action) {
 
         case kKeyY:
             setActiveTool(ActiveTool::RemoveModule);
+            return;
+
+        case kKeyB:
+            setActiveTool(ActiveTool::Bulldozer);
             return;
 
         case kKeyA:
@@ -573,8 +588,14 @@ bool AppController::lotPreviewRequest(std::string& lotAssetId, int& tileX, int& 
 
 // Keeps the camera span inside the map after pan or zoom changes.
 void AppController::clampCameraToMap() {
-    viewState_.cameraX = std::max(0, std::min(viewState_.cameraX, gameSession_.runtime().mapWidth() - viewState_.visibleTiles));
-    viewState_.cameraY = std::max(0, std::min(viewState_.cameraY, gameSession_.runtime().mapHeight() - viewState_.visibleTiles));
+    const int horizontalSlack = std::max(64, viewState_.visibleTiles / 2);
+    const int verticalSlack = std::max(64, viewState_.visibleTiles / 2);
+    const int minimumX = -horizontalSlack;
+    const int minimumY = -verticalSlack;
+    const int maximumX = gameSession_.runtime().mapWidth() - viewState_.visibleTiles + horizontalSlack;
+    const int maximumY = gameSession_.runtime().mapHeight() - viewState_.visibleTiles + verticalSlack;
+    viewState_.cameraX = std::max(minimumX, std::min(viewState_.cameraX, maximumX));
+    viewState_.cameraY = std::max(minimumY, std::min(viewState_.cameraY, maximumY));
 }
 
 // Applies a camera-relative pan request and clamps it to the map.
@@ -626,10 +647,40 @@ bool AppController::handleRegionClick() {
 
     if (isDoubleClick) {
         hasLastRegionClick_ = false;
-        return gameSession_.enterCity(viewState_.hoveredRegionX, viewState_.hoveredRegionY);
+        const bool enteredCity = gameSession_.enterCity(viewState_.hoveredRegionX, viewState_.hoveredRegionY);
+        if (enteredCity) {
+            applyCameraFromActiveCity();
+        }
+        return enteredCity;
     }
 
     return false;
+}
+
+void AppController::applyCameraFromActiveCity() {
+    const City* activeCity = gameSession_.activeCity();
+    if (activeCity == 0 || !gameSession_.isCityMode()) {
+        return;
+    }
+
+    viewState_.cameraX = activeCity->cameraX();
+    viewState_.cameraY = activeCity->cameraY();
+    viewState_.visibleTiles = std::max(kMinimumVisibleTiles, std::min(activeCity->visibleTiles(), kMaximumVisibleTiles));
+    viewState_.roadDragActive = false;
+    viewState_.queriedLotId = -1;
+    viewState_.queriedCommuteRouteSegments.clear();
+    viewState_.queryWindowLines.clear();
+    ++viewState_.queryRouteRevision;
+    clampCameraToMap();
+}
+
+void AppController::syncActiveCityCameraToSession() {
+    if (!gameSession_.isCityMode()) {
+        return;
+    }
+
+    clampCameraToMap();
+    gameSession_.setActiveCityCamera(viewState_.cameraX, viewState_.cameraY, viewState_.visibleTiles);
 }
 
 // Starts a two-leg road stroke anchored at the clicked tile.
@@ -721,6 +772,7 @@ void AppController::printQueryResult() {
     if (!queryResult.isValid) {
         viewState_.queriedLotId = -1;
         viewState_.queriedCommuteRouteSegments.clear();
+        viewState_.queryWindowLines.clear();
         ++viewState_.queryRouteRevision;
         std::cout << "Query tool result: invalid tile selection." << std::endl;
         return;
@@ -732,6 +784,31 @@ void AppController::printQueryResult() {
     if (queryResult.hasLot) {
         viewState_.queriedLotId = queryResult.lotId;
         viewState_.queriedCommuteRouteSegments = queryResult.commuteRouteSegments;
+        viewState_.queryWindowLines.clear();
+        {
+            std::ostringstream title;
+            title << "Lot #" << queryResult.lotId << " " << queryResult.lotAssetId;
+            viewState_.queryWindowLines.push_back(title.str());
+        }
+        if (!queryResult.moduleSummary.empty()) {
+            viewState_.queryWindowLines.push_back("Modules: " + queryResult.moduleSummary);
+        }
+        if (queryResult.residentsLowWealthTotal > 0) {
+            std::ostringstream residentsLine;
+            residentsLine << "Residents low wealth: " << queryResult.residentsLowWealthCurrent << "/" << queryResult.residentsLowWealthTotal;
+            viewState_.queryWindowLines.push_back(residentsLine.str());
+        }
+        if (queryResult.jobsLowWealthTotal > 0) {
+            std::ostringstream jobsLine;
+            jobsLine << "Jobs low wealth: " << queryResult.jobsLowWealthCurrent << "/" << queryResult.jobsLowWealthTotal;
+            viewState_.queryWindowLines.push_back(jobsLine.str());
+        }
+        if (!queryResult.complaintSummary.empty()) {
+            viewState_.queryWindowLines.push_back("Complaints: " + queryResult.complaintSummary);
+        }
+        if (!queryResult.parameterSummary.empty() && queryResult.parameterSummary != "none") {
+            viewState_.queryWindowLines.push_back("Parameters: " + queryResult.parameterSummary);
+        }
         ++viewState_.queryRouteRevision;
         std::cout << " and belongs to lot #" << queryResult.lotId
             << " (" << queryResult.lotAssetId << ") with modules: " << queryResult.moduleSummary
@@ -740,6 +817,7 @@ void AppController::printQueryResult() {
     } else {
         viewState_.queriedLotId = -1;
         viewState_.queriedCommuteRouteSegments.clear();
+        viewState_.queryWindowLines.clear();
         ++viewState_.queryRouteRevision;
     }
 

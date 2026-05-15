@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <string>
+#include <vector>
 
 #include "GameSession.h"
 
@@ -15,6 +16,7 @@ enum class ActiveTool {
     RoadHighway,
     AddParkModule,
     RemoveModule,
+    Bulldozer,
     Query
 };
 
@@ -48,14 +50,15 @@ struct ViewState {
     int queriedLotId;
     std::uint64_t queryRouteRevision;
     std::vector<CommuteRouteSegment> queriedCommuteRouteSegments;
+    std::vector<std::string> queryWindowLines;
     int hoveredRegionX;
     int hoveredRegionY;
     bool hasHoveredRegion;
 
     // Initializes the default camera span and active tool for a new session.
     ViewState()
-        : cameraX(0),
-          cameraY(0),
+        : cameraX(384),
+          cameraY(384),
           visibleTiles(256),
           framebufferWidth(2048),
           framebufferHeight(2048),
@@ -112,6 +115,8 @@ private:
     void rotatePlacement(int deltaSteps);
     bool activeToolIsRoad() const;
     bool handleRegionClick();
+    void applyCameraFromActiveCity();
+    void syncActiveCityCameraToSession();
     void beginRoadDrag(int tileX, int tileY);
     void commitRoadDrag(int tileX, int tileY);
     RoadTemplate currentRoadTemplate(RoadFamily family, TransportLayerId layer) const;
@@ -119,7 +124,7 @@ private:
     void printQueryResult();
 
     static const int kMinimumVisibleTiles = 32;
-    static const int kMaximumVisibleTiles = 512;
+    static const int kMaximumVisibleTiles = 2048;
 
     GameSession& gameSession_;
     ViewState viewState_;

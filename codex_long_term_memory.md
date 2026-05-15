@@ -94,7 +94,7 @@ Primary design goals:
 
 ## Compile/doctrine notes
 - Current release settings include the important baseline optimization path and now also enable `/MP` in `Release|x64`.
-- The local shell environment can expose duplicate `Path` and `PATH` entries; clear the process `PATH` first before invoking MSBuild here.
+- MSBuild is expected to be available through `PATH` in the current local environment.
 - User-local Visual Studio state and build products should stay ignored rather than tracked in the repo.
 - Prefer structural wins before raising the machine baseline with ISA-specific flags.
 

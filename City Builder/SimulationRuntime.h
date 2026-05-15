@@ -40,7 +40,8 @@ enum class PlayerCommandType {
     PlaceLot,
     AddModuleAtTile,
     RemoveModuleAtTile,
-    PlaceRoadStroke
+    PlaceRoadStroke,
+    BulldozeAtTile
 };
 
 struct PlayerCommand {
@@ -73,6 +74,11 @@ struct TileQueryResult {
     std::string parameterSummary;
     int commuteDemand;
     int commuteSatisfied;
+    int residentsLowWealthCurrent;
+    int residentsLowWealthTotal;
+    int jobsLowWealthCurrent;
+    int jobsLowWealthTotal;
+    std::string complaintSummary;
     std::vector<CommuteRouteSegment> commuteRouteSegments;
     std::vector<TransportLayerId> roadLayers;
     std::vector<ResolvedRoadCell> roads;
@@ -84,7 +90,11 @@ struct TileQueryResult {
           hasLot(false),
           lotId(-1),
           commuteDemand(0),
-          commuteSatisfied(0) {
+          commuteSatisfied(0),
+          residentsLowWealthCurrent(0),
+          residentsLowWealthTotal(0),
+          jobsLowWealthCurrent(0),
+          jobsLowWealthTotal(0) {
     }
 };
 
@@ -95,13 +105,22 @@ struct PublishedLotInfo {
     std::string parameterSummary;
     int commuteDemand;
     int commuteSatisfied;
+    int residentsLowWealthCurrent;
+    int residentsLowWealthTotal;
+    int jobsLowWealthCurrent;
+    int jobsLowWealthTotal;
+    std::string complaintSummary;
     std::vector<CommuteRouteSegment> commuteRouteSegments;
 
     // Defaults to an invalid published lot metadata record.
     PublishedLotInfo()
         : lotId(-1),
           commuteDemand(0),
-          commuteSatisfied(0) {
+          commuteSatisfied(0),
+          residentsLowWealthCurrent(0),
+          residentsLowWealthTotal(0),
+          jobsLowWealthCurrent(0),
+          jobsLowWealthTotal(0) {
     }
 };
 
@@ -177,6 +196,7 @@ public:
     void queuePlaceLot(const std::string& lotAssetId, int tileX, int tileY, int rotationSteps = 0);
     void queueAddModuleAtTile(const std::string& moduleAssetId, int tileX, int tileY);
     void queueRemoveModuleAtTile(int tileX, int tileY);
+    void queueBulldozeAtTile(int tileX, int tileY);
     void queuePlaceRoadStroke(const RoadStrokeCommand& roadStrokeCommand);
     void queuePlaceSmokestack(int tileX, int tileY, int rotationSteps = 0);
     void queuePlacePark(int tileX, int tileY, int rotationSteps = 0);
@@ -187,7 +207,8 @@ public:
     void queuePlaceStreetRoad(const Int2& startTile, const Int2& cornerTile, const Int2& endTile);
     void queuePlaceHighwayRoad(const Int2& startTile, const Int2& cornerTile, const Int2& endTile);
 
-    bool buildLotPreviewInstance(const std::string& lotAssetId, int tileX, int tileY, int rotationSteps, LotRenderInstance& renderInstance) const;
+    bool buildLotPreviewInstances(const std::string& lotAssetId, int tileX, int tileY, int rotationSteps, std::vector<LotRenderInstance>& renderInstances, bool& isPlacementValid) const;
+    bool canPlaceRoadStroke(const RoadStrokeCommand& roadStrokeCommand) const;
     TileQueryResult queryTile(int tileX, int tileY) const;
     CitySaveState exportCitySaveState() const;
     void importCitySaveState(const CitySaveState& saveState);
@@ -274,6 +295,7 @@ private:
     bool tryPlaceLot(const LotAsset& lotAsset, int clickedTileX, int clickedTileY, int rotationSteps, TileBuffer& writeBuffer);
     bool tryAddModuleAtTile(const LotModule& moduleAsset, int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
     bool tryRemoveModuleAtTile(int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
+    bool tryBulldozeAtTile(int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
     bool canPlaceLot(const Lot& candidateLot) const;
     bool collectAdjacentLotIdsForModule(const LotModule& moduleAsset, int clickedTileX, int clickedTileY, std::vector<int>& adjacentLotIds) const;
     void clearLotOccupancy(const std::vector<int>& tileIndices);

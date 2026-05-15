@@ -82,7 +82,7 @@ std::uint16_t FullLaneCapacityForLane(const RoadLanePlacement& lanePlacement) {
         return 1200u;
     }
     if (lanePlacement.laneType == RoadLaneTypeId::Car) {
-        return lanePlacement.family == RoadFamily::Highway ? 2500u : 1000u;
+        return 100u;
     }
 
     return 0u;
@@ -195,6 +195,112 @@ bool TransportNetwork::placeRoadStroke(const RoadStrokeCommand& roadStrokeComman
     }
 
     bumpDirtyChunkRevisions(roadStrokeCommand.layer, dirtyTileIndices);
+    rebuildCostMapAndTrafficOverlay();
+    ++revision_;
+    return true;
+}
+
+bool TransportNetwork::canPlaceRoadStroke(const RoadStrokeCommand& roadStrokeCommand, const std::vector<int>& lotOccupancy, int invalidLotId) const {
+    if (roadStrokeCommand.operation != RoadStrokeOperation::Place || roadStrokeCommand.family == RoadFamily::None) {
+        return false;
+    }
+
+    RoadTemplate roadTemplate = roadStrokeCommand.roadTemplate;
+    roadTemplate.family = roadStrokeCommand.family;
+    roadTemplate.layer = roadStrokeCommand.layer;
+    if (roadTemplate.elements.empty()) {
+        roadTemplate = Road::makeTemplate(roadStrokeCommand.family, roadStrokeCommand.layer, 1, RoadTrafficSide::RightHand, RoadDirectionMode::TwoWay);
+    }
+
+    Road road(roadTemplate);
+    std::vector<RoadTilePlacement> placements;
+    placements.reserve(4096);
+    if (!road.appendStrokePlacements(roadStrokeCommand.startTile, roadStrokeCommand.cornerTile, roadStrokeCommand.endTile, width_, height_, placements)) {
+        return false;
+    }
+
+    if (placements.empty()) {
+        return false;
+    }
+
+    std::vector<PendingTileUpdate> pendingTiles;
+    pendingTiles.reserve(placements.size());
+    std::size_t placementIndex = 0;
+    for (; placementIndex < placements.size(); ++placementIndex) {
+        const RoadTilePlacement& placement = placements[placementIndex];
+        if (roadStrokeCommand.layer == TransportLayerId::Ground && lotOccupancy[placement.tileIndex] != invalidLotId) {
+            return false;
+        }
+
+        const std::size_t slot = slotIndex(roadStrokeCommand.layer, placement.tileIndex, totalTileCount_);
+        std::size_t pendingIndex = 0;
+        for (; pendingIndex < pendingTiles.size(); ++pendingIndex) {
+            if (pendingTiles[pendingIndex].slot == slot) {
+                break;
+            }
+        }
+
+        if (pendingIndex == pendingTiles.size()) {
+            PendingTileUpdate pendingTile;
+            pendingTile.slot = slot;
+            pendingTile.tile = transportTiles_[slot];
+            pendingTiles.push_back(pendingTile);
+        }
+
+        if (pendingTiles[pendingIndex].tile.tryAddLane(placement.lanePlacement) == RoadTileLaneAddResult::Rejected) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool TransportNetwork::removeRoadAtTile(int tileX, int tileY) {
+    if (!isTileInsideMap(tileX, tileY)) {
+        return false;
+    }
+
+    bool removedAnyRoad = false;
+    const int removedTileIndex = tileIndex(tileX, tileY);
+    std::size_t layerIndex = 0;
+    for (; layerIndex < layerCount(); ++layerIndex) {
+        const TransportLayerId layer = static_cast<TransportLayerId>(layerIndex);
+        const std::size_t slot = slotIndex(layer, removedTileIndex, totalTileCount_);
+        if (slot >= transportTiles_.size() || transportTiles_[slot].lanes().empty()) {
+            continue;
+        }
+
+        transportTiles_[slot].clear();
+        removedAnyRoad = true;
+
+        std::vector<int> dirtyTileIndices;
+        int neighborTileY = tileY - 1;
+        for (; neighborTileY <= tileY + 1; ++neighborTileY) {
+            int neighborTileX = tileX - 1;
+            for (; neighborTileX <= tileX + 1; ++neighborTileX) {
+                if (isTileInsideMap(neighborTileX, neighborTileY)) {
+                    dirtyTileIndices.push_back(tileIndex(neighborTileX, neighborTileY));
+                }
+            }
+        }
+
+        pruneInvalidPedestrianLanes(layer, dirtyTileIndices);
+
+        std::size_t dirtyIndex = 0;
+        for (; dirtyIndex < dirtyTileIndices.size(); ++dirtyIndex) {
+            const int dirtyTileIndex = dirtyTileIndices[dirtyIndex];
+            const int dirtyTileY = dirtyTileIndex / width_;
+            const int dirtyTileX = dirtyTileIndex - (dirtyTileY * width_);
+            resolveDirtyTile(layer, dirtyTileX, dirtyTileY);
+        }
+
+        bumpDirtyChunkRevisions(layer, dirtyTileIndices);
+    }
+
+    if (!removedAnyRoad) {
+        return false;
+    }
+
     rebuildCostMapAndTrafficOverlay();
     ++revision_;
     return true;

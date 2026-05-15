@@ -18,6 +18,8 @@ public:
     void clear();
 
     bool placeRoadStroke(const RoadStrokeCommand& roadStrokeCommand, const std::vector<int>& lotOccupancy, int invalidLotId);
+    bool canPlaceRoadStroke(const RoadStrokeCommand& roadStrokeCommand, const std::vector<int>& lotOccupancy, int invalidLotId) const;
+    bool removeRoadAtTile(int tileX, int tileY);
 
     const std::vector<ResolvedRoadCell>& resolvedCells() const;
     const TransportCostMap& costMap() const;

@@ -64,11 +64,15 @@ struct LotModulePlacement {
     int instanceId;
     const LotModule* module;
     Int2 localOrigin;
+    int footprintWidth;
+    int footprintHeight;
 
     // Starts an unbound module placement until a lot attaches an archetype.
     LotModulePlacement()
         : instanceId(0),
           module(0),
-          localOrigin(0, 0) {
+          localOrigin(0, 0),
+          footprintWidth(1),
+          footprintHeight(1) {
     }
 };

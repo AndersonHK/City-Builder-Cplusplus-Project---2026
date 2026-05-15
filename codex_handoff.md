@@ -87,8 +87,7 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 
 ## Build note
 - `x64 Release` is still the practical target.
-- In this shell environment, MSBuild needs the duplicate process `PATH` entry cleared first:
-  - `[System.Environment]::SetEnvironmentVariable('PATH', $null, 'Process')`
+- MSBuild is expected to be available through `PATH` in the current local environment.
 - A stale running `City Builder.exe` can block relinking; stop it before rebuild if `LNK1104` appears on the output executable.
 
 ## Guardrails

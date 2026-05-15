@@ -84,8 +84,10 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 - `City Builder/Data/Lots/*.xml`
 - `City Builder/Data/Modules/*.xml`
   - runtime lot/module archetype data copied beside the executable
+- `City Builder/Data/UI/*.xml`
+  - runtime in-game window layout data copied beside the executable
 - `docs/design/*.md`
-  - focused design guides for renderer, simulation threading, lots, XML assets, and transport network work
+  - focused design guides for renderer, simulation threading, lots, XML assets, transport network, region/save, and window-system work
 
 ## Build/project facts
 - Primary target is `x64 Release`.
@@ -130,7 +132,7 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - arrow-key pan semantics now match the current fixed camera heading
   - `Alt+Enter` toggles fullscreen on the primary monitor
   - holding left mouse in `Q` mode continuously paints pollution again
-  - mouse wheel supports `512 / 256 / 128 / 64 / 32` visible-tile steps
+  - mouse wheel supports `2048 / 1024 / 512 / 256 / 128 / 64 / 32` visible-tile steps
   - `R` drag-places ground streets and `H` drag-places elevated highways
   - `T` toggles the traffic capacity overlay
   - `M` and `Y` still expose live module add/remove testing for the XML-backed lot system

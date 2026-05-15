@@ -29,7 +29,7 @@ Use this guide when changing road placement, lane topology, road render data, or
 - Perpendicular overlap is allowed as lane coexistence inside the same transport tile. Intersection behavior is resolved afterward from lane adjacency.
 - A resolved tile aggregates lane type masks, surface masks, costs, travel, exits, junction glyphs, lane graphics, and dividers for renderer/query consumers.
 - A pathing lane contributes only the outgoing directions it actually permits. If multiple lanes contribute to the same tile/layer/mode/direction, the cost map keeps the lower cost and accumulates capacity.
-- Local car lane base cost is calibrated as 10 tiles/time at 100 percent capacity. Pedestrian path base cost is 1 tile/time.
+- Local car lane base cost is calibrated as 10 tiles/time at 100 percent capacity. Pedestrian path base cost is 1 tile/time. Current alpha car-lane capacity is 100 for all car lanes.
 - Ground local sidewalks expose adjacent building access for pedestrian and car spawning. Highways, elevated lanes, underground lanes, and through-only lanes do not expose adjacent building access by default.
 
 ## Pathfinding And Traffic Loads

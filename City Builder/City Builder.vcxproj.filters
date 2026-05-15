@@ -30,6 +30,9 @@
     <ClCompile Include="GameSession.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="InGameWindow.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Lot.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -104,6 +107,9 @@
     <None Include="Data\TransportNetwork\congestion.xml">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="Data\UI\lot_query.xml">
+      <Filter>Resource Files</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AssetLoader.h">
@@ -119,6 +125,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="GameSession.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="InGameWindow.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Lot.h">
