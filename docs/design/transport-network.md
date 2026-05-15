@@ -55,7 +55,28 @@ Otherwise the same pedestrian lane remains a sidewalk. This keeps T-section endp
 Road edits seed the immediate neighborhood and then expand dirty resolution across the connected road component. This lets validation use information from the full local road graph, including wide roads where the deciding continuation can be several tiles away from the modified slice. Same-stroke L-corner overlaps are cleaned to a valid corner configuration with one horizontal and one vertical junction leg; they must not remain as partial T/cross intersections. Road removal clears the full road cross-section for the clicked slice, so a normal two-tile two-way road removes both paired footprint tiles and wider avenue templates remove the full template width.
 
 ## Road Tool Semantic Cases
-Road-tool tests should model small player-action sandboxes, not only individual helper return values. The fixture files under `City Builder/Data/TransportNetwork/SandboxCases/` define action sequences and expected final ASCII grids for materials, active car axes, resolved road variants, crosswalks, and junction masks. Material grids use `.` for empty terrain, `R` for road body without visible pedestrian edge, `S` for visible pedestrian edge without road body, and `B` for road body plus visible pedestrian edge. The core configurations are:
+Road-tool tests should model small player-action sandboxes, not only individual helper return values. The fixture files under `City Builder/Data/TransportNetwork/SandboxCases/` define action sequences and expected final ASCII grids for materials, active car axes, resolved road variants, crosswalks, sidewalk masks, and junction masks. Material grids use `.` for empty terrain, `R` for road body without visible pedestrian edge, `S` for visible pedestrian edge without road body, and `B` for road body plus visible pedestrian edge. Sidewalk and junction mask grids use the same low-nibble cardinal bit table:
+
+| Hex | Cardinal bits |
+| --- | --- |
+| `0` | none |
+| `1` | north |
+| `2` | east |
+| `3` | north + east |
+| `4` | south |
+| `5` | north + south |
+| `6` | east + south |
+| `7` | north + east + south |
+| `8` | west |
+| `9` | north + west |
+| `A` | east + west |
+| `B` | north + east + west |
+| `C` | south + west |
+| `D` | north + south + west |
+| `E` | east + south + west |
+| `F` | north + east + south + west |
+
+The core configurations are:
 
 - Dead end: a single stroke has exactly one connected junction leg at each cap. It is not an intersection, has no turn arrows, and does not paint crosswalks or lane markings that imply a road beyond the cap.
 - Straight road: the body continues on exactly two opposite legs. Sidewalks remain sidewalks, lane dividers follow the road body, and no crosswalk is inferred.

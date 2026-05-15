@@ -275,6 +275,28 @@ std::string CrosswalkGrid(const TransportNetwork& network, int minX, int minY, i
     return grid;
 }
 
+char HexDigit(std::uint8_t value) {
+    value = static_cast<std::uint8_t>(value & 0x0Fu);
+    return value < 10u ? static_cast<char>('0' + value) : static_cast<char>('A' + (value - 10u));
+}
+
+std::string SidewalkMaskGrid(const TransportNetwork& network, int minX, int minY, int maxX, int maxY) {
+    std::string grid;
+    int tileY = minY;
+    for (; tileY <= maxY; ++tileY) {
+        if (tileY > minY) {
+            grid += "\n";
+        }
+
+        int tileX = minX;
+        for (; tileX <= maxX; ++tileX) {
+            grid += HexDigit(SidewalkEdges(CellAt(network, TransportLayerId::Ground, tileX, tileY)));
+        }
+    }
+
+    return grid;
+}
+
 char MaterialCellChar(const ResolvedRoadCell& cell) {
     const bool hasRoad = (cell.laneTypeMask & kRoadLaneTypeCar) != 0 ||
         (cell.surfaceMask & kRoadSurfaceAsphalt) != 0;
@@ -308,11 +330,6 @@ std::string MaterialGrid(const TransportNetwork& network, int minX, int minY, in
     return grid;
 }
 
-char HexDigit(std::uint8_t value) {
-    value = static_cast<std::uint8_t>(value & 0x0Fu);
-    return value < 10u ? static_cast<char>('0' + value) : static_cast<char>('A' + (value - 10u));
-}
-
 std::string JunctionMaskGrid(const TransportNetwork& network, int minX, int minY, int maxX, int maxY) {
     std::string grid;
     int tileY = minY;
@@ -338,6 +355,8 @@ std::string SandboxSnapshot(const std::string& action, const TransportNetwork& n
     snapshot += ResolvedRoadGrid(network, 0, 0, network.width() - 1, network.height() - 1);
     snapshot += "\ncrosswalks:\n";
     snapshot += CrosswalkGrid(network, 0, 0, network.width() - 1, network.height() - 1);
+    snapshot += "\nsidewalk masks:\n";
+    snapshot += SidewalkMaskGrid(network, 0, 0, network.width() - 1, network.height() - 1);
     snapshot += "\nmaterials:\n";
     snapshot += MaterialGrid(network, 0, 0, network.width() - 1, network.height() - 1);
     snapshot += "\njunction masks:\n";
@@ -655,6 +674,9 @@ std::string SandboxGridForExpectation(const RoadToolSandbox& sandbox, const Sand
     if (expectedGrid.kind == "crosswalks") {
         return CrosswalkGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
     }
+    if (expectedGrid.kind == "sidewalks") {
+        return SidewalkMaskGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
+    }
     if (expectedGrid.kind == "materials") {
         return MaterialGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
     }
@@ -942,6 +964,7 @@ void TestRoadToolSandboxFixtureCases(TestRunner& runner) {
         "Data\\TransportNetwork\\SandboxCases\\l_corner.txt",
         "Data\\TransportNetwork\\SandboxCases\\l_corner_up2_right1.txt",
         "Data\\TransportNetwork\\SandboxCases\\t_section.txt",
+        "Data\\TransportNetwork\\SandboxCases\\t_section_through.txt",
         "Data\\TransportNetwork\\SandboxCases\\four_way.txt",
         "Data\\TransportNetwork\\SandboxCases\\wide_deleted_approach.txt"
     };
