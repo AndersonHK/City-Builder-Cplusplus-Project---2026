@@ -6,6 +6,7 @@
 #define NOMINMAX
 #include <windows.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
@@ -556,12 +557,34 @@ std::vector<std::string> ReadFixtureLines(const std::string& path) {
     return lines;
 }
 
-std::string FixturePath(const std::string& relativePath) {
-    if (!ReadWholeFile(relativePath).empty()) {
+std::string FixtureDirectory(const std::string& relativePath) {
+    const std::string localProbe = relativePath + "\\dead_end.txt";
+    if (!ReadWholeFile(localProbe).empty()) {
         return relativePath;
     }
 
     return "City Builder\\" + relativePath;
+}
+
+std::vector<std::string> SandboxFixturePaths() {
+    const std::string fixtureDirectory = FixtureDirectory("Data\\TransportNetwork\\SandboxCases");
+    const std::string searchPattern = fixtureDirectory + "\\*.txt";
+    WIN32_FIND_DATAA findData;
+    HANDLE findHandle = FindFirstFileA(searchPattern.c_str(), &findData);
+    std::vector<std::string> fixturePaths;
+    if (findHandle == INVALID_HANDLE_VALUE) {
+        return fixturePaths;
+    }
+
+    do {
+        if ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+            fixturePaths.push_back(fixtureDirectory + "\\" + findData.cFileName);
+        }
+    } while (FindNextFileA(findHandle, &findData) != 0);
+
+    FindClose(findHandle);
+    std::sort(fixturePaths.begin(), fixturePaths.end());
+    return fixturePaths;
 }
 
 RoadDirectionMode ParseDirectionMode(const std::string& token) {
@@ -719,6 +742,9 @@ std::string SandboxGridForExpectation(const RoadToolSandbox& sandbox, const Sand
     }
     if (expectedGrid.kind == "sidewalk_edges") {
         return SidewalkEdgeGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
+    }
+    if (expectedGrid.kind == "sidewalk_lanes") {
+        return SidewalkLaneGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
     }
     if (expectedGrid.kind == "materials") {
         return MaterialGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
@@ -949,7 +975,7 @@ void TestPerpendicularCrosswalkIsOrderIndependent(TestRunner& runner) {
     runner.expect((crossingCell.surfaceMask & kRoadSurfaceCrosswalk) != 0, "reverse cross advertises crosswalk surface");
 }
 
-void TestTSectionDoesNotPaintHalfCrosswalk(TestRunner& runner) {
+void TestTSectionRetexturesRealSidewalkCrosswalks(TestRunner& runner) {
     TransportNetwork network = MakeNetwork(12, 12);
     std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
 
@@ -960,8 +986,8 @@ void TestTSectionDoesNotPaintHalfCrosswalk(TestRunner& runner) {
     const ResolvedRoadCell& mainSouthCell = CellAt(network, TransportLayerId::Ground, 5, 6);
     const ResolvedRoadCell& mainSouthEastCell = CellAt(network, TransportLayerId::Ground, 6, 6);
 
-    runner.expect(CrosswalkEdges(teeCell) == 0, "t-section endpoint does not render half crosswalk");
-    runner.expect(CrosswalkEdges(teeCellEast) == 0, "t-section adjacent endpoint tile does not render half crosswalk");
+    runner.expect(CrosswalkEdges(teeCell) != 0, "t-section endpoint retextures real sidewalk as crosswalk");
+    runner.expect(CrosswalkEdges(teeCellEast) != 0, "t-section adjacent endpoint retextures real sidewalk as crosswalk");
     runner.expect(CrosswalkEdges(mainSouthCell) == 0, "t-section main-road second body tile stays sidewalk");
     runner.expect(CrosswalkEdges(mainSouthEastCell) == 0, "t-section main-road second adjacent body tile stays sidewalk");
     const std::uint8_t teePedestrianMask = CostCellDirectionMask(CostCellAt(network, TransportLayerId::Ground, TransportMode::Pedestrian, 5, 5));
@@ -979,7 +1005,9 @@ void TestJoggedSidewalkDoesNotBecomeCrosswalk(TestRunner& runner) {
     runner.expect(Place(network, MakeStroke(Int2(5, 2), Int2(5, 8), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "jogged vertical crossing street placement succeeds");
 
     const ResolvedRoadCell& jogCell = CellAt(network, TransportLayerId::Ground, 5, 5);
-    runner.expect((CrosswalkEdges(jogCell) & kRoadDirectionNorth) == 0, "jogged opposite-side sidewalk is not treated as through crosswalk");
+    runner.expect(
+        (CrosswalkEdges(jogCell) & kRoadDirectionNorth) == 0,
+        "jogged opposite-side sidewalk is not treated as through crosswalk\n" + SandboxSnapshot("jogged sidewalk unit test", network));
 }
 
 void TestCornerDoesNotRenderCrosswalks(TestRunner& runner) {
@@ -1002,19 +1030,12 @@ void TestCornerDoesNotRenderCrosswalks(TestRunner& runner) {
 }
 
 void TestRoadToolSandboxFixtureCases(TestRunner& runner) {
-    const char* fixturePaths[] = {
-        "Data\\TransportNetwork\\SandboxCases\\dead_end.txt",
-        "Data\\TransportNetwork\\SandboxCases\\l_corner.txt",
-        "Data\\TransportNetwork\\SandboxCases\\l_corner_up2_right1.txt",
-        "Data\\TransportNetwork\\SandboxCases\\t_section.txt",
-        "Data\\TransportNetwork\\SandboxCases\\t_section_through.txt",
-        "Data\\TransportNetwork\\SandboxCases\\four_way.txt",
-        "Data\\TransportNetwork\\SandboxCases\\wide_deleted_approach.txt"
-    };
+    const std::vector<std::string> fixturePaths = SandboxFixturePaths();
+    runner.expect(!fixturePaths.empty(), "sandbox fixture directory contains declared cases");
 
     std::size_t fixtureIndex = 0;
-    for (; fixtureIndex < sizeof(fixturePaths) / sizeof(fixturePaths[0]); ++fixtureIndex) {
-        RunSandboxFixture(runner, FixturePath(fixturePaths[fixtureIndex]));
+    for (; fixtureIndex < fixturePaths.size(); ++fixtureIndex) {
+        RunSandboxFixture(runner, fixturePaths[fixtureIndex]);
     }
 }
 
@@ -1145,8 +1166,8 @@ void TestRemovingApproachDoesNotLeavePartialIntersectionCrosswalk(TestRunner& ru
     for (; tileIndex < sizeof(intersectionTiles) / sizeof(intersectionTiles[0]); ++tileIndex) {
         const ResolvedRoadCell& cell = CellAt(network, TransportLayerId::Ground, intersectionTiles[tileIndex][0], intersectionTiles[tileIndex][1]);
         runner.expect(
-            CrosswalkEdges(cell) == 0,
-            "removed approach does not leave partial-intersection crosswalk at " +
+            (CrosswalkEdges(cell) & kRoadDirectionNorth) == 0,
+            "removed approach does not leave a north-facing partial-intersection crosswalk at " +
                 std::to_string(intersectionTiles[tileIndex][0]) + "," +
                 std::to_string(intersectionTiles[tileIndex][1]) +
                 " mask " + std::to_string(static_cast<int>(CrosswalkEdges(cell))));
@@ -1166,7 +1187,7 @@ void TestWideRoadCleanupPropagatesAcrossIntersectionBody(TestRunner& runner) {
         int tileX = 8;
         for (; tileX <= 11; ++tileX) {
             const ResolvedRoadCell& cell = CellAt(network, TransportLayerId::Ground, tileX, tileY);
-            runner.expect(CrosswalkEdges(cell) == 0, "wide cleanup removes crosswalks from whole intersection body");
+            runner.expect((CrosswalkEdges(cell) & kRoadDirectionNorth) == 0, "wide cleanup does not keep a north-facing crosswalk in the removed approach");
             runner.expect((cell.junctionMask & kRoadDirectionNorth) == 0, "wide cleanup does not keep a corrected-through north lane");
         }
     }
@@ -1268,8 +1289,8 @@ void TestOpposingStubsDoNotConnectAcrossTwoLaneRoad(TestRunner& runner) {
     const ResolvedRoadCell& southStubEnd = CellAt(network, TransportLayerId::Ground, 5, 6);
     runner.expect((northStubEnd.exitMask & kRoadDirectionSouth) == 0, "north stub does not exit south across middle road body");
     runner.expect((southStubEnd.exitMask & kRoadDirectionNorth) == 0, "south stub does not exit north across middle road body");
-    runner.expect(CrosswalkEdges(northStubEnd) == 0, "north stub end has no crosswalk across middle road body");
-    runner.expect(CrosswalkEdges(southStubEnd) == 0, "south stub end has no crosswalk across middle road body");
+    runner.expect((CrosswalkEdges(northStubEnd) & kRoadDirectionSouth) == 0, "north stub end has no south-facing crosswalk across middle road body");
+    runner.expect((CrosswalkEdges(southStubEnd) & kRoadDirectionNorth) == 0, "south stub end has no north-facing crosswalk across middle road body");
 }
 
 void TestOneSidedExtensionCarriesPedestrianLaneAcrossRoad(TestRunner& runner) {
@@ -1767,7 +1788,7 @@ int main() {
     TestOneWayLocalStreet(runner);
     TestPerpendicularCrosswalkRequiresLaneContinuation(runner);
     TestPerpendicularCrosswalkIsOrderIndependent(runner);
-    TestTSectionDoesNotPaintHalfCrosswalk(runner);
+    TestTSectionRetexturesRealSidewalkCrosswalks(runner);
     TestJoggedSidewalkDoesNotBecomeCrosswalk(runner);
     TestCornerDoesNotRenderCrosswalks(runner);
     TestRoadToolSandboxFixtureCases(runner);

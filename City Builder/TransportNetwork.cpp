@@ -703,12 +703,12 @@ void TransportNetwork::resolveDirtyTile(TransportLayerId layer, int tileX, int t
 
         if (lane.isPedestrian() && lane.surface == RoadLaneSurface::Sidewalk) {
             const std::uint8_t laneGraphicMask = pedestrianLaneGraphicMask(layer, tileX, tileY, lane);
-            if (pedestrianLaneShouldRenderCrosswalk(layer, tileX, tileY, lane, tile)) {
-                crosswalkEdges |= laneGraphicMask;
+            const std::uint8_t laneCrosswalkMask = pedestrianLaneCrosswalkMask(layer, tileX, tileY, lane, tile, laneGraphicMask);
+            if (laneCrosswalkMask != 0) {
+                crosswalkEdges |= laneCrosswalkMask;
                 resolvedCell.surfaceMask |= kRoadSurfaceCrosswalk;
-            } else {
-                sidewalkEdges |= laneGraphicMask;
             }
+            sidewalkEdges |= static_cast<std::uint8_t>(laneGraphicMask & ~laneCrosswalkMask);
         }
 
         sameDirectionDividerEdges |= lane.sameDirectionDividerMask;
@@ -719,6 +719,20 @@ void TransportNetwork::resolveDirtyTile(TransportLayerId layer, int tileX, int t
     const std::uint8_t junctionMask = buildJunctionMask(layer, tileX, tileY, tile, exitMask);
     const RoadRenderVariant renderVariant = chooseRenderVariantForTile(tile, junctionMask);
     const std::uint8_t baseGlyphJunctionMask = baseGlyphJunctionMaskForTile(tile, renderVariant, junctionMask);
+    if (isSingleAxisDeadEndCapMask(tile, junctionMask)) {
+        const std::uint8_t roadDirectionMask = tile.hasCarAxis(RoadAxis::Horizontal)
+            ? static_cast<std::uint8_t>(kRoadDirectionEast | kRoadDirectionWest)
+            : static_cast<std::uint8_t>(kRoadDirectionNorth | kRoadDirectionSouth);
+        const std::uint8_t connectedRoadDirection = static_cast<std::uint8_t>(junctionMask & roadDirectionMask);
+        if (connectedRoadDirection != 0) {
+            const std::uint8_t capDividerEdge = OppositeCardinal(connectedRoadDirection);
+            if (sameDirectionDividerEdges != 0 && opposingDirectionDividerEdges == 0) {
+                sameDirectionDividerEdges |= capDividerEdge;
+            } else {
+                opposingDirectionDividerEdges |= capDividerEdge;
+            }
+        }
+    }
     const std::uint8_t turnArrowIntentMask = buildTurnArrowIntentMask(layer, tileX, tileY, tile);
     const bool isCarIntersection = tile.hasCarAxis(RoadAxis::Horizontal) &&
         tile.hasCarAxis(RoadAxis::Vertical) &&
@@ -828,6 +842,11 @@ void TransportNetwork::addLaneToCostMap(TransportLayerId layer, int tileX, int t
             : hasCompatibleNeighborLane(layer, tileX, tileY, lanePlacement, direction, false);
         if (canExit) {
             costMap_.addDirectionalCost(layer, mode, lanePlacement.tileIndex, direction, traversalCost, capacity);
+        } else {
+            const std::uint8_t uTurnDirection = deadEndUTurnDirectionForLane(layer, tileX, tileY, lanePlacement, direction);
+            if (uTurnDirection != 0) {
+                costMap_.addDirectionalCost(layer, mode, lanePlacement.tileIndex, uTurnDirection, traversalCost, capacity);
+            }
         }
     }
 
@@ -1152,6 +1171,61 @@ bool TransportNetwork::laneConnectionRequiresSameStroke(const TransportTile& cur
     return currentTile.hasCarAxis(crossingAxis) && neighborTile.hasCarAxis(crossingAxis);
 }
 
+std::uint8_t TransportNetwork::deadEndUTurnDirectionForLane(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const {
+    if (roadDirection == 0 ||
+        lanePlacement.axis == RoadAxis::None ||
+        lanePlacement.axis != AxisForDirection(roadDirection)) {
+        return 0;
+    }
+
+    const TransportTile* currentTile = tileAt(layer, tileX, tileY);
+    if (currentTile == 0 || currentTile->empty()) {
+        return 0;
+    }
+
+    const RoadAxis crossingAxis = lanePlacement.axis == RoadAxis::Horizontal ? RoadAxis::Vertical : RoadAxis::Horizontal;
+    if (currentTile->hasCarAxis(crossingAxis)) {
+        return 0;
+    }
+
+    const std::uint8_t crossDirections[] = {
+        lanePlacement.axis == RoadAxis::Horizontal ? kRoadDirectionNorth : kRoadDirectionWest,
+        lanePlacement.axis == RoadAxis::Horizontal ? kRoadDirectionSouth : kRoadDirectionEast
+    };
+    const std::uint8_t returnDirection = OppositeCardinal(roadDirection);
+
+    for (std::size_t crossDirectionIndex = 0; crossDirectionIndex < sizeof(crossDirections) / sizeof(crossDirections[0]); ++crossDirectionIndex) {
+        const std::uint8_t crossDirection = crossDirections[crossDirectionIndex];
+        const TransportTile* neighborTile = tileAt(layer, tileX + DeltaXForDirection(crossDirection), tileY + DeltaYForDirection(crossDirection));
+        if (neighborTile == 0 || neighborTile->family() != currentTile->family()) {
+            continue;
+        }
+
+        const std::vector<RoadLanePlacement>& neighborLanes = neighborTile->lanes();
+        for (std::size_t neighborLaneIndex = 0; neighborLaneIndex < neighborLanes.size(); ++neighborLaneIndex) {
+            const RoadLanePlacement& neighborLane = neighborLanes[neighborLaneIndex];
+            if (!neighborLane.active ||
+                neighborLane.family != lanePlacement.family ||
+                neighborLane.laneType != lanePlacement.laneType ||
+                neighborLane.axis != lanePlacement.axis ||
+                neighborLane.laneIndex == lanePlacement.laneIndex ||
+                !neighborLane.hasTravelDirection(returnDirection)) {
+                continue;
+            }
+
+            if (lanePlacement.strokeId != 0 &&
+                neighborLane.strokeId != 0 &&
+                lanePlacement.strokeId != neighborLane.strokeId) {
+                continue;
+            }
+
+            return crossDirection;
+        }
+    }
+
+    return 0;
+}
+
 bool TransportNetwork::hasCarContinuationBeyondCrossing(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& carLane, std::uint8_t roadDirection) const {
     const RoadAxis crossingAxis = carLane.axis == RoadAxis::Horizontal ? RoadAxis::Vertical : RoadAxis::Horizontal;
     int currentTileX = tileX;
@@ -1300,43 +1374,55 @@ std::uint8_t TransportNetwork::pedestrianLaneGraphicMask(TransportLayerId layer,
         }
     }
 
-    if (pedestrianLane.sidewalkEdgeMask == 0 &&
-        pedestrianLaneMeetsCrossingPedestrianLane(layer, tileX, tileY, pedestrianLane, false)) {
-        graphicMask |= RoadDirectionsFromLaneIntent(pedestrianLane.laneTravelMask);
-    }
-
     return static_cast<std::uint8_t>(graphicMask & kRoadSurfaceSidewalkEdgeMask);
 }
 
-bool TransportNetwork::pedestrianLaneShouldRenderCrosswalk(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& pedestrianLane, const TransportTile& tile) const {
+std::uint8_t TransportNetwork::pedestrianLaneCrosswalkMask(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& pedestrianLane, const TransportTile& tile, std::uint8_t pedestrianGraphicMask) const {
     if (!pedestrianLane.isPedestrian()) {
-        return false;
+        return 0;
+    }
+
+    pedestrianGraphicMask = static_cast<std::uint8_t>(pedestrianGraphicMask & kRoadSurfaceSidewalkEdgeMask);
+    if (pedestrianGraphicMask == 0) {
+        return 0;
+    }
+
+    if (!isCarIntersectionCollectionTile(layer, tileX, tileY)) {
+        return 0;
     }
 
     std::uint32_t cornerStrokeId = 0;
     if (isSingleStrokeCarCornerTile(tile, cornerStrokeId) &&
         !isCarIntersectionNode(layer, tileX, tileY)) {
-        return false;
+        return 0;
     }
 
-    if (!pedestrianLaneContinuesThroughCrossing(layer, tileX, tileY, pedestrianLane) &&
-        !pedestrianLaneHasEndpointConnection(layer, tileX, tileY, pedestrianLane, false)) {
-        return false;
-    }
-
+    std::uint8_t crosswalkMask = 0;
     const std::vector<RoadLanePlacement>& lanes = tile.lanes();
     std::size_t laneIndex = 0;
     for (; laneIndex < lanes.size(); ++laneIndex) {
         const RoadLanePlacement& lane = lanes[laneIndex];
-        if (lane.active &&
-            lane.isCar() &&
-            lane.axis != pedestrianLane.axis &&
-            carLaneContinuesThroughCrossing(layer, tileX, tileY, lane)) {
-            return true;
+        if (!lane.active ||
+            !lane.isCar() ||
+            lane.axis == pedestrianLane.axis) {
+            continue;
+        }
+
+        std::size_t directionIndex = 0;
+        for (; directionIndex < sizeof(kCardinalDirections) / sizeof(kCardinalDirections[0]); ++directionIndex) {
+            const std::uint8_t direction = kCardinalDirections[directionIndex];
+            if ((pedestrianGraphicMask & direction) == 0 ||
+                lane.axis != AxisForDirection(direction)) {
+                continue;
+            }
+
+            if (hasCarContinuationBeyondCrossing(layer, tileX, tileY, lane, direction)) {
+                crosswalkMask |= direction;
+            }
         }
     }
 
-    return false;
+    return static_cast<std::uint8_t>(crosswalkMask & pedestrianGraphicMask);
 }
 
 bool TransportNetwork::carComponentHasIntersectionBody(TransportLayerId layer, int tileX, int tileY) const {
