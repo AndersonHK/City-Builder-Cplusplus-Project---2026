@@ -4,7 +4,10 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
 
 ## Current state
 - `SimulationRuntime` owns authoritative world state, chunked simulation passes, triple buffering, published render snapshots, timing instrumentation, and a multi-layer transport network for roads.
+- `GameSession` owns the boot mode, the default 3x3 `Region`, the reusable active `SimulationRuntime`, and alpha autoslot save/load.
+- `Region` owns coordinate-addressed `City` records and 4096x4096 top-down preview pixels rendered from saved city state through the normal city draw passes.
 - `Renderer` owns the OpenGL presentation path:
+  - region preview grid rendering and double-click city entry
   - constrained pitched perspective camera
   - world-space tile rendering
   - per-chunk persistent tile instance buffers
@@ -39,6 +42,10 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
 - `M`: add park module to an adjacent lot footprint
 - `Y`: remove the module under the hovered tile
 - `A`: query hovered tile; queried lots show accepted commute routes as green car arrows and pink pedestrian arrows
+- Region mode starts first; double-click a city preview to enter that city
+- `F1`: save the current region autoslot
+- `F2`: load the region autoslot; in city mode, reload the current city in place
+- `F3`: exit the active city back to region mode
 
 ## Build
 Primary target: `x64 Release`
@@ -83,6 +90,7 @@ Transport topology has a standalone non-graphics test target:
 - `docs/design/simulation-threading.md` - tile passes, triple buffering, chunk worker rules, and published snapshot ownership.
 - `docs/design/lots.md` - lot/module placement, occupancy, effects, and render snapshots.
 - `docs/design/xml-assets.md` - strict XML archetype loading and validation.
+- `docs/design/region-save.md` - region/city ownership, autoslot save/load, previews, and alpha compatibility assumptions.
 
 ## Repository hygiene
 - The active code lives under `City Builder/`; stale tracked build outputs and legacy unused helper files were removed.

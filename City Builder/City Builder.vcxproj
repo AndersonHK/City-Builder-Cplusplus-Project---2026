@@ -112,6 +112,9 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <PreBuildEvent>
+      <Command>if exist "$(OutDir)Data\Saves" rmdir /S /Q "$(OutDir)Data\Saves"</Command>
+    </PreBuildEvent>
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>MaxSpeed</Optimization>
@@ -131,13 +134,16 @@
       <Command>copy /Y "$(ProjectDir)Basic.shader" "$(OutDir)Basic.shader"
 "$(SystemRoot)\System32\xcopy.exe" /Y /I /E "$(ProjectDir)Data" "$(OutDir)Data"
 copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\glew32.dll" "$(OutDir)glew32.dll"
-copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"</Command>
+copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"
+if exist "$(OutDir)Data\Saves" rmdir /S /Q "$(OutDir)Data\Saves"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="AssetLoader.cpp" />
     <ClCompile Include="AppController.cpp" />
+    <ClCompile Include="City.cpp" />
     <ClCompile Include="CityParameters.cpp" />
+    <ClCompile Include="GameSession.cpp" />
     <ClCompile Include="ChunkConfig.cpp" />
     <ClCompile Include="Lot.cpp" />
     <ClCompile Include="Road.cpp" />
@@ -169,7 +175,9 @@ copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\
   <ItemGroup>
     <ClInclude Include="AssetLoader.h" />
     <ClInclude Include="AppController.h" />
+    <ClInclude Include="City.h" />
     <ClInclude Include="CityParameters.h" />
+    <ClInclude Include="GameSession.h" />
     <ClInclude Include="ChunkConfig.h" />
     <ClInclude Include="CommuteTypes.h" />
     <ClInclude Include="Lot.h" />

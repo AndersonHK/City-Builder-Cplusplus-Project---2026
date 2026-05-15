@@ -268,6 +268,82 @@ bool TransportNetwork::hasGroundOccupancy(int tileIndexValue) const {
     return hasOccupancy(TransportLayerId::Ground, tileIndexValue);
 }
 
+TransportNetworkSaveState TransportNetwork::exportSaveState() const {
+    TransportNetworkSaveState saveState;
+    saveState.nextRoadStrokeId = nextRoadStrokeId_;
+
+    std::size_t layerIndex = 0;
+    for (; layerIndex < layerCount(); ++layerIndex) {
+        const TransportLayerId layer = static_cast<TransportLayerId>(layerIndex);
+        std::size_t tileIndexValue = 0;
+        for (; tileIndexValue < totalTileCount_; ++tileIndexValue) {
+            const TransportTile& tile = transportTiles_[slotIndex(layer, static_cast<int>(tileIndexValue), totalTileCount_)];
+            if (tile.lanes().empty()) {
+                continue;
+            }
+
+            TransportTileSaveState tileSaveState;
+            tileSaveState.layer = layer;
+            tileSaveState.tileIndex = static_cast<int>(tileIndexValue);
+            tileSaveState.lanes = tile.lanes();
+            saveState.tiles.push_back(tileSaveState);
+        }
+    }
+
+    return saveState;
+}
+
+void TransportNetwork::importSaveState(const TransportNetworkSaveState& saveState) {
+    clear();
+    nextRoadStrokeId_ = std::max(1u, saveState.nextRoadStrokeId);
+
+    std::size_t savedTileIndex = 0;
+    for (; savedTileIndex < saveState.tiles.size(); ++savedTileIndex) {
+        const TransportTileSaveState& tileSaveState = saveState.tiles[savedTileIndex];
+        if (tileSaveState.tileIndex < 0 || tileSaveState.tileIndex >= static_cast<int>(totalTileCount_)) {
+            continue;
+        }
+
+        const std::size_t slot = slotIndex(tileSaveState.layer, tileSaveState.tileIndex, totalTileCount_);
+        if (slot >= transportTiles_.size()) {
+            continue;
+        }
+
+        transportTiles_[slot].lanesForMutation() = tileSaveState.lanes;
+        std::size_t laneIndex = 0;
+        for (; laneIndex < transportTiles_[slot].lanesForMutation().size(); ++laneIndex) {
+            RoadLanePlacement& lane = transportTiles_[slot].lanesForMutation()[laneIndex];
+            lane.layer = tileSaveState.layer;
+            lane.tileIndex = tileSaveState.tileIndex;
+            lane.tileY = tileSaveState.tileIndex / width_;
+            lane.tileX = tileSaveState.tileIndex - (lane.tileY * width_);
+        }
+    }
+
+    std::size_t layerIndex = 0;
+    for (; layerIndex < layerCount(); ++layerIndex) {
+        const TransportLayerId layer = static_cast<TransportLayerId>(layerIndex);
+        int tileY = 0;
+        for (; tileY < height_; ++tileY) {
+            int tileX = 0;
+            for (; tileX < width_; ++tileX) {
+                resolveDirtyTile(layer, tileX, tileY);
+            }
+        }
+    }
+
+    std::size_t chunkIndex = 0;
+    for (; chunkIndex < groundChunkRevisions_.size(); ++chunkIndex) {
+        ++groundChunkRevisions_[chunkIndex];
+    }
+    for (chunkIndex = 0; chunkIndex < elevatedChunkRevisions_.size(); ++chunkIndex) {
+        ++elevatedChunkRevisions_[chunkIndex];
+    }
+
+    rebuildCostMapAndTrafficOverlay();
+    ++revision_;
+}
+
 int TransportNetwork::width() const {
     return width_;
 }

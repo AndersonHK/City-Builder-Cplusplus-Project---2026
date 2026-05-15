@@ -29,8 +29,12 @@ const int kKeyComma = 44;
 const int kKeyPeriod = 46;
 const int kKeyLeftBracket = 91;
 const int kKeyRightBracket = 93;
+const int kKeyF1 = 290;
+const int kKeyF2 = 291;
+const int kKeyF3 = 292;
 const int kMinimumRoadLaneCount = 1;
 const int kMaximumRoadLaneCount = 4;
+const long long kRegionDoubleClickMillis = 650;
 
 const char* OverlayModeName(OverlayMode overlayMode) {
     switch (overlayMode) {
@@ -239,9 +243,14 @@ std::string DirectionMaskToString(std::uint8_t directionMask) {
 }
 }
 
-// Connects input intent to the simulation command queue.
-AppController::AppController(SimulationRuntime& simulationRuntime)
-    : simulationRuntime_(simulationRuntime) {
+// Connects input intent to the active game session.
+AppController::AppController(GameSession& gameSession)
+    : gameSession_(gameSession),
+      regionClickPending_(false),
+      hasLastRegionClick_(false),
+      lastRegionClickX_(0),
+      lastRegionClickY_(0),
+      lastRegionClickTime_(std::chrono::steady_clock::now()) {
 }
 
 // Records cursor position for picking and drag tools.
@@ -252,28 +261,33 @@ void AppController::onCursorMoved(double mouseX, double mouseY) {
 
 // Dispatches the currently selected tool's primary click action.
 void AppController::onLeftMouseButtonPressed() {
+    if (gameSession_.isRegionMode()) {
+        regionClickPending_ = true;
+        return;
+    }
+
     const int tileX = hoveredTileX();
     const int tileY = hoveredTileY();
 
     switch (viewState_.activeTool) {
         case ActiveTool::PollutionBrush:
-            simulationRuntime_.queuePaintPollution(tileX, tileY, 16000000);
+            gameSession_.runtime().queuePaintPollution(tileX, tileY, 16000000);
             break;
 
         case ActiveTool::SmokestackLot:
-            simulationRuntime_.queuePlaceSmokestack(tileX, tileY, viewState_.lotRotationSteps);
+            gameSession_.runtime().queuePlaceSmokestack(tileX, tileY, viewState_.lotRotationSteps);
             break;
 
         case ActiveTool::ParkLot:
-            simulationRuntime_.queuePlacePark(tileX, tileY, viewState_.lotRotationSteps);
+            gameSession_.runtime().queuePlacePark(tileX, tileY, viewState_.lotRotationSteps);
             break;
 
         case ActiveTool::FactoryLot:
-            simulationRuntime_.queuePlaceFactory(tileX, tileY, viewState_.lotRotationSteps);
+            gameSession_.runtime().queuePlaceFactory(tileX, tileY, viewState_.lotRotationSteps);
             break;
 
         case ActiveTool::HouseLot:
-            simulationRuntime_.queuePlaceHouse(tileX, tileY, viewState_.lotRotationSteps);
+            gameSession_.runtime().queuePlaceHouse(tileX, tileY, viewState_.lotRotationSteps);
             break;
 
         case ActiveTool::RoadStreet:
@@ -282,11 +296,11 @@ void AppController::onLeftMouseButtonPressed() {
             break;
 
         case ActiveTool::AddParkModule:
-            simulationRuntime_.queueAddParkModule(tileX, tileY);
+            gameSession_.runtime().queueAddParkModule(tileX, tileY);
             break;
 
         case ActiveTool::RemoveModule:
-            simulationRuntime_.queueRemoveModuleAtTile(tileX, tileY);
+            gameSession_.runtime().queueRemoveModuleAtTile(tileX, tileY);
             break;
 
         case ActiveTool::Query:
@@ -297,6 +311,10 @@ void AppController::onLeftMouseButtonPressed() {
 
 // Commits any active road drag when the mouse button is released.
 void AppController::onLeftMouseButtonReleased() {
+    if (gameSession_.isRegionMode()) {
+        return;
+    }
+
     if (!viewState_.roadDragActive || !activeToolIsRoad()) {
         return;
     }
@@ -306,6 +324,10 @@ void AppController::onLeftMouseButtonReleased() {
 
 // Handles continuous actions while the primary mouse button remains down.
 void AppController::onLeftMouseButtonHeld() {
+    if (gameSession_.isRegionMode()) {
+        return;
+    }
+
     if (viewState_.activeTool == ActiveTool::PollutionBrush) {
         onLeftMouseButtonPressed();
         return;
@@ -320,6 +342,27 @@ void AppController::onLeftMouseButtonHeld() {
 // Maps keyboard input to camera movement, tool selection, and queries.
 void AppController::onKeyPressed(int key, int action) {
     if (action != kKeyActionPress && action != kKeyActionRepeat) {
+        return;
+    }
+
+    if (action == kKeyActionPress && key == kKeyF1) {
+        gameSession_.saveAutoslot();
+        return;
+    }
+
+    if (action == kKeyActionPress && key == kKeyF2) {
+        gameSession_.loadAutoslot();
+        viewState_.roadDragActive = false;
+        return;
+    }
+
+    if (action == kKeyActionPress && key == kKeyF3) {
+        gameSession_.exitToRegion();
+        viewState_.roadDragActive = false;
+        return;
+    }
+
+    if (gameSession_.isRegionMode()) {
         return;
     }
 
@@ -424,8 +467,21 @@ void AppController::onKeyPressed(int key, int action) {
     }
 }
 
+void AppController::processPendingRegionClick() {
+    if (!regionClickPending_) {
+        return;
+    }
+
+    regionClickPending_ = false;
+    handleRegionClick();
+}
+
 // Changes zoom in fixed tile-span steps while keeping the camera centered.
 void AppController::onScroll(double yOffset) {
+    if (gameSession_.isRegionMode()) {
+        return;
+    }
+
     if (yOffset < 0.0 && viewState_.visibleTiles < kMaximumVisibleTiles) {
         viewState_.visibleTiles *= 2;
         viewState_.cameraX -= viewState_.visibleTiles / 4;
@@ -454,8 +510,18 @@ void AppController::setHoveredTile(int tileX, int tileY, bool isValid) {
         return;
     }
 
-    viewState_.hoveredTileX = std::max(0, std::min(tileX, simulationRuntime_.mapWidth() - 1));
-    viewState_.hoveredTileY = std::max(0, std::min(tileY, simulationRuntime_.mapHeight() - 1));
+    viewState_.hoveredTileX = std::max(0, std::min(tileX, gameSession_.runtime().mapWidth() - 1));
+    viewState_.hoveredTileY = std::max(0, std::min(tileY, gameSession_.runtime().mapHeight() - 1));
+}
+
+void AppController::setHoveredRegionCity(int regionX, int regionY, bool isValid) {
+    viewState_.hasHoveredRegion = isValid;
+    if (!isValid) {
+        return;
+    }
+
+    viewState_.hoveredRegionX = regionX;
+    viewState_.hoveredRegionY = regionY;
 }
 
 // Builds a renderer-only preview command for the active road drag.
@@ -489,6 +555,10 @@ bool AppController::roadPreviewStroke(RoadStrokeCommand& roadStrokeCommand) cons
 
 // Builds a renderer-only preview request for the active lot placement tool.
 bool AppController::lotPreviewRequest(std::string& lotAssetId, int& tileX, int& tileY, int& rotationSteps) const {
+    if (gameSession_.isRegionMode()) {
+        return false;
+    }
+
     const char* activeLotAssetId = LotAssetIdForTool(viewState_.activeTool);
     if (activeLotAssetId == 0 || !viewState_.hasHoveredTile) {
         return false;
@@ -503,8 +573,8 @@ bool AppController::lotPreviewRequest(std::string& lotAssetId, int& tileX, int& 
 
 // Keeps the camera span inside the map after pan or zoom changes.
 void AppController::clampCameraToMap() {
-    viewState_.cameraX = std::max(0, std::min(viewState_.cameraX, simulationRuntime_.mapWidth() - viewState_.visibleTiles));
-    viewState_.cameraY = std::max(0, std::min(viewState_.cameraY, simulationRuntime_.mapHeight() - viewState_.visibleTiles));
+    viewState_.cameraX = std::max(0, std::min(viewState_.cameraX, gameSession_.runtime().mapWidth() - viewState_.visibleTiles));
+    viewState_.cameraY = std::max(0, std::min(viewState_.cameraY, gameSession_.runtime().mapHeight() - viewState_.visibleTiles));
 }
 
 // Applies a camera-relative pan request and clamps it to the map.
@@ -536,6 +606,32 @@ bool AppController::activeToolIsRoad() const {
     return viewState_.activeTool == ActiveTool::RoadStreet || viewState_.activeTool == ActiveTool::RoadHighway;
 }
 
+bool AppController::handleRegionClick() {
+    if (!viewState_.hasHoveredRegion) {
+        hasLastRegionClick_ = false;
+        return false;
+    }
+
+    const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+    const long long elapsedMillis = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastRegionClickTime_).count();
+    const bool isDoubleClick = hasLastRegionClick_ &&
+        lastRegionClickX_ == viewState_.hoveredRegionX &&
+        lastRegionClickY_ == viewState_.hoveredRegionY &&
+        elapsedMillis <= kRegionDoubleClickMillis;
+
+    lastRegionClickX_ = viewState_.hoveredRegionX;
+    lastRegionClickY_ = viewState_.hoveredRegionY;
+    lastRegionClickTime_ = now;
+    hasLastRegionClick_ = true;
+
+    if (isDoubleClick) {
+        hasLastRegionClick_ = false;
+        return gameSession_.enterCity(viewState_.hoveredRegionX, viewState_.hoveredRegionY);
+    }
+
+    return false;
+}
+
 // Starts a two-leg road stroke anchored at the clicked tile.
 void AppController::beginRoadDrag(int tileX, int tileY) {
     viewState_.roadDragActive = true;
@@ -562,7 +658,7 @@ void AppController::commitRoadDrag(int tileX, int tileY) {
         roadStrokeCommand.family = RoadFamily::LocalStreet;
         roadStrokeCommand.layer = TransportLayerId::Ground;
         roadStrokeCommand.roadTemplate = currentRoadTemplate(roadStrokeCommand.family, roadStrokeCommand.layer);
-        simulationRuntime_.queuePlaceRoadStroke(roadStrokeCommand);
+        gameSession_.runtime().queuePlaceRoadStroke(roadStrokeCommand);
     } else if (viewState_.activeTool == ActiveTool::RoadHighway) {
         RoadStrokeCommand roadStrokeCommand;
         roadStrokeCommand.startTile = startTile;
@@ -571,7 +667,7 @@ void AppController::commitRoadDrag(int tileX, int tileY) {
         roadStrokeCommand.family = RoadFamily::Highway;
         roadStrokeCommand.layer = TransportLayerId::Elevated;
         roadStrokeCommand.roadTemplate = currentRoadTemplate(roadStrokeCommand.family, roadStrokeCommand.layer);
-        simulationRuntime_.queuePlaceRoadStroke(roadStrokeCommand);
+        gameSession_.runtime().queuePlaceRoadStroke(roadStrokeCommand);
     }
 
     viewState_.roadDragActive = false;
@@ -603,7 +699,7 @@ int AppController::hoveredTileX() const {
 
     const double normalizedX = viewState_.mouseX / static_cast<double>(std::max(1, viewState_.framebufferWidth));
     const int tileX = viewState_.cameraX + static_cast<int>(normalizedX * viewState_.visibleTiles);
-    return std::max(0, std::min(tileX, simulationRuntime_.mapWidth() - 1));
+    return std::max(0, std::min(tileX, gameSession_.runtime().mapWidth() - 1));
 }
 
 // Falls back to screen-space picking only when the renderer has no raycast hit.
@@ -614,14 +710,14 @@ int AppController::hoveredTileY() const {
 
     const double normalizedY = (static_cast<double>(std::max(1, viewState_.framebufferHeight)) - viewState_.mouseY) / static_cast<double>(std::max(1, viewState_.framebufferHeight));
     const int tileY = viewState_.cameraY + static_cast<int>(normalizedY * viewState_.visibleTiles);
-    return std::max(0, std::min(tileY, simulationRuntime_.mapHeight() - 1));
+    return std::max(0, std::min(tileY, gameSession_.runtime().mapHeight() - 1));
 }
 
 // Prints a compact debug readout for the hovered tile.
 void AppController::printQueryResult() {
     const int tileX = hoveredTileX();
     const int tileY = hoveredTileY();
-    const TileQueryResult queryResult = simulationRuntime_.queryTile(tileX, tileY);
+    const TileQueryResult queryResult = gameSession_.runtime().queryTile(tileX, tileY);
     if (!queryResult.isValid) {
         viewState_.queriedLotId = -1;
         viewState_.queriedCommuteRouteSegments.clear();

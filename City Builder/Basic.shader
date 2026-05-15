@@ -9,6 +9,7 @@ layout(location = 3) in vec4 aInstanceData2;
 uniform mat4 uViewProjection;
 uniform int uRenderMode;
 uniform sampler2D uTileLiftTexture;
+uniform sampler2D uRegionPreviewTexture;
 
 out vec2 vTileUv;
 out vec2 vLocalUv;
@@ -73,6 +74,18 @@ void main()
         vRoadMasks = vec2(aInstanceData1.w, 0.0);
         vRouteColor = aInstanceData2.rgb;
         vSurfaceLift = 0.0;
+    } else if (uRenderMode == 5) {
+        worldPosition = vec3(
+            aLocalPosition.x * aInstanceData0.z + aInstanceData0.x,
+            0.0,
+            aLocalPosition.z * aInstanceData0.w + aInstanceData0.y);
+        vTileUv = vec2(0.0);
+        vLocalUv = vec2(aLocalPosition.x, 1.0 - aLocalPosition.z);
+        vLotColor = vec3(0.0);
+        vRoadGlyphs = vec2(0.0);
+        vRoadMasks = vec2(0.0);
+        vRouteColor = vec3(0.0);
+        vSurfaceLift = 0.0;
     } else {
         worldPosition = vec3(
             aLocalPosition.x + aInstanceData0.x,
@@ -101,6 +114,7 @@ uniform sampler2D uGroundRoadStateTexture;
 uniform sampler2D uTileOverlayTexture;
 uniform sampler2D uRoadBaseAtlasTexture;
 uniform sampler2D uRoadArrowAtlasTexture;
+uniform sampler2D uRegionPreviewTexture;
 uniform vec2 uRoadAtlasGrid;
 uniform float uRoadAlphaScale;
 uniform vec3 uRoadTintColor;
@@ -257,6 +271,11 @@ void main()
         }
 
         color = vec4(vRouteColor, alpha);
+        return;
+    }
+
+    if (vRenderMode == 5) {
+        color = texture(uRegionPreviewTexture, vLocalUv);
         return;
     }
 

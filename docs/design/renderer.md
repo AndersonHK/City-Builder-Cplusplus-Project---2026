@@ -8,6 +8,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - GPU work is acceptable; CPU packing, single-thread bandwidth, and RAM-to-VRAM uploads should stay measured and bounded.
 - Window-mode concerns such as fullscreen toggles belong in the GLFW callback layer, not in simulation input commands.
 - The current visual style is a staging layer for future richer 3D, not the final art direction.
+- Camera setup should stay projection/direction agnostic; city interaction and region mode use the shared angled view settings, while city preview capture uses a top-down orthographic view.
 
 ## Current Shape
 - Tiles draw from persistent per-chunk static instance buffers containing world origin and map UV.
@@ -20,6 +21,8 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Road placement ghost previews are transient renderer instances built from the active drag stroke and drawn with a blue alpha tint. They do not enter published road snapshots.
 - Lot placement ghost previews are transient renderer instances built from XML-backed, rotation-aware lot candidate geometry and drawn with a green alpha tint. They do not enter published lot snapshots.
 - Lots still render through one global placeholder-prism instance buffer keyed by lot revision.
+- Region mode draws city preview textures with the same angled camera settings as city mode.
+- City previews are rendered through the normal city draw passes with a top-down orthographic camera before being cached on `City`.
 
 ## Road Render Data
 - The road simulation owns lane topology, lane type masks, graphic masks, and path masks; rendering only consumes published road snapshots.
@@ -41,6 +44,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Draw overlays after roads and lots with depth disabled/restored so the tint remains presentation, not terrain truth.
 - Draw query route arrows after tile overlays with depth disabled/restored so selected commute paths remain inspectable.
 - Future overlays should publish the same RGBA tile payload and chunk revisions instead of adding one-off shader paths.
+- Keep city preview capture top-down orthographic so preview orientation remains stable before the region camera projects it.
 
 ## Checks
 - Build `x64 Release`.

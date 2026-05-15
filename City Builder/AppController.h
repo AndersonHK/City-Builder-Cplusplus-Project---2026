@@ -1,8 +1,9 @@
 #pragma once
 
+#include <chrono>
 #include <string>
 
-#include "SimulationRuntime.h"
+#include "GameSession.h"
 
 enum class ActiveTool {
     PollutionBrush,
@@ -47,6 +48,9 @@ struct ViewState {
     int queriedLotId;
     std::uint64_t queryRouteRevision;
     std::vector<CommuteRouteSegment> queriedCommuteRouteSegments;
+    int hoveredRegionX;
+    int hoveredRegionY;
+    bool hasHoveredRegion;
 
     // Initializes the default camera span and active tool for a new session.
     ViewState()
@@ -72,13 +76,16 @@ struct ViewState {
           lotRotationSteps(0),
           overlayMode(OverlayMode::None),
           queriedLotId(-1),
-          queryRouteRevision(0) {
+          queryRouteRevision(0),
+          hoveredRegionX(0),
+          hoveredRegionY(0),
+          hasHoveredRegion(false) {
     }
 };
 
 class AppController {
 public:
-    explicit AppController(SimulationRuntime& simulationRuntime);
+    explicit AppController(GameSession& gameSession);
 
     void onCursorMoved(double mouseX, double mouseY);
     void onLeftMouseButtonPressed();
@@ -88,8 +95,10 @@ public:
     void onScroll(double yOffset);
     void setFramebufferSize(int framebufferWidth, int framebufferHeight);
     void setHoveredTile(int tileX, int tileY, bool isValid);
+    void setHoveredRegionCity(int regionX, int regionY, bool isValid);
     bool roadPreviewStroke(RoadStrokeCommand& roadStrokeCommand) const;
     bool lotPreviewRequest(std::string& lotAssetId, int& tileX, int& tileY, int& rotationSteps) const;
+    void processPendingRegionClick();
 
     ViewState viewState() const;
 
@@ -102,6 +111,7 @@ private:
     void toggleTrafficOverlay();
     void rotatePlacement(int deltaSteps);
     bool activeToolIsRoad() const;
+    bool handleRegionClick();
     void beginRoadDrag(int tileX, int tileY);
     void commitRoadDrag(int tileX, int tileY);
     RoadTemplate currentRoadTemplate(RoadFamily family, TransportLayerId layer) const;
@@ -111,6 +121,11 @@ private:
     static const int kMinimumVisibleTiles = 32;
     static const int kMaximumVisibleTiles = 512;
 
-    SimulationRuntime& simulationRuntime_;
+    GameSession& gameSession_;
     ViewState viewState_;
+    bool regionClickPending_;
+    bool hasLastRegionClick_;
+    int lastRegionClickX_;
+    int lastRegionClickY_;
+    std::chrono::steady_clock::time_point lastRegionClickTime_;
 };

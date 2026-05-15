@@ -21,7 +21,13 @@
     <ClCompile Include="AppController.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="City.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="ChunkConfig.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="GameSession.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Lot.cpp">
@@ -106,7 +112,13 @@
     <ClInclude Include="AppController.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="City.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="ChunkConfig.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="GameSession.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Lot.h">

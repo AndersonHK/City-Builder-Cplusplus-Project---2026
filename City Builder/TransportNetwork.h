@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "City.h"
 #include "ChunkConfig.h"
 #include "Road.h"
 #include "TransportCostMap.h"
@@ -35,6 +36,9 @@ public:
 
     bool hasOccupancy(TransportLayerId layer, int tileIndex) const;
     bool hasGroundOccupancy(int tileIndex) const;
+
+    TransportNetworkSaveState exportSaveState() const;
+    void importSaveState(const TransportNetworkSaveState& saveState);
 
     int width() const;
     int height() const;

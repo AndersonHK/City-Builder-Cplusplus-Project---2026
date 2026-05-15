@@ -435,6 +435,162 @@ TileQueryResult SimulationRuntime::queryTile(int tileX, int tileY) const {
     return queryResult;
 }
 
+CitySaveState SimulationRuntime::exportCitySaveState() const {
+    CitySaveState saveState;
+    saveState.width = kMapWidth;
+    saveState.height = kMapHeight;
+    saveState.nextLotId = nextLotId_;
+    saveState.tiles = tileBuffers_[simulationReadBufferIndex_].tiles;
+    saveState.cityParameters = oldCityParameters_;
+    saveState.transport = transportNetwork_.exportSaveState();
+
+    saveState.lots.reserve(lots_.size());
+    saveState.previewLots.reserve(lots_.size());
+    std::size_t lotIndex = 0;
+    for (; lotIndex < lots_.size(); ++lotIndex) {
+        const Lot& lot = lots_[lotIndex];
+        CitySaveLotState lotSaveState;
+        lotSaveState.lotId = lot.id();
+        lotSaveState.assetId = lot.assetId();
+        lotSaveState.anchorTileX = lot.anchorTileX();
+        lotSaveState.anchorTileY = lot.anchorTileY();
+        lotSaveState.rotationSteps = lot.rotationSteps();
+
+        const std::vector<LotModulePlacement>& modules = lot.modules();
+        std::size_t moduleIndex = 0;
+        for (; moduleIndex < modules.size(); ++moduleIndex) {
+            if (modules[moduleIndex].module == 0) {
+                continue;
+            }
+
+            CitySaveLotModuleState moduleSaveState;
+            moduleSaveState.moduleAssetId = modules[moduleIndex].module->id;
+            moduleSaveState.localOrigin = modules[moduleIndex].localOrigin;
+            lotSaveState.modules.push_back(moduleSaveState);
+        }
+
+        saveState.lots.push_back(lotSaveState);
+        saveState.previewLots.push_back(lot.buildRenderInstance());
+    }
+
+    return saveState;
+}
+
+void SimulationRuntime::importCitySaveState(const CitySaveState& saveState) {
+    const std::size_t totalTileCount = static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight);
+    if (saveState.width != kMapWidth || saveState.height != kMapHeight || saveState.tiles.size() != totalTileCount) {
+        throw std::runtime_error("City save dimensions do not match the current runtime.");
+    }
+
+    {
+        std::lock_guard<std::mutex> commandLock(commandMutex_);
+        pendingCommands_.clear();
+    }
+
+    lotOccupancy_.assign(totalTileCount, kInvalidLotId);
+    lots_.clear();
+    nextLotId_ = std::max(1, saveState.nextLotId);
+
+    std::size_t savedLotIndex = 0;
+    for (; savedLotIndex < saveState.lots.size(); ++savedLotIndex) {
+        const CitySaveLotState& lotSaveState = saveState.lots[savedLotIndex];
+        const LotAsset* lotAsset = findLotAssetById(lotSaveState.assetId);
+        if (lotAsset == 0) {
+            continue;
+        }
+
+        Lot lot(lotSaveState.lotId, lotSaveState.assetId, lotSaveState.anchorTileX, lotSaveState.anchorTileY, lotSaveState.rotationSteps);
+        if (lotAsset->footprintWidth > 0 && lotAsset->footprintHeight > 0) {
+            Int2 footprintMinimum;
+            Int2 footprintMaximum;
+            RotatedRectangleBounds(lotAsset->footprintOrigin, lotAsset->footprintWidth, lotAsset->footprintHeight, lotSaveState.rotationSteps, footprintMinimum, footprintMaximum);
+            lot.setExplicitFootprint(
+                footprintMinimum,
+                footprintMaximum.x - footprintMinimum.x + 1,
+                footprintMaximum.y - footprintMinimum.y + 1,
+                kMapWidth);
+        }
+
+        std::size_t moduleIndex = 0;
+        for (; moduleIndex < lotSaveState.modules.size(); ++moduleIndex) {
+            const LotModule* moduleAsset = findModuleAssetById(lotSaveState.modules[moduleIndex].moduleAssetId);
+            if (moduleAsset != 0) {
+                lot.addModule(*moduleAsset, lotSaveState.modules[moduleIndex].localOrigin, kMapWidth);
+            }
+        }
+
+        bool isInsideMap = true;
+        const std::vector<int>& occupiedTileIndices = lot.occupiedTileIndices();
+        std::size_t occupiedIndex = 0;
+        for (; occupiedIndex < occupiedTileIndices.size(); ++occupiedIndex) {
+            const int tileLinearIndex = occupiedTileIndices[occupiedIndex];
+            if (tileLinearIndex < 0 || tileLinearIndex >= static_cast<int>(totalTileCount)) {
+                isInsideMap = false;
+                break;
+            }
+        }
+
+        if (!isInsideMap) {
+            continue;
+        }
+
+        lots_.push_back(lot);
+        setLotOccupancy(lot.id(), lots_.back().occupiedTileIndices());
+        nextLotId_ = std::max(nextLotId_, lot.id() + 1);
+    }
+
+    oldCityParameters_.assign(cityParameterRegistry_.count(), 0.0f);
+    nextCityParameters_.assign(cityParameterRegistry_.count(), 0.0f);
+    const std::size_t copiedParameterCount = std::min(oldCityParameters_.size(), saveState.cityParameters.size());
+    std::size_t parameterIndex = 0;
+    for (; parameterIndex < copiedParameterCount; ++parameterIndex) {
+        oldCityParameters_[parameterIndex] = saveState.cityParameters[parameterIndex];
+        nextCityParameters_[parameterIndex] = saveState.cityParameters[parameterIndex];
+    }
+
+    transportNetwork_.importSaveState(saveState.transport);
+
+    int bufferIndex = 0;
+    for (; bufferIndex < 3; ++bufferIndex) {
+        tileBuffers_[bufferIndex].tiles = saveState.tiles;
+        tileBuffers_[bufferIndex].chunkRevisions.assign(chunkLayout_.size(), 2);
+        tileBuffers_[bufferIndex].publishedLots.clear();
+        tileBuffers_[bufferIndex].publishedLotInfos.clear();
+        tileBuffers_[bufferIndex].publishedLotOccupancy.assign(totalTileCount, kInvalidLotId);
+        tileBuffers_[bufferIndex].publishedRoads.assign(totalTileCount * TransportNetwork::layerCount(), ResolvedRoadCell());
+        tileBuffers_[bufferIndex].publishedGroundRoadRenderState.assign(totalTileCount * kGroundRoadRenderChannelsPerTile, 0);
+        tileBuffers_[bufferIndex].publishedTileOverlayState.assign(totalTileCount * 4u, 0);
+        tileBuffers_[bufferIndex].publishedGroundRoadChunkRevisions.assign(chunkLayout_.size(), 1);
+        tileBuffers_[bufferIndex].publishedElevatedRoadChunkRevisions.assign(chunkLayout_.size(), 1);
+        tileBuffers_[bufferIndex].publishedTileOverlayChunkRevisions.assign(chunkLayout_.size(), 1);
+        tileBuffers_[bufferIndex].lotRenderRevision = 0;
+        tileBuffers_[bufferIndex].roadRenderRevision = 0;
+        tileBuffers_[bufferIndex].overlayRenderRevision = 0;
+        tileBuffers_[bufferIndex].commuteRenderRevision = 0;
+        bufferUseCounts_[bufferIndex].store(0);
+    }
+
+    ++lotsRevision_;
+    ++commuteRevision_;
+    commutesDirty_ = true;
+    simulationReadBufferIndex_ = 0;
+    simulationWriteBufferIndex_ = 1;
+    refreshPublishedLotSnapshot(tileBuffers_[simulationReadBufferIndex_]);
+    refreshPublishedRoadSnapshot(tileBuffers_[simulationReadBufferIndex_]);
+
+    {
+        std::lock_guard<std::mutex> publishedLock(publishedMutex_);
+        publishedBufferIndex_ = simulationReadBufferIndex_;
+        ++publishedGeneration_;
+        if (publishedGeneration_ == 0) {
+            publishedGeneration_ = 1;
+        }
+    }
+
+    lastRenderedGeneration_.store(0);
+    updatesPerSecond_.store(0);
+}
+
 // Pins the current published buffer for renderer-side read-only access.
 PublishedWorldSnapshot SimulationRuntime::acquirePublishedSnapshot() {
     PublishedWorldSnapshot snapshot;

@@ -3,8 +3,8 @@
 #include <iostream>
 
 #include "AppController.h"
+#include "GameSession.h"
 #include "Renderer.h"
-#include "SimulationRuntime.h"
 
 // Boots the simulation, controller, and renderer for the desktop prototype.
 int main() {
@@ -15,14 +15,14 @@ int main() {
         runtimeOptions.manualL2BytesPerLogicalThread = 0;
         runtimeOptions.usableL2Fraction = 0.75;
 
-        SimulationRuntime simulationRuntime(runtimeOptions);
-        simulationRuntime.start();
+        GameSession gameSession(runtimeOptions);
+        gameSession.loadOrCreateRegion();
 
-        AppController appController(simulationRuntime);
-        Renderer renderer(simulationRuntime, appController);
+        AppController appController(gameSession);
+        Renderer renderer(gameSession, appController);
         const int rendererExitCode = renderer.run();
 
-        simulationRuntime.stop();
+        gameSession.shutdown();
         return rendererExitCode;
     } catch (const std::exception& error) {
         std::cerr << "Fatal error: " << error.what() << std::endl;

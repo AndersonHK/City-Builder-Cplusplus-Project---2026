@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "ChunkConfig.h"
+#include "City.h"
 #include "CityParameters.h"
 #include "CommuteTypes.h"
 #include "Lot.h"
@@ -188,6 +189,8 @@ public:
 
     bool buildLotPreviewInstance(const std::string& lotAssetId, int tileX, int tileY, int rotationSteps, LotRenderInstance& renderInstance) const;
     TileQueryResult queryTile(int tileX, int tileY) const;
+    CitySaveState exportCitySaveState() const;
+    void importCitySaveState(const CitySaveState& saveState);
 
     PublishedWorldSnapshot acquirePublishedSnapshot();
     void releasePublishedSnapshot(const PublishedWorldSnapshot& snapshot);

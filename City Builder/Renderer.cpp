@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "City.h"
 #include "RoadRenderState.h"
 #include "ShaderProgram.h"
 
@@ -27,6 +28,8 @@ const int kRoadAtlasTileSize = 32;
 const float kTileStateScalarScale = 640000.0f;
 const float kRoadGhostAlpha = 0.46f;
 const float kLotGhostAlpha = 0.42f;
+const float kRegionCellWorldSize = 1024.0f;
+const float kRegionCellWorldGap = 0.0f;
 const std::uint8_t kOccupiedTileLiftMask = 255u;
 
 struct Vec3 {
@@ -127,6 +130,24 @@ struct Frustum {
     Plane planes[6];
 };
 
+enum CameraProjectionMode {
+    CameraProjectionPerspective,
+    CameraProjectionOrthographic
+};
+
+struct CameraSpec {
+    Vec3 target;
+    Vec3 up;
+    float yawRadians;
+    float pitchRadians;
+    float distance;
+    float verticalFieldOfViewRadians;
+    float orthographicHeight;
+    float nearPlane;
+    float farPlane;
+    CameraProjectionMode projectionMode;
+};
+
 struct CameraState {
     Vec3 position;
     Vec3 target;
@@ -178,6 +199,34 @@ struct RouteArrowInstanceData {
     float colorG;
     float colorB;
     float colorPadding;
+};
+
+struct RegionPreviewInstanceData {
+    float originX;
+    float originZ;
+    float sizeX;
+    float sizeZ;
+
+    RegionPreviewInstanceData()
+        : originX(0.0f),
+          originZ(0.0f),
+          sizeX(1.0f),
+          sizeZ(1.0f) {
+    }
+};
+
+struct RegionPreviewTextureCache {
+    int regionX;
+    int regionY;
+    GLuint textureId;
+    std::uint64_t previewRevision;
+
+    RegionPreviewTextureCache()
+        : regionX(0),
+          regionY(0),
+          textureId(0),
+          previewRevision(std::numeric_limits<std::uint64_t>::max()) {
+    }
 };
 
 struct RoadPreviewAxisKey {
@@ -351,6 +400,11 @@ public:
             return;
         }
 
+        double mouseX = 0.0;
+        double mouseY = 0.0;
+        glfwGetCursorPos(window, &mouseX, &mouseY);
+        callbacks->appController_.onCursorMoved(mouseX, mouseY);
+
         if (button == GLFW_MOUSE_BUTTON_1 && action == GLFW_PRESS) {
             callbacks->appController_.onLeftMouseButtonPressed();
         } else if (button == GLFW_MOUSE_BUTTON_1 && action == GLFW_RELEASE) {
@@ -495,6 +549,19 @@ Mat4 Perspective(float verticalFieldOfViewRadians, float aspectRatio, float near
     matrix.data[10] = -(farPlane + nearPlane) / (farPlane - nearPlane);
     matrix.data[11] = -1.0f;
     matrix.data[14] = -(2.0f * farPlane * nearPlane) / (farPlane - nearPlane);
+    return matrix;
+}
+
+// Builds an orthographic projection with OpenGL clip-space depth.
+Mat4 Orthographic(float left, float right, float bottom, float top, float nearPlane, float farPlane) {
+    Mat4 matrix;
+    matrix.data[0] = 2.0f / (right - left);
+    matrix.data[5] = 2.0f / (top - bottom);
+    matrix.data[10] = -2.0f / (farPlane - nearPlane);
+    matrix.data[12] = -(right + left) / (right - left);
+    matrix.data[13] = -(top + bottom) / (top - bottom);
+    matrix.data[14] = -(farPlane + nearPlane) / (farPlane - nearPlane);
+    matrix.data[15] = 1.0f;
     return matrix;
 }
 
@@ -693,6 +760,35 @@ Frustum ExtractFrustum(const Mat4& viewProjection) {
     frustum.planes[4] = NormalizePlane(Plane{row3x + row2x, row3y + row2y, row3z + row2z, row3w + row2w});
     frustum.planes[5] = NormalizePlane(Plane{row3x - row2x, row3y - row2y, row3z - row2z, row3w - row2w});
     return frustum;
+}
+
+float AspectRatioForFramebuffer(int framebufferWidth, int framebufferHeight) {
+    return static_cast<float>(std::max(1, framebufferWidth)) / static_cast<float>(std::max(1, framebufferHeight));
+}
+
+CameraState BuildCameraFromSpec(const CameraSpec& spec, float aspectRatio) {
+    CameraState cameraState;
+    cameraState.target = spec.target;
+
+    const Vec3 viewDirection(
+        std::cos(spec.pitchRadians) * std::cos(spec.yawRadians),
+        std::sin(spec.pitchRadians),
+        std::cos(spec.pitchRadians) * std::sin(spec.yawRadians));
+    cameraState.position = cameraState.target + (viewDirection * spec.distance);
+    cameraState.view = LookAt(cameraState.position, cameraState.target, spec.up);
+
+    if (spec.projectionMode == CameraProjectionOrthographic) {
+        const float halfHeight = std::max(1.0f, spec.orthographicHeight) * 0.5f;
+        const float halfWidth = halfHeight * std::max(0.001f, aspectRatio);
+        cameraState.projection = Orthographic(-halfWidth, halfWidth, -halfHeight, halfHeight, spec.nearPlane, spec.farPlane);
+    } else {
+        cameraState.projection = Perspective(spec.verticalFieldOfViewRadians, aspectRatio, spec.nearPlane, spec.farPlane);
+    }
+
+    cameraState.viewProjection = Multiply(cameraState.projection, cameraState.view);
+    cameraState.inverseViewProjection = Inverse(cameraState.viewProjection);
+    cameraState.frustum = ExtractFrustum(cameraState.viewProjection);
+    return cameraState;
 }
 
 // Tests whether a chunk bounds box intersects the camera frustum.
@@ -1123,6 +1219,19 @@ void ConfigureRouteArrowVertexArray(GLuint vertexArrayId, GLuint tileVertexBuffe
     glBindVertexArray(0);
 }
 
+void ConfigureRegionPreviewVertexArray(GLuint vertexArrayId, GLuint tileVertexBufferId, GLuint instanceBufferId) {
+    glBindVertexArray(vertexArrayId);
+
+    glBindBuffer(GL_ARRAY_BUFFER, tileVertexBufferId);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(float) * 3, 0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, instanceBufferId);
+    SetupInstanceAttribute(1, 4, sizeof(RegionPreviewInstanceData), 0);
+
+    glBindVertexArray(0);
+}
+
 // Builds conservative world bounds used to cull one chunk.
 Aabb BuildChunkBounds(const ChunkRect& chunkRect) {
     Aabb bounds;
@@ -1395,31 +1504,51 @@ std::vector<RoadInstanceData> BuildRoadChunkInstances(const PublishedWorldSnapsh
 
 // Derives camera matrices and frustum from the current view state.
 CameraState BuildCameraState(const ViewState& viewState) {
-    CameraState cameraState;
-
-    const float aspectRatio = static_cast<float>(std::max(1, viewState.framebufferWidth)) / static_cast<float>(std::max(1, viewState.framebufferHeight));
-    const float pitchRadians = DegreesToRadians(56.0f);
-    const float yawRadians = DegreesToRadians(-45.0f);
+    const float aspectRatio = AspectRatioForFramebuffer(viewState.framebufferWidth, viewState.framebufferHeight);
     const float halfSpan = static_cast<float>(viewState.visibleTiles) * 0.5f;
-    const float distance = std::max(halfSpan * (2.10f + std::max(0.0f, 1.0f - aspectRatio)), 16.0f);
-
-    cameraState.target = Vec3(
+    CameraSpec spec;
+    spec.target = Vec3(
         static_cast<float>(viewState.cameraX) + static_cast<float>(viewState.visibleTiles) * 0.5f,
         0.0f,
         static_cast<float>(viewState.cameraY) + static_cast<float>(viewState.visibleTiles) * 0.5f);
+    spec.up = Vec3(0.0f, 1.0f, 0.0f);
+    spec.yawRadians = DegreesToRadians(-45.0f);
+    spec.pitchRadians = DegreesToRadians(56.0f);
+    spec.distance = std::max(halfSpan * (2.10f + std::max(0.0f, 1.0f - aspectRatio)), 16.0f);
+    spec.verticalFieldOfViewRadians = DegreesToRadians(48.0f);
+    spec.orthographicHeight = static_cast<float>(viewState.visibleTiles);
+    spec.nearPlane = 0.1f;
+    spec.farPlane = 4096.0f;
+    spec.projectionMode = CameraProjectionPerspective;
+    return BuildCameraFromSpec(spec, aspectRatio);
+}
 
-    const Vec3 viewDirection(
-        std::cos(pitchRadians) * std::cos(yawRadians),
-        std::sin(pitchRadians),
-        std::cos(pitchRadians) * std::sin(yawRadians));
-    cameraState.position = cameraState.target + (viewDirection * distance);
+CameraState BuildTopDownOrthographicCameraState(
+    float centerX,
+    float centerZ,
+    float spanX,
+    float spanZ,
+    int framebufferWidth,
+    int framebufferHeight,
+    float padding) {
+    const float aspectRatio = AspectRatioForFramebuffer(framebufferWidth, framebufferHeight);
+    const float paddedSpanX = std::max(1.0f, spanX + padding * 2.0f);
+    const float paddedSpanZ = std::max(1.0f, spanZ + padding * 2.0f);
+    const float orthographicHeight = std::max(paddedSpanZ, paddedSpanX / std::max(0.001f, aspectRatio));
+    const float cameraDistance = std::max(2048.0f, std::max(paddedSpanX, paddedSpanZ) * 2.0f);
 
-    cameraState.view = LookAt(cameraState.position, cameraState.target, Vec3(0.0f, 1.0f, 0.0f));
-    cameraState.projection = Perspective(DegreesToRadians(48.0f), aspectRatio, 0.1f, 4096.0f);
-    cameraState.viewProjection = Multiply(cameraState.projection, cameraState.view);
-    cameraState.inverseViewProjection = Inverse(cameraState.viewProjection);
-    cameraState.frustum = ExtractFrustum(cameraState.viewProjection);
-    return cameraState;
+    CameraSpec spec;
+    spec.target = Vec3(centerX, 0.0f, centerZ);
+    spec.up = Vec3(0.0f, 0.0f, -1.0f);
+    spec.yawRadians = 0.0f;
+    spec.pitchRadians = DegreesToRadians(90.0f);
+    spec.distance = cameraDistance;
+    spec.verticalFieldOfViewRadians = DegreesToRadians(48.0f);
+    spec.orthographicHeight = orthographicHeight;
+    spec.nearPlane = 0.1f;
+    spec.farPlane = cameraDistance + orthographicHeight + 4096.0f;
+    spec.projectionMode = CameraProjectionOrthographic;
+    return BuildCameraFromSpec(spec, aspectRatio);
 }
 
 // Raycasts the mouse cursor against the ground plane to find a tile.
@@ -1527,13 +1656,14 @@ void UploadTileStateChunkTexture(GLuint textureId, const ChunkRect& chunkRect, c
 
 // Packs lot occupancy into the tile-lift mask for one chunk.
 void FillTileLiftChunkPixels(const PublishedWorldSnapshot& snapshot, const ChunkRect& chunkRect, std::vector<std::uint8_t>& texturePixels) {
-    if (snapshot.lotOccupancy == 0) {
-        return;
-    }
-
     const std::size_t chunkTileCount = static_cast<std::size_t>(chunkRect.width) * static_cast<std::size_t>(chunkRect.height);
     if (texturePixels.size() != chunkTileCount) {
         texturePixels.resize(chunkTileCount, 0u);
+    }
+
+    if (snapshot.lotOccupancy == 0) {
+        std::fill(texturePixels.begin(), texturePixels.end(), 0u);
+        return;
     }
 
     std::size_t writeIndex = 0;
@@ -1564,6 +1694,33 @@ void UploadTileLiftChunkTexture(GLuint textureId, const ChunkRect& chunkRect, co
         chunkRect.width,
         chunkRect.height,
         GL_RED,
+        GL_UNSIGNED_BYTE,
+        &texturePixels[0]);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+}
+
+void UploadEmptyGroundRoadChunkTexture(GLuint textureId, const ChunkRect& chunkRect, std::vector<std::uint8_t>& texturePixels) {
+    const std::size_t chunkByteCount =
+        static_cast<std::size_t>(chunkRect.width) *
+        static_cast<std::size_t>(chunkRect.height) *
+        kGroundRoadRenderChannelsPerTile;
+    if (texturePixels.size() != chunkByteCount) {
+        texturePixels.resize(chunkByteCount, 0u);
+    } else {
+        std::fill(texturePixels.begin(), texturePixels.end(), 0u);
+    }
+
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, textureId);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexSubImage2D(
+        GL_TEXTURE_2D,
+        0,
+        chunkRect.startX,
+        chunkRect.startY,
+        chunkRect.width,
+        chunkRect.height,
+        GL_RGBA,
         GL_UNSIGNED_BYTE,
         &texturePixels[0]);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
@@ -1648,11 +1805,172 @@ void DestroyRoadChunkCaches(std::vector<RoadChunkRenderCache>& chunkCaches) {
         }
     }
 }
+
+Vec3 RegionCityOrigin(const City& city) {
+    const float spacing = kRegionCellWorldSize + kRegionCellWorldGap;
+    return Vec3(static_cast<float>(city.regionX()) * spacing, 0.0f, static_cast<float>(city.regionY()) * spacing);
+}
+
+CameraState BuildRegionCameraState(const ViewState& viewState, const Region& region) {
+    float minimumX = 0.0f;
+    float minimumZ = 0.0f;
+    float maximumX = kRegionCellWorldSize;
+    float maximumZ = kRegionCellWorldSize;
+    bool hasCity = false;
+
+    std::size_t cityIndex = 0;
+    for (; cityIndex < region.cities().size(); ++cityIndex) {
+        const Vec3 origin = RegionCityOrigin(*region.cities()[cityIndex]);
+        if (!hasCity) {
+            minimumX = origin.x;
+            minimumZ = origin.z;
+            maximumX = origin.x + kRegionCellWorldSize;
+            maximumZ = origin.z + kRegionCellWorldSize;
+            hasCity = true;
+        } else {
+            minimumX = std::min(minimumX, origin.x);
+            minimumZ = std::min(minimumZ, origin.z);
+            maximumX = std::max(maximumX, origin.x + kRegionCellWorldSize);
+            maximumZ = std::max(maximumZ, origin.z + kRegionCellWorldSize);
+        }
+    }
+
+    const float aspectRatio = AspectRatioForFramebuffer(viewState.framebufferWidth, viewState.framebufferHeight);
+    const float spanX = std::max(1.0f, maximumX - minimumX);
+    const float spanZ = std::max(1.0f, maximumZ - minimumZ);
+    const float span = std::max(spanX, spanZ);
+
+    CameraSpec spec;
+    spec.target = Vec3((minimumX + maximumX) * 0.5f, 0.0f, (minimumZ + maximumZ) * 0.5f);
+    spec.up = Vec3(0.0f, 1.0f, 0.0f);
+    spec.yawRadians = DegreesToRadians(-45.0f);
+    spec.pitchRadians = DegreesToRadians(56.0f);
+    spec.distance = std::max(span * (1.55f + std::max(0.0f, 1.0f - aspectRatio)), 16.0f);
+    spec.verticalFieldOfViewRadians = DegreesToRadians(48.0f);
+    spec.orthographicHeight = span;
+    spec.nearPlane = 0.1f;
+    spec.farPlane = 16384.0f;
+    spec.projectionMode = CameraProjectionPerspective;
+    return BuildCameraFromSpec(spec, aspectRatio);
+}
+
+bool TryPickRegionCity(const ViewState& viewState, const CameraState& cameraState, const Region& region, int& regionX, int& regionY) {
+    const float viewportWidth = static_cast<float>(std::max(1, viewState.framebufferWidth));
+    const float viewportHeight = static_cast<float>(std::max(1, viewState.framebufferHeight));
+    const float normalizedX = (2.0f * static_cast<float>(viewState.mouseX) / viewportWidth) - 1.0f;
+    const float normalizedY = 1.0f - (2.0f * static_cast<float>(viewState.mouseY) / viewportHeight);
+
+    Vec4 nearWorld = Multiply(cameraState.inverseViewProjection, Vec4(normalizedX, normalizedY, -1.0f, 1.0f));
+    Vec4 farWorld = Multiply(cameraState.inverseViewProjection, Vec4(normalizedX, normalizedY, 1.0f, 1.0f));
+    if (std::fabs(nearWorld.w) <= std::numeric_limits<float>::epsilon() || std::fabs(farWorld.w) <= std::numeric_limits<float>::epsilon()) {
+        return false;
+    }
+
+    nearWorld.x /= nearWorld.w;
+    nearWorld.y /= nearWorld.w;
+    nearWorld.z /= nearWorld.w;
+    farWorld.x /= farWorld.w;
+    farWorld.y /= farWorld.w;
+    farWorld.z /= farWorld.w;
+
+    const Vec3 rayOrigin(nearWorld.x, nearWorld.y, nearWorld.z);
+    const Vec3 rayDirection = Normalize(Vec3(farWorld.x - nearWorld.x, farWorld.y - nearWorld.y, farWorld.z - nearWorld.z));
+    if (std::fabs(rayDirection.y) <= 0.0001f) {
+        return false;
+    }
+
+    const float rayDistance = -rayOrigin.y / rayDirection.y;
+    if (rayDistance < 0.0f) {
+        return false;
+    }
+
+    const Vec3 hitPoint = rayOrigin + (rayDirection * rayDistance);
+    std::size_t cityIndex = 0;
+    for (; cityIndex < region.cities().size(); ++cityIndex) {
+        const City& city = *region.cities()[cityIndex];
+        const Vec3 origin = RegionCityOrigin(city);
+        if (hitPoint.x >= origin.x && hitPoint.x <= origin.x + kRegionCellWorldSize &&
+            hitPoint.z >= origin.z && hitPoint.z <= origin.z + kRegionCellWorldSize) {
+            regionX = city.regionX();
+            regionY = city.regionY();
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void DestroyRegionPreviewTextureCaches(std::vector<RegionPreviewTextureCache>& caches) {
+    std::size_t cacheIndex = 0;
+    for (; cacheIndex < caches.size(); ++cacheIndex) {
+        if (caches[cacheIndex].textureId != 0) {
+            glDeleteTextures(1, &caches[cacheIndex].textureId);
+            caches[cacheIndex].textureId = 0;
+        }
+    }
+    caches.clear();
+}
+
+void SynchronizeRegionPreviewTextures(const Region& region, std::vector<RegionPreviewTextureCache>& caches) {
+    bool recreate = caches.size() != region.cities().size();
+    if (!recreate) {
+        std::size_t cityIndex = 0;
+        for (; cityIndex < region.cities().size(); ++cityIndex) {
+            if (caches[cityIndex].regionX != region.cities()[cityIndex]->regionX() ||
+                caches[cityIndex].regionY != region.cities()[cityIndex]->regionY()) {
+                recreate = true;
+                break;
+            }
+        }
+    }
+
+    if (recreate) {
+        DestroyRegionPreviewTextureCaches(caches);
+        caches.resize(region.cities().size());
+    }
+
+    std::size_t cityIndex = 0;
+    for (; cityIndex < region.cities().size(); ++cityIndex) {
+        const City& city = *region.cities()[cityIndex];
+        RegionPreviewTextureCache& cache = caches[cityIndex];
+        cache.regionX = city.regionX();
+        cache.regionY = city.regionY();
+
+        if (cache.textureId == 0) {
+            glGenTextures(1, &cache.textureId);
+            glBindTexture(GL_TEXTURE_2D, cache.textureId);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            cache.previewRevision = std::numeric_limits<std::uint64_t>::max();
+        }
+
+        if (cache.previewRevision != city.previewRevision() && !city.previewPixels().empty()) {
+            glActiveTexture(GL_TEXTURE6);
+            glBindTexture(GL_TEXTURE_2D, cache.textureId);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            glTexImage2D(
+                GL_TEXTURE_2D,
+                0,
+                GL_RGBA8,
+                city.previewWidth(),
+                city.previewHeight(),
+                0,
+                GL_RGBA,
+                GL_UNSIGNED_BYTE,
+                &city.previewPixels()[0]);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+            cache.previewRevision = city.previewRevision();
+        }
+    }
+}
+
 }
 
 // Connects the renderer to immutable snapshots and user input state.
-Renderer::Renderer(SimulationRuntime& simulationRuntime, AppController& appController)
-    : simulationRuntime_(simulationRuntime),
+Renderer::Renderer(GameSession& gameSession, AppController& appController)
+    : gameSession_(gameSession),
       appController_(appController) {
 }
 
@@ -1684,6 +2002,8 @@ int Renderer::run() {
         glfwTerminate();
         return 1;
     }
+
+    SimulationRuntime& simulationRuntime = gameSession_.runtime();
 
     RendererCallbacks callbacks(appController_);
     glfwSetWindowUserPointer(window, &callbacks);
@@ -1742,8 +2062,8 @@ int Renderer::run() {
         GL_TEXTURE_2D,
         0,
         GL_RG16_SNORM,
-        simulationRuntime_.mapWidth(),
-        simulationRuntime_.mapHeight(),
+        simulationRuntime.mapWidth(),
+        simulationRuntime.mapHeight(),
         0,
         GL_RG,
         GL_SHORT,
@@ -1760,8 +2080,8 @@ int Renderer::run() {
         GL_TEXTURE_2D,
         0,
         GL_R8,
-        simulationRuntime_.mapWidth(),
-        simulationRuntime_.mapHeight(),
+        simulationRuntime.mapWidth(),
+        simulationRuntime.mapHeight(),
         0,
         GL_RED,
         GL_UNSIGNED_BYTE,
@@ -1778,8 +2098,8 @@ int Renderer::run() {
         GL_TEXTURE_2D,
         0,
         GL_RGBA8,
-        simulationRuntime_.mapWidth(),
-        simulationRuntime_.mapHeight(),
+        simulationRuntime.mapWidth(),
+        simulationRuntime.mapHeight(),
         0,
         GL_RGBA,
         GL_UNSIGNED_BYTE,
@@ -1796,8 +2116,8 @@ int Renderer::run() {
         GL_TEXTURE_2D,
         0,
         GL_RGBA8,
-        simulationRuntime_.mapWidth(),
-        simulationRuntime_.mapHeight(),
+        simulationRuntime.mapWidth(),
+        simulationRuntime.mapHeight(),
         0,
         GL_RGBA,
         GL_UNSIGNED_BYTE,
@@ -1806,15 +2126,15 @@ int Renderer::run() {
     const GLuint roadBaseAtlasTextureId = CreateRoadAtlasTexture(false);
     const GLuint roadArrowAtlasTextureId = CreateRoadAtlasTexture(true);
 
-    std::vector<TileChunkRenderCache> chunkCaches(simulationRuntime_.chunkLayout().size());
+    std::vector<TileChunkRenderCache> chunkCaches(simulationRuntime.chunkLayout().size());
     std::size_t chunkIndex = 0;
     for (; chunkIndex < chunkCaches.size(); ++chunkIndex) {
-        chunkCaches[chunkIndex].chunkRect = simulationRuntime_.chunkLayout()[chunkIndex];
+        chunkCaches[chunkIndex].chunkRect = simulationRuntime.chunkLayout()[chunkIndex];
         chunkCaches[chunkIndex].worldBounds = BuildChunkBounds(chunkCaches[chunkIndex].chunkRect);
         glGenVertexArrays(1, &chunkCaches[chunkIndex].vertexArrayId);
         glGenBuffers(1, &chunkCaches[chunkIndex].instanceBufferId);
         ConfigureTileChunkVertexArray(chunkCaches[chunkIndex].vertexArrayId, tileVertexBufferId, chunkCaches[chunkIndex].instanceBufferId);
-        chunkCaches[chunkIndex].instances = BuildTileChunkInstances(simulationRuntime_.mapWidth(), simulationRuntime_.mapHeight(), chunkCaches[chunkIndex].chunkRect);
+        chunkCaches[chunkIndex].instances = BuildTileChunkInstances(simulationRuntime.mapWidth(), simulationRuntime.mapHeight(), chunkCaches[chunkIndex].chunkRect);
         chunkCaches[chunkIndex].instanceCount = static_cast<GLsizei>(chunkCaches[chunkIndex].instances.size());
         glBindBuffer(GL_ARRAY_BUFFER, chunkCaches[chunkIndex].instanceBufferId);
         glBufferData(
@@ -1824,9 +2144,9 @@ int Renderer::run() {
             GL_STATIC_DRAW);
     }
 
-    std::vector<RoadChunkRenderCache> roadChunkCaches(simulationRuntime_.chunkLayout().size());
+    std::vector<RoadChunkRenderCache> roadChunkCaches(simulationRuntime.chunkLayout().size());
     for (chunkIndex = 0; chunkIndex < roadChunkCaches.size(); ++chunkIndex) {
-        roadChunkCaches[chunkIndex].chunkRect = simulationRuntime_.chunkLayout()[chunkIndex];
+        roadChunkCaches[chunkIndex].chunkRect = simulationRuntime.chunkLayout()[chunkIndex];
         roadChunkCaches[chunkIndex].worldBounds = BuildChunkBounds(roadChunkCaches[chunkIndex].chunkRect);
         glGenVertexArrays(1, &roadChunkCaches[chunkIndex].vertexArrayId);
         glGenBuffers(1, &roadChunkCaches[chunkIndex].instanceBufferId);
@@ -1857,10 +2177,44 @@ int Renderer::run() {
     glGenBuffers(1, &lotGhostInstanceBufferId);
     ConfigureLotVertexArray(lotGhostVertexArrayId, lotVertexBufferId, lotGhostInstanceBufferId);
 
+    GLuint regionPreviewVertexArrayId = 0;
+    GLuint regionPreviewInstanceBufferId = 0;
+    glGenVertexArrays(1, &regionPreviewVertexArrayId);
+    glGenBuffers(1, &regionPreviewInstanceBufferId);
+    ConfigureRegionPreviewVertexArray(regionPreviewVertexArrayId, tileVertexBufferId, regionPreviewInstanceBufferId);
+
+    GLuint cityPreviewFramebufferId = 0;
+    GLuint cityPreviewColorTextureId = 0;
+    GLuint cityPreviewDepthRenderbufferId = 0;
+    glGenFramebuffers(1, &cityPreviewFramebufferId);
+    glBindFramebuffer(GL_FRAMEBUFFER, cityPreviewFramebufferId);
+    glGenTextures(1, &cityPreviewColorTextureId);
+    glBindTexture(GL_TEXTURE_2D, cityPreviewColorTextureId);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, City::kPreviewWidth, City::kPreviewHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, cityPreviewColorTextureId, 0);
+    glGenRenderbuffers(1, &cityPreviewDepthRenderbufferId);
+    glBindRenderbuffer(GL_RENDERBUFFER, cityPreviewDepthRenderbufferId);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, City::kPreviewWidth, City::kPreviewHeight);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, cityPreviewDepthRenderbufferId);
+    const bool cityPreviewFramebufferComplete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    if (!cityPreviewFramebufferComplete) {
+        std::cerr << "City preview framebuffer is incomplete." << std::endl;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
     ShaderProgram shaderProgram;
     if (!shaderProgram.loadFromFile(BuildShaderPath())) {
         DestroyTileChunkCaches(chunkCaches);
         DestroyRoadChunkCaches(roadChunkCaches);
+        glDeleteRenderbuffers(1, &cityPreviewDepthRenderbufferId);
+        glDeleteTextures(1, &cityPreviewColorTextureId);
+        glDeleteFramebuffers(1, &cityPreviewFramebufferId);
+        glDeleteBuffers(1, &regionPreviewInstanceBufferId);
+        glDeleteVertexArrays(1, &regionPreviewVertexArrayId);
         glDeleteBuffers(1, &roadGhostInstanceBufferId);
         glDeleteVertexArrays(1, &roadGhostVertexArrayId);
         glDeleteBuffers(1, &routeArrowInstanceBufferId);
@@ -1898,12 +2252,14 @@ int Renderer::run() {
     const GLint lotAlphaScaleLocation = glGetUniformLocation(shaderProgram.programId(), "uLotAlphaScale");
     const GLint lotTintColorLocation = glGetUniformLocation(shaderProgram.programId(), "uLotTintColor");
     const GLint lotTintStrengthLocation = glGetUniformLocation(shaderProgram.programId(), "uLotTintStrength");
+    const GLint regionPreviewTextureLocation = glGetUniformLocation(shaderProgram.programId(), "uRegionPreviewTexture");
     glUniform1i(tileTextureLocation, 0);
     glUniform1i(groundRoadStateTextureLocation, 1);
     glUniform1i(roadBaseAtlasTextureLocation, 2);
     glUniform1i(roadArrowAtlasTextureLocation, 3);
     glUniform1i(tileLiftTextureLocation, 4);
     glUniform1i(tileOverlayTextureLocation, 5);
+    glUniform1i(regionPreviewTextureLocation, 6);
     glUniform2f(roadAtlasGridLocation, static_cast<float>(kRoadAtlasColumns), static_cast<float>(kRoadAtlasRows));
     glUniform1f(roadAlphaScaleLocation, 1.0f);
     glUniform3f(roadTintColorLocation, 1.0f, 1.0f, 1.0f);
@@ -1914,14 +2270,140 @@ int Renderer::run() {
 
     std::vector<GLshort> tileStateChunkPixels;
     std::vector<std::uint8_t> tileLiftChunkPixels;
+    std::vector<std::uint8_t> emptyGroundRoadChunkPixels;
     std::vector<LotInstanceData> lotInstances;
     std::vector<LotInstanceData> lotGhostInstances;
     std::vector<RoadInstanceData> roadGhostInstances;
     std::vector<RouteArrowInstanceData> routeArrowInstances;
+    std::vector<RegionPreviewTextureCache> regionPreviewTextureCaches;
     std::uint64_t lastUploadedLotRevision = std::numeric_limits<std::uint64_t>::max();
     std::uint64_t lastUploadedQueryRouteRevision = std::numeric_limits<std::uint64_t>::max();
     std::vector<std::uint64_t> lastUploadedGroundRoadChunkRevisions(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
     std::vector<std::uint64_t> lastUploadedTileOverlayChunkRevisions(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
+    bool lastFrameWasRegion = true;
+    std::uint64_t lastRegionPreviewCacheRevision = std::numeric_limits<std::uint64_t>::max();
+    std::vector<std::uint8_t> cityPreviewReadPixels(static_cast<std::size_t>(City::kPreviewWidth) * static_cast<std::size_t>(City::kPreviewHeight) * 4u, 0u);
+
+    auto renderCityPreview = [&] (City& city) -> bool {
+        if (!cityPreviewFramebufferComplete) {
+            return false;
+        }
+
+        simulationRuntime.stop();
+        simulationRuntime.importCitySaveState(city.saveState());
+        const PublishedWorldSnapshot snapshot = simulationRuntime.acquirePublishedSnapshot();
+        if (snapshot.tiles == 0 || snapshot.chunkRevisions == 0) {
+            simulationRuntime.releasePublishedSnapshot(snapshot);
+            return false;
+        }
+
+        const CameraState previewCameraState = BuildTopDownOrthographicCameraState(
+            static_cast<float>(simulationRuntime.mapWidth()) * 0.5f,
+            static_cast<float>(simulationRuntime.mapHeight()) * 0.5f,
+            static_cast<float>(simulationRuntime.mapWidth()),
+            static_cast<float>(simulationRuntime.mapHeight()),
+            City::kPreviewWidth,
+            City::kPreviewHeight,
+            0.0f);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, cityPreviewFramebufferId);
+        glViewport(0, 0, City::kPreviewWidth, City::kPreviewHeight);
+        glEnable(GL_DEPTH_TEST);
+        glDepthMask(GL_TRUE);
+        glClearColor(0.08f, 0.11f, 0.15f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        std::size_t uploadChunkIndex = 0;
+        for (; uploadChunkIndex < chunkCaches.size(); ++uploadChunkIndex) {
+            const ChunkRect& chunkRect = chunkCaches[uploadChunkIndex].chunkRect;
+            FillTileStateChunkPixels(snapshot, chunkRect, tileStateChunkPixels);
+            UploadTileStateChunkTexture(tileStateTextureId, chunkRect, tileStateChunkPixels);
+            FillTileLiftChunkPixels(snapshot, chunkRect, tileLiftChunkPixels);
+            UploadTileLiftChunkTexture(tileLiftTextureId, chunkRect, tileLiftChunkPixels);
+            if (snapshot.groundRoadRenderState != 0 && !snapshot.groundRoadRenderState->empty()) {
+                UpdateGroundRoadChunkTexture(groundRoadStateTextureId, snapshot, chunkRect);
+            } else {
+                UploadEmptyGroundRoadChunkTexture(groundRoadStateTextureId, chunkRect, emptyGroundRoadChunkPixels);
+            }
+        }
+
+        for (uploadChunkIndex = 0; uploadChunkIndex < roadChunkCaches.size(); ++uploadChunkIndex) {
+            roadChunkCaches[uploadChunkIndex].instances = BuildRoadChunkInstances(snapshot, roadChunkCaches[uploadChunkIndex].chunkRect);
+            roadChunkCaches[uploadChunkIndex].instanceCount = static_cast<GLsizei>(roadChunkCaches[uploadChunkIndex].instances.size());
+            glBindBuffer(GL_ARRAY_BUFFER, roadChunkCaches[uploadChunkIndex].instanceBufferId);
+            glBufferData(
+                GL_ARRAY_BUFFER,
+                static_cast<GLsizeiptr>(roadChunkCaches[uploadChunkIndex].instances.size() * sizeof(RoadInstanceData)),
+                roadChunkCaches[uploadChunkIndex].instances.empty() ? 0 : &roadChunkCaches[uploadChunkIndex].instances[0],
+                GL_DYNAMIC_DRAW);
+        }
+
+        if (snapshot.lots != 0) {
+            lotInstances = BuildLotInstances(*snapshot.lots);
+            glBindBuffer(GL_ARRAY_BUFFER, lotInstanceBufferId);
+            glBufferData(
+                GL_ARRAY_BUFFER,
+                static_cast<GLsizeiptr>(lotInstances.size() * sizeof(LotInstanceData)),
+                lotInstances.empty() ? 0 : &lotInstances[0],
+                GL_DYNAMIC_DRAW);
+        } else {
+            lotInstances.clear();
+        }
+
+        shaderProgram.bind();
+        glUniformMatrix4fv(viewProjectionLocation, 1, GL_FALSE, previewCameraState.viewProjection.data);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, tileStateTextureId);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, groundRoadStateTextureId);
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, roadBaseAtlasTextureId);
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, roadArrowAtlasTextureId);
+        glActiveTexture(GL_TEXTURE4);
+        glBindTexture(GL_TEXTURE_2D, tileLiftTextureId);
+        glActiveTexture(GL_TEXTURE5);
+        glBindTexture(GL_TEXTURE_2D, tileOverlayTextureId);
+
+        glUniform1i(renderModeLocation, 0);
+        for (uploadChunkIndex = 0; uploadChunkIndex < chunkCaches.size(); ++uploadChunkIndex) {
+            const TileChunkRenderCache& cache = chunkCaches[uploadChunkIndex];
+            glBindVertexArray(cache.vertexArrayId);
+            glDrawArraysInstanced(GL_TRIANGLES, 0, 6, cache.instanceCount);
+        }
+
+        glUniform1i(renderModeLocation, 2);
+        glUniform1f(roadAlphaScaleLocation, 1.0f);
+        glUniform3f(roadTintColorLocation, 1.0f, 1.0f, 1.0f);
+        glUniform1f(roadTintStrengthLocation, 0.0f);
+        for (uploadChunkIndex = 0; uploadChunkIndex < roadChunkCaches.size(); ++uploadChunkIndex) {
+            const RoadChunkRenderCache& roadCache = roadChunkCaches[uploadChunkIndex];
+            if (roadCache.instanceCount == 0) {
+                continue;
+            }
+
+            glBindVertexArray(roadCache.vertexArrayId);
+            glDrawArraysInstanced(GL_TRIANGLES, 0, 6, roadCache.instanceCount);
+        }
+
+        if (!lotInstances.empty()) {
+            glUniform1i(renderModeLocation, 1);
+            glUniform1f(lotAlphaScaleLocation, 1.0f);
+            glUniform3f(lotTintColorLocation, 1.0f, 1.0f, 1.0f);
+            glUniform1f(lotTintStrengthLocation, 0.0f);
+            glBindVertexArray(lotVertexArrayId);
+            glDrawArraysInstanced(GL_TRIANGLES, 0, 36, static_cast<GLsizei>(lotInstances.size()));
+        }
+
+        glBindVertexArray(0);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadPixels(0, 0, City::kPreviewWidth, City::kPreviewHeight, GL_RGBA, GL_UNSIGNED_BYTE, &cityPreviewReadPixels[0]);
+        glPixelStorei(GL_PACK_ALIGNMENT, 4);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        city.setPreviewPixels(cityPreviewReadPixels);
+        simulationRuntime.releasePublishedSnapshot(snapshot);
+        return true;
+    };
 
     int renderedFrames = 0;
     RendererFrameMetrics lastFrameMetrics;
@@ -1937,12 +2419,88 @@ int Renderer::run() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         const ViewState viewState = appController_.viewState();
+        if (gameSession_.isRegionMode()) {
+            const CameraState regionCameraState = BuildRegionCameraState(viewState, gameSession_.region());
+            int hoveredRegionX = 0;
+            int hoveredRegionY = 0;
+            const bool hasHoveredRegion = TryPickRegionCity(viewState, regionCameraState, gameSession_.region(), hoveredRegionX, hoveredRegionY);
+            appController_.setHoveredRegionCity(hoveredRegionX, hoveredRegionY, hasHoveredRegion);
+
+            std::size_t previewCityIndex = 0;
+            for (; previewCityIndex < gameSession_.region().cities().size(); ++previewCityIndex) {
+                City& city = *gameSession_.region().cities()[previewCityIndex];
+                if (!city.hasPreviewPixels()) {
+                    renderCityPreview(city);
+                }
+            }
+
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glViewport(0, 0, framebufferWidth, framebufferHeight);
+            glClearColor(0.08f, 0.11f, 0.15f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+            if (lastRegionPreviewCacheRevision != gameSession_.region().revision()) {
+                DestroyRegionPreviewTextureCaches(regionPreviewTextureCaches);
+                lastRegionPreviewCacheRevision = gameSession_.region().revision();
+            }
+            SynchronizeRegionPreviewTextures(gameSession_.region(), regionPreviewTextureCaches);
+            shaderProgram.bind();
+            glUniformMatrix4fv(viewProjectionLocation, 1, GL_FALSE, regionCameraState.viewProjection.data);
+            glUniform1i(renderModeLocation, 5);
+            glActiveTexture(GL_TEXTURE6);
+
+            std::size_t cityIndex = 0;
+            for (; cityIndex < gameSession_.region().cities().size(); ++cityIndex) {
+                const City& city = *gameSession_.region().cities()[cityIndex];
+                if (cityIndex >= regionPreviewTextureCaches.size() || regionPreviewTextureCaches[cityIndex].textureId == 0) {
+                    continue;
+                }
+
+                const Vec3 origin = RegionCityOrigin(city);
+                RegionPreviewInstanceData instance;
+                instance.originX = origin.x;
+                instance.originZ = origin.z;
+                instance.sizeX = kRegionCellWorldSize;
+                instance.sizeZ = kRegionCellWorldSize;
+
+                glBindTexture(GL_TEXTURE_2D, regionPreviewTextureCaches[cityIndex].textureId);
+                glBindBuffer(GL_ARRAY_BUFFER, regionPreviewInstanceBufferId);
+                glBufferData(GL_ARRAY_BUFFER, sizeof(RegionPreviewInstanceData), &instance, GL_DYNAMIC_DRAW);
+                glBindVertexArray(regionPreviewVertexArrayId);
+                glDrawArraysInstanced(GL_TRIANGLES, 0, 6, 1);
+            }
+
+            glBindVertexArray(0);
+            appController_.processPendingRegionClick();
+            glfwSwapBuffers(window);
+            glfwPollEvents();
+            lastFrameWasRegion = true;
+            continue;
+        }
+
+        if (lastFrameWasRegion) {
+            std::size_t cacheIndex = 0;
+            for (; cacheIndex < chunkCaches.size(); ++cacheIndex) {
+                chunkCaches[cacheIndex].lastUploadedTileStateGeneration = std::numeric_limits<std::uint64_t>::max();
+                chunkCaches[cacheIndex].lastUploadedLiftRevision = std::numeric_limits<std::uint64_t>::max();
+            }
+            for (cacheIndex = 0; cacheIndex < roadChunkCaches.size(); ++cacheIndex) {
+                roadChunkCaches[cacheIndex].lastUploadedRevision = 0;
+                roadChunkCaches[cacheIndex].instanceCount = 0;
+            }
+            lastUploadedGroundRoadChunkRevisions.assign(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
+            lastUploadedTileOverlayChunkRevisions.assign(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
+            lastUploadedLotRevision = std::numeric_limits<std::uint64_t>::max();
+            lastUploadedQueryRouteRevision = std::numeric_limits<std::uint64_t>::max();
+            lastFrameWasRegion = false;
+        }
+
         const CameraState cameraState = BuildCameraState(viewState);
-        const PublishedWorldSnapshot snapshot = simulationRuntime_.acquirePublishedSnapshot();
+        const PublishedWorldSnapshot snapshot = simulationRuntime.acquirePublishedSnapshot();
 
         int hoveredTileX = 0;
         int hoveredTileY = 0;
-        const bool hasHoveredTile = TryPickGroundTile(viewState, cameraState, simulationRuntime_.mapWidth(), simulationRuntime_.mapHeight(), hoveredTileX, hoveredTileY);
+        const bool hasHoveredTile = TryPickGroundTile(viewState, cameraState, simulationRuntime.mapWidth(), simulationRuntime.mapHeight(), hoveredTileX, hoveredTileY);
         appController_.setHoveredTile(hoveredTileX, hoveredTileY, hasHoveredTile);
 
         if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_1) == GLFW_PRESS) {
@@ -1955,7 +2513,7 @@ int Renderer::run() {
         RoadStrokeCommand roadGhostCommand;
         if (appController_.roadPreviewStroke(roadGhostCommand)) {
             const std::chrono::steady_clock::time_point roadGhostUploadStart = std::chrono::steady_clock::now();
-            roadGhostInstances = BuildRoadPreviewInstances(roadGhostCommand, simulationRuntime_.mapWidth(), simulationRuntime_.mapHeight());
+            roadGhostInstances = BuildRoadPreviewInstances(roadGhostCommand, simulationRuntime.mapWidth(), simulationRuntime.mapHeight());
             glBindBuffer(GL_ARRAY_BUFFER, roadGhostInstanceBufferId);
             glBufferData(
                 GL_ARRAY_BUFFER,
@@ -1976,7 +2534,7 @@ int Renderer::run() {
             const std::chrono::steady_clock::time_point lotGhostUploadStart = std::chrono::steady_clock::now();
             LotRenderInstance lotGhostRenderInstance;
             lotGhostInstances.clear();
-            if (simulationRuntime_.buildLotPreviewInstance(lotGhostAssetId, lotGhostTileX, lotGhostTileY, lotGhostRotationSteps, lotGhostRenderInstance)) {
+            if (simulationRuntime.buildLotPreviewInstance(lotGhostAssetId, lotGhostTileX, lotGhostTileY, lotGhostRotationSteps, lotGhostRenderInstance)) {
                 lotGhostInstances.push_back(BuildLotInstance(lotGhostRenderInstance));
             }
             glBindBuffer(GL_ARRAY_BUFFER, lotGhostInstanceBufferId);
@@ -2271,7 +2829,7 @@ int Renderer::run() {
             appController_.setHoveredTile(0, 0, false);
         }
 
-        simulationRuntime_.releasePublishedSnapshot(snapshot);
+        simulationRuntime.releasePublishedSnapshot(snapshot);
         glfwSwapBuffers(window);
         glfwPollEvents();
 
@@ -2279,10 +2837,10 @@ int Renderer::run() {
         ++renderedFrames;
         const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
         if (std::chrono::duration_cast<std::chrono::seconds>(now - counterStart).count() >= 1) {
-            const RuntimeTimingSnapshot runtimeTimings = simulationRuntime_.timingSnapshot();
+            const RuntimeTimingSnapshot runtimeTimings = simulationRuntime.timingSnapshot();
             std::cout
                 << "FPS " << renderedFrames
-                << " Updates " << simulationRuntime_.updatesPerSecond()
+                << " Updates " << simulationRuntime.updatesPerSecond()
                 << " Sim(us) n=" << runtimeTimings.neighborPassMicros
                 << " cmd=" << runtimeTimings.commandPassMicros
                 << " lot=" << runtimeTimings.lotEffectsMicros
@@ -2325,6 +2883,12 @@ int Renderer::run() {
 
     DestroyTileChunkCaches(chunkCaches);
     DestroyRoadChunkCaches(roadChunkCaches);
+    DestroyRegionPreviewTextureCaches(regionPreviewTextureCaches);
+    glDeleteRenderbuffers(1, &cityPreviewDepthRenderbufferId);
+    glDeleteTextures(1, &cityPreviewColorTextureId);
+    glDeleteFramebuffers(1, &cityPreviewFramebufferId);
+    glDeleteBuffers(1, &regionPreviewInstanceBufferId);
+    glDeleteVertexArrays(1, &regionPreviewVertexArrayId);
     glDeleteBuffers(1, &roadGhostInstanceBufferId);
     glDeleteVertexArrays(1, &roadGhostVertexArrayId);
     glDeleteBuffers(1, &routeArrowInstanceBufferId);
