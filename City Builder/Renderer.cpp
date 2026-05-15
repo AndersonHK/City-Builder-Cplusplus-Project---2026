@@ -164,6 +164,17 @@ struct RoadInstanceData {
     float dividerMask;
 };
 
+struct RouteArrowInstanceData {
+    float originX;
+    float originZ;
+    float sizeX;
+    float sizeZ;
+    float directionX;
+    float directionZ;
+    float lift;
+    float alpha;
+};
+
 struct RoadPreviewAxisKey {
     int tileX;
     int tileY;
@@ -1085,6 +1096,21 @@ void ConfigureRoadChunkVertexArray(GLuint vertexArrayId, GLuint tileVertexBuffer
     glBindVertexArray(0);
 }
 
+// Wires stretched route-arrow quads for queried commute paths.
+void ConfigureRouteArrowVertexArray(GLuint vertexArrayId, GLuint tileVertexBufferId, GLuint instanceBufferId) {
+    glBindVertexArray(vertexArrayId);
+
+    glBindBuffer(GL_ARRAY_BUFFER, tileVertexBufferId);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(float) * 3, 0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, instanceBufferId);
+    SetupInstanceAttribute(1, 4, sizeof(RouteArrowInstanceData), 0);
+    SetupInstanceAttribute(2, 4, sizeof(RouteArrowInstanceData), sizeof(float) * 4);
+
+    glBindVertexArray(0);
+}
+
 // Builds conservative world bounds used to cull one chunk.
 Aabb BuildChunkBounds(const ChunkRect& chunkRect) {
     Aabb bounds;
@@ -1156,6 +1182,47 @@ float RoadLayerLift(TransportLayerId layer) {
         default:
             return 0.035f;
     }
+}
+
+std::vector<RouteArrowInstanceData> BuildRouteArrowInstances(const std::vector<CommuteRouteSegment>& segments) {
+    std::vector<RouteArrowInstanceData> instances;
+    instances.reserve(segments.size());
+
+    std::size_t segmentIndex = 0;
+    for (; segmentIndex < segments.size(); ++segmentIndex) {
+        const CommuteRouteSegment& segment = segments[segmentIndex];
+        const int directionX = RoadDirectionDeltaX(segment.direction);
+        const int directionY = RoadDirectionDeltaY(segment.direction);
+        if (directionX == 0 && directionY == 0) {
+            continue;
+        }
+
+        RouteArrowInstanceData instance;
+        instance.directionX = static_cast<float>(directionX);
+        instance.directionZ = static_cast<float>(directionY);
+        instance.lift = RoadLayerLift(segment.layer) + 0.09f;
+        instance.alpha = 0.88f;
+
+        const int minX = std::min(segment.startTileX, segment.endTileX);
+        const int minY = std::min(segment.startTileY, segment.endTileY);
+        const int maxX = std::max(segment.startTileX, segment.endTileX);
+        const int maxY = std::max(segment.startTileY, segment.endTileY);
+        if (directionX != 0) {
+            instance.originX = static_cast<float>(minX);
+            instance.originZ = static_cast<float>(segment.startTileY) + 0.22f;
+            instance.sizeX = static_cast<float>(maxX - minX + 1);
+            instance.sizeZ = 0.56f;
+        } else {
+            instance.originX = static_cast<float>(segment.startTileX) + 0.22f;
+            instance.originZ = static_cast<float>(minY);
+            instance.sizeX = 0.56f;
+            instance.sizeZ = static_cast<float>(maxY - minY + 1);
+        }
+
+        instances.push_back(instance);
+    }
+
+    return instances;
 }
 
 bool RoadPreviewAxisKeyLess(const RoadPreviewAxisKey& left, const RoadPreviewAxisKey& right) {
@@ -1748,6 +1815,12 @@ int Renderer::run() {
     glGenBuffers(1, &roadGhostInstanceBufferId);
     ConfigureRoadChunkVertexArray(roadGhostVertexArrayId, tileVertexBufferId, roadGhostInstanceBufferId);
 
+    GLuint routeArrowVertexArrayId = 0;
+    GLuint routeArrowInstanceBufferId = 0;
+    glGenVertexArrays(1, &routeArrowVertexArrayId);
+    glGenBuffers(1, &routeArrowInstanceBufferId);
+    ConfigureRouteArrowVertexArray(routeArrowVertexArrayId, tileVertexBufferId, routeArrowInstanceBufferId);
+
     GLuint lotVertexArrayId = 0;
     GLuint lotInstanceBufferId = 0;
     glGenVertexArrays(1, &lotVertexArrayId);
@@ -1760,6 +1833,8 @@ int Renderer::run() {
         DestroyRoadChunkCaches(roadChunkCaches);
         glDeleteBuffers(1, &roadGhostInstanceBufferId);
         glDeleteVertexArrays(1, &roadGhostVertexArrayId);
+        glDeleteBuffers(1, &routeArrowInstanceBufferId);
+        glDeleteVertexArrays(1, &routeArrowVertexArrayId);
         glDeleteBuffers(1, &lotInstanceBufferId);
         glDeleteVertexArrays(1, &lotVertexArrayId);
         glDeleteTextures(1, &roadArrowAtlasTextureId);
@@ -1803,7 +1878,9 @@ int Renderer::run() {
     std::vector<std::uint8_t> tileLiftChunkPixels;
     std::vector<LotInstanceData> lotInstances;
     std::vector<RoadInstanceData> roadGhostInstances;
+    std::vector<RouteArrowInstanceData> routeArrowInstances;
     std::uint64_t lastUploadedLotRevision = std::numeric_limits<std::uint64_t>::max();
+    std::uint64_t lastUploadedQueryRouteRevision = std::numeric_limits<std::uint64_t>::max();
     std::vector<std::uint64_t> lastUploadedGroundRoadChunkRevisions(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
     std::vector<std::uint64_t> lastUploadedTileOverlayChunkRevisions(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
 
@@ -1850,6 +1927,17 @@ int Renderer::run() {
             frameMetrics.roadGhostInstanceCount = static_cast<int>(roadGhostInstances.size());
         } else {
             roadGhostInstances.clear();
+        }
+
+        if (viewState.queryRouteRevision != lastUploadedQueryRouteRevision) {
+            routeArrowInstances = BuildRouteArrowInstances(viewState.queriedCommuteRouteSegments);
+            glBindBuffer(GL_ARRAY_BUFFER, routeArrowInstanceBufferId);
+            glBufferData(
+                GL_ARRAY_BUFFER,
+                static_cast<GLsizeiptr>(routeArrowInstances.size() * sizeof(RouteArrowInstanceData)),
+                routeArrowInstances.empty() ? 0 : &routeArrowInstances[0],
+                GL_DYNAMIC_DRAW);
+            lastUploadedQueryRouteRevision = viewState.queryRouteRevision;
         }
 
         if (snapshot.tiles != 0 && snapshot.chunkRevisions != 0) {
@@ -2087,6 +2175,16 @@ int Renderer::run() {
                 glDepthMask(GL_TRUE);
             }
 
+            if (!routeArrowInstances.empty()) {
+                glUniform1i(renderModeLocation, 4);
+                glDepthMask(GL_FALSE);
+                glDisable(GL_DEPTH_TEST);
+                glBindVertexArray(routeArrowVertexArrayId);
+                glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(routeArrowInstances.size()));
+                glEnable(GL_DEPTH_TEST);
+                glDepthMask(GL_TRUE);
+            }
+
             glBindVertexArray(0);
         } else {
             appController_.setHoveredTile(0, 0, false);
@@ -2145,6 +2243,8 @@ int Renderer::run() {
     DestroyRoadChunkCaches(roadChunkCaches);
     glDeleteBuffers(1, &roadGhostInstanceBufferId);
     glDeleteVertexArrays(1, &roadGhostVertexArrayId);
+    glDeleteBuffers(1, &routeArrowInstanceBufferId);
+    glDeleteVertexArrays(1, &routeArrowVertexArrayId);
     glDeleteBuffers(1, &lotInstanceBufferId);
     glDeleteVertexArrays(1, &lotVertexArrayId);
     glDeleteTextures(1, &roadArrowAtlasTextureId);

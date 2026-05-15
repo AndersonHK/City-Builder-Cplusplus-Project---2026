@@ -1,6 +1,9 @@
 #pragma once
 
 #include <string>
+#include <vector>
+
+#include "CityParameters.h"
 
 struct Int2 {
     int x;
@@ -33,6 +36,7 @@ struct LotModule {
     float colorR;
     float colorG;
     float colorB;
+    std::vector<CityParameterContribution> parameterContributions;
 
     // Starts an unloaded module archetype with neutral render/effect values.
     LotModule()

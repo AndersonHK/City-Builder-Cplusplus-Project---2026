@@ -15,6 +15,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Lot occupancy lift comes from a persistent full-map `GL_R8` mask texture updated only for visible stale chunks.
 - Ground roads render in the tile pass from packed road-state bytes and generated road atlases. The ground-road upload path is `UpdateGroundRoadChunkTexture` (`City Builder/Renderer.cpp:1474`).
 - Reusable tile overlays render from a published RGBA tile texture. Traffic capacity is the first overlay and uses visible-dirty chunk uploads.
+- Queried lot commutes render as green, coalesced route arrows above roads, lots, and tile overlays.
 - Elevated roads use separate per-chunk instance buffers and rebuild lazily for visible stale chunks. They consume the same resolved road glyph, lane graphic, and divider masks through `BuildRoadChunkInstances` (`City Builder/Renderer.cpp:1261`).
 - Road placement ghost previews are transient renderer instances built from the active drag stroke and drawn with a blue alpha tint. They do not enter published road snapshots.
 - Lots still render through one global placeholder-prism instance buffer keyed by lot revision.
@@ -36,6 +37,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Keep ground and elevated road rendering fed by the same resolved road cell contract; do not fork road-template semantics in the renderer.
 - Keep road ghost previews presentation-only. They may reuse road templates and glyph helpers, but committed topology and validation must stay in the simulation/transport command path.
 - Draw overlays after roads and lots with depth disabled/restored so the tint remains presentation, not terrain truth.
+- Draw query route arrows after tile overlays with depth disabled/restored so selected commute paths remain inspectable.
 - Future overlays should publish the same RGBA tile payload and chunk revisions instead of adding one-off shader paths.
 
 ## Checks

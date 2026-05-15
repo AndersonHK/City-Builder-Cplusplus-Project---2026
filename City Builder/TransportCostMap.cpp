@@ -343,6 +343,21 @@ void TransportCostMap::beginNextLoadFromOldLoad() {
     }
 }
 
+void TransportCostMap::beginNextLoadFromZero() {
+    std::size_t cellIndex = 0;
+    for (; cellIndex < cells_.size(); ++cellIndex) {
+        std::size_t directionIndex = 0;
+        for (; directionIndex < kRoadDirectionCount; ++directionIndex) {
+            cells_[cellIndex].newLoads[directionIndex] = 0u;
+        }
+    }
+
+    std::size_t transferIndex = 0;
+    for (; transferIndex < transferEdges_.size(); ++transferIndex) {
+        transferEdges_[transferIndex].newLoad = 0u;
+    }
+}
+
 void TransportCostMap::commitNextLoad() {
     std::size_t cellIndex = 0;
     for (; cellIndex < cells_.size(); ++cellIndex) {

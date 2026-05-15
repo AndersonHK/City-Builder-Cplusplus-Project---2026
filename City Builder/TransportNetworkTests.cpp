@@ -1,6 +1,12 @@
+#include "AssetLoader.h"
 #include "TransportNetwork.h"
 
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+
 #include <cstdint>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -109,6 +115,70 @@ bool SameResolvedCell(const ResolvedRoadCell& first, const ResolvedRoadCell& sec
         first.junctionMask == second.junctionMask &&
         first.renderVariant == second.renderVariant &&
         first.laneTypeCosts == second.laneTypeCosts;
+}
+
+const LotModule* FindModule(const LoadedGameAssets& assets, const std::string& id) {
+    std::size_t moduleIndex = 0;
+    for (; moduleIndex < assets.modules.size(); ++moduleIndex) {
+        if (assets.modules[moduleIndex].id == id) {
+            return &assets.modules[moduleIndex];
+        }
+    }
+
+    return 0;
+}
+
+const LotAsset* FindLotAsset(const LoadedGameAssets& assets, const std::string& id) {
+    std::size_t lotIndex = 0;
+    for (; lotIndex < assets.lots.size(); ++lotIndex) {
+        if (assets.lots[lotIndex].id == id) {
+            return &assets.lots[lotIndex];
+        }
+    }
+
+    return 0;
+}
+
+float ModuleParameterAmount(const LotModule& module, int parameterId) {
+    float amount = 0.0f;
+    std::size_t contributionIndex = 0;
+    for (; contributionIndex < module.parameterContributions.size(); ++contributionIndex) {
+        if (module.parameterContributions[contributionIndex].parameterId == parameterId) {
+            amount += module.parameterContributions[contributionIndex].amount;
+        }
+    }
+
+    return amount;
+}
+
+void WriteTextAssetFile(const std::string& path, const std::string& text) {
+    std::ofstream stream(path.c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
+    stream << text;
+}
+
+std::string MakeTempAssetDirectory(const std::string& name) {
+    char tempPath[MAX_PATH];
+    const DWORD length = GetTempPathA(MAX_PATH, tempPath);
+    std::string root(length == 0 ? "." : std::string(tempPath, tempPath + length));
+    if (!root.empty() && root[root.size() - 1] != '\\' && root[root.size() - 1] != '/') {
+        root += "\\";
+    }
+
+    root += name + "_" + std::to_string(GetCurrentProcessId()) + "_" + std::to_string(GetTickCount());
+    CreateDirectoryA(root.c_str(), 0);
+    CreateDirectoryA((root + "\\Modules").c_str(), 0);
+    CreateDirectoryA((root + "\\Lots").c_str(), 0);
+    return root;
+}
+
+bool InvalidAssetsRejected(const std::string& moduleXml, const std::string& lotXml, const CityParameterRegistry& registry) {
+    const std::string root = MakeTempAssetDirectory("CityBuilderAssetInvalid");
+    WriteTextAssetFile(root + "\\Modules\\test_module.xml", moduleXml);
+    WriteTextAssetFile(root + "\\Lots\\test_lot.xml", lotXml);
+
+    LoadedGameAssets assets;
+    std::string errorMessage;
+    return !LoadGameAssets(root, registry, assets, errorMessage) && !errorMessage.empty();
 }
 
 void TestStraightTwoWayLocalStreet(TestRunner& runner) {
@@ -549,6 +619,93 @@ void TestTrafficOverlayStartsGreenOnRoadCapacity(TestRunner& runner) {
     runner.expect(network.trafficOverlayState()[pixelOffset + 1u] == 255u, "traffic overlay starts green where capacity exists");
     runner.expect(network.trafficOverlayState()[pixelOffset + 3u] == kTrafficOverlayAlphaByte, "traffic overlay starts visible where capacity exists");
 }
+
+void TestFactoryHouseAssetsAndParameters(TestRunner& runner) {
+    CityParameterRegistry registry;
+    LoadedGameAssets assets;
+    std::string errorMessage;
+    bool loaded = LoadGameAssets("Data", registry, assets, errorMessage);
+    if (!loaded) {
+        loaded = LoadGameAssets("City Builder\\Data", registry, assets, errorMessage);
+    }
+
+    runner.expect(loaded, "factory/house XML assets load");
+    if (!loaded) {
+        return;
+    }
+
+    const LotModule* warehouseModule = FindModule(assets, "warehouse_module");
+    const LotModule* houseModule = FindModule(assets, "house_module");
+    const LotAsset* factoryLot = FindLotAsset(assets, "factory_lot");
+    const LotAsset* houseLot = FindLotAsset(assets, "house_lot");
+
+    runner.expect(warehouseModule != 0, "warehouse module exists");
+    runner.expect(houseModule != 0, "house module exists");
+    runner.expect(factoryLot != 0, "factory lot exists");
+    runner.expect(houseLot != 0, "house lot exists");
+    if (warehouseModule == 0 || houseModule == 0 || factoryLot == 0 || houseLot == 0) {
+        return;
+    }
+
+    runner.expect(ModuleParameterAmount(*warehouseModule, registry.jobsDirtyIndustryId()) == 6.0f, "warehouse contributes six dirty industry jobs");
+    runner.expect(ModuleParameterAmount(*houseModule, registry.residentsLowWealthId()) == 5.0f, "house contributes five low wealth residents");
+    runner.expect(factoryLot->footprintWidth == 2 && factoryLot->footprintHeight == 2, "factory footprint is 2x2");
+    runner.expect(houseLot->footprintWidth == 2 && houseLot->footprintHeight == 4, "house footprint is 2x4");
+    runner.expect(!houseLot->initialModules.empty() && houseLot->initialModules[0].localOrigin.x == 0 && houseLot->initialModules[0].localOrigin.y == 1, "house module is centered in footprint rows");
+
+    Lot houseInstance(1, houseLot->id, 10, 10);
+    houseInstance.setExplicitFootprint(houseLot->footprintOrigin, houseLot->footprintWidth, houseLot->footprintHeight, 64);
+    houseInstance.addModule(*houseModule, houseLot->initialModules[0].localOrigin, 64);
+    runner.expect(houseInstance.occupiedTileIndices().size() == 8u, "house lot occupies full 2x4 footprint");
+    runner.expect(houseInstance.parameterContributions().size() == 1u && houseInstance.parameterContributions()[0].amount == 5.0f, "house lot aggregates resident driver");
+}
+
+void TestInvalidAssetValidation(TestRunner& runner) {
+    CityParameterRegistry registry;
+    const std::string validModule =
+        "<module id=\"test_module\">"
+        "<size width=\"1\" height=\"1\" />"
+        "<effects airPollution=\"0\" landValue=\"0\" />"
+        "</module>";
+    const std::string validLot =
+        "<lot id=\"test_lot\">"
+        "<anchor x=\"0\" y=\"0\" />"
+        "<footprint x=\"0\" y=\"0\" width=\"1\" height=\"1\" />"
+        "<modules><moduleRef id=\"test_module\" x=\"0\" y=\"0\" /></modules>"
+        "</lot>";
+
+    const std::string badParameterModule =
+        "<module id=\"test_module\">"
+        "<size width=\"1\" height=\"1\" />"
+        "<effects airPollution=\"0\" landValue=\"0\" />"
+        "<parameters><driver id=\"jobs.imaginary\" amount=\"1\" /></parameters>"
+        "</module>";
+    runner.expect(InvalidAssetsRejected(badParameterModule, validLot, registry), "invalid parameter id rejects at load");
+
+    const std::string badFootprintLot =
+        "<lot id=\"test_lot\">"
+        "<anchor x=\"0\" y=\"0\" />"
+        "<footprint x=\"0\" y=\"0\" width=\"0\" height=\"1\" />"
+        "<modules><moduleRef id=\"test_module\" x=\"0\" y=\"0\" /></modules>"
+        "</lot>";
+    runner.expect(InvalidAssetsRejected(validModule, badFootprintLot, registry), "invalid footprint dimensions reject at load");
+
+    const std::string outsideFootprintLot =
+        "<lot id=\"test_lot\">"
+        "<anchor x=\"0\" y=\"0\" />"
+        "<footprint x=\"0\" y=\"0\" width=\"1\" height=\"1\" />"
+        "<modules><moduleRef id=\"test_module\" x=\"1\" y=\"0\" /></modules>"
+        "</lot>";
+    runner.expect(InvalidAssetsRejected(validModule, outsideFootprintLot, registry), "module outside footprint rejects at load");
+
+    const std::string unknownModuleLot =
+        "<lot id=\"test_lot\">"
+        "<anchor x=\"0\" y=\"0\" />"
+        "<footprint x=\"0\" y=\"0\" width=\"1\" height=\"1\" />"
+        "<modules><moduleRef id=\"missing_module\" x=\"0\" y=\"0\" /></modules>"
+        "</lot>";
+    runner.expect(InvalidAssetsRejected(validModule, unknownModuleLot, registry), "unknown module ref rejects at load");
+}
 }
 
 int main() {
@@ -578,6 +735,8 @@ int main() {
     TestCongestionReroutesPath(runner);
     TestEqualRouteJitterSpreadsChoices(runner);
     TestTrafficOverlayStartsGreenOnRoadCapacity(runner);
+    TestFactoryHouseAssetsAndParameters(runner);
+    TestInvalidAssetValidation(runner);
 
     std::cout << "TransportNetworkTests: " << runner.passed << " passed, " << runner.failed << " failed." << std::endl;
     return runner.failed == 0 ? 0 : 1;

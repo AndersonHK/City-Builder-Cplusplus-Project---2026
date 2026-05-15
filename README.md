@@ -26,6 +26,8 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
 - `Q`: pollution brush
 - `W`: place smokestack lot
 - `E`: place park lot
+- `F`: place factory lot
+- `G`: place house lot
 - `R`: drag-place a ground local street with a ghost preview while dragging
 - `H`: drag-place an elevated highway with a ghost preview while dragging
 - `[` / `]`: decrease / increase road lane count for new road strokes
@@ -34,7 +36,7 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
 - `T`: toggle the traffic capacity overlay
 - `M`: add park module to an adjacent lot footprint
 - `Y`: remove the module under the hovered tile
-- `A`: query hovered tile
+- `A`: query hovered tile; queried lots show their accepted commute route as green arrows
 
 ## Build
 Primary target: `x64 Release`
@@ -69,6 +71,7 @@ Transport topology has a standalone non-graphics test target:
 - The renderer timing print breaks out tile-state packing/upload bytes, lift uploads, ground-road uploads, elevated-road uploads, and draw costs.
 - Lots are not chunk-owned yet; they still use a separate renderer path for now.
 - Lot/module archetypes load from XML under `City Builder/Data`.
+- Factory/house XML assets are the first driver-backed lots: houses emit low-wealth resident demand, factories emit dirty-industry jobs, and the commute pass assigns accepted low-wealth commutes through the directional transport cost map into road load.
 
 ## Design guides
 - `docs/design/transport-network.md` - lane-owned road placement, directional cost maps, pathfinding, crosswalk graphic rules, packed road state, and layer revisions. Main code anchors: `TransportTypes.h`, `TransportCostMap.h`, `RoadLane.h`, `Road.h`, `TransportTile.h`, `RoadRenderState.h`, and `TransportNetwork.h`.

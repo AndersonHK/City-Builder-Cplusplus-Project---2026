@@ -236,6 +236,21 @@ std::uint64_t TransportNetwork::trafficOverlayRevision() const {
     return trafficOverlayRevision_;
 }
 
+void TransportNetwork::beginTrafficAssignmentFromZero() {
+    costMap_.beginNextLoadFromZero();
+}
+
+void TransportNetwork::applyTrafficPathLoad(const TransportPathResult& pathResult, std::uint16_t demand, bool addLoad) {
+    costMap_.applyPathLoad(pathResult, demand, addLoad);
+}
+
+void TransportNetwork::commitTrafficAssignment() {
+    costMap_.commitNextLoad();
+    refreshTrafficOverlayState();
+    bumpAllTrafficOverlayChunkRevisions();
+    ++trafficOverlayRevision_;
+}
+
 bool TransportNetwork::hasOccupancy(TransportLayerId layer, int tileIndexValue) const {
     if (tileIndexValue < 0 || tileIndexValue >= static_cast<int>(totalTileCount_)) {
         return false;

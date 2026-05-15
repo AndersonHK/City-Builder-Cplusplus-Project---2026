@@ -28,6 +28,10 @@ public:
     std::uint64_t revision() const;
     std::uint64_t trafficOverlayRevision() const;
 
+    void beginTrafficAssignmentFromZero();
+    void applyTrafficPathLoad(const TransportPathResult& pathResult, std::uint16_t demand, bool addLoad);
+    void commitTrafficAssignment();
+
     bool hasOccupancy(TransportLayerId layer, int tileIndex) const;
     bool hasGroundOccupancy(int tileIndex) const;
 

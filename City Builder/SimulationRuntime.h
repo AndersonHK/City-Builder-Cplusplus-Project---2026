@@ -12,6 +12,8 @@
 #include <vector>
 
 #include "ChunkConfig.h"
+#include "CityParameters.h"
+#include "CommuteTypes.h"
 #include "Lot.h"
 #include "LotModule.h"
 #include "Tile.h"
@@ -65,6 +67,10 @@ struct TileQueryResult {
     int lotId;
     std::string lotAssetId;
     std::string moduleSummary;
+    std::string parameterSummary;
+    int commuteDemand;
+    int commuteSatisfied;
+    std::vector<CommuteRouteSegment> commuteRouteSegments;
     std::vector<TransportLayerId> roadLayers;
     std::vector<ResolvedRoadCell> roads;
 
@@ -73,7 +79,9 @@ struct TileQueryResult {
         : isValid(false),
           generation(0),
           hasLot(false),
-          lotId(-1) {
+          lotId(-1),
+          commuteDemand(0),
+          commuteSatisfied(0) {
     }
 };
 
@@ -81,10 +89,16 @@ struct PublishedLotInfo {
     int lotId;
     std::string assetId;
     std::string moduleSummary;
+    std::string parameterSummary;
+    int commuteDemand;
+    int commuteSatisfied;
+    std::vector<CommuteRouteSegment> commuteRouteSegments;
 
     // Defaults to an invalid published lot metadata record.
     PublishedLotInfo()
-        : lotId(-1) {
+        : lotId(-1),
+          commuteDemand(0),
+          commuteSatisfied(0) {
     }
 };
 
@@ -163,6 +177,8 @@ public:
     void queuePlaceRoadStroke(const RoadStrokeCommand& roadStrokeCommand);
     void queuePlaceSmokestack(int tileX, int tileY);
     void queuePlacePark(int tileX, int tileY);
+    void queuePlaceFactory(int tileX, int tileY);
+    void queuePlaceHouse(int tileX, int tileY);
     void queueAddSmokestackModule(int tileX, int tileY);
     void queueAddParkModule(int tileX, int tileY);
     void queuePlaceStreetRoad(const Int2& startTile, const Int2& cornerTile, const Int2& endTile);
@@ -196,12 +212,14 @@ private:
         std::uint64_t lotRenderRevision;
         std::uint64_t roadRenderRevision;
         std::uint64_t overlayRenderRevision;
+        std::uint64_t commuteRenderRevision;
 
         // Starts with no published render payloads for this buffer.
         TileBuffer()
             : lotRenderRevision(0),
               roadRenderRevision(0),
-              overlayRenderRevision(0) {
+              overlayRenderRevision(0),
+              commuteRenderRevision(0) {
         }
     };
 
@@ -227,6 +245,8 @@ private:
     void runNeighborPass(const std::vector<Tile>& readTiles, std::vector<Tile>& writeTiles);
     void applyQueuedCommands(TileBuffer& writeBuffer);
     void applyLotEffects(std::vector<Tile>& writeTiles);
+    void rebuildCityParameters();
+    void runCommuteAssignment();
     void runLocalTilePass(std::vector<Tile>& writeTiles);
     void enqueueCommand(const PlayerCommand& playerCommand);
     void publishCompletedBuffer();
@@ -251,6 +271,9 @@ private:
     bool collectAdjacentLotIdsForModule(const LotModule& moduleAsset, int clickedTileX, int clickedTileY, std::vector<int>& adjacentLotIds) const;
     void clearLotOccupancy(const std::vector<int>& tileIndices);
     void setLotOccupancy(int lotId, const std::vector<int>& tileIndices);
+    float lotParameterAmount(const Lot& lot, int parameterId) const;
+    float lotDerivedParameterAmount(const Lot& lot, int parameterId) const;
+    std::vector<CommuteRouteSegment> buildCommuteRouteSegments(const TransportPathResult& pathResult, std::uint16_t demand) const;
     bool isTileInsideMap(int tileX, int tileY) const;
     int tileIndex(int tileX, int tileY) const;
 
@@ -284,6 +307,12 @@ private:
     std::vector<Lot> lots_;
     int nextLotId_;
     std::uint64_t lotsRevision_;
+    CityParameterRegistry cityParameterRegistry_;
+    std::vector<float> oldCityParameters_;
+    std::vector<float> nextCityParameters_;
+    std::vector<std::vector<float> > cityParameterDeltaBuffers_;
+    std::uint64_t commuteRevision_;
+    bool commutesDirty_;
     TransportNetwork transportNetwork_;
 
     std::deque<PlayerCommand> pendingCommands_;

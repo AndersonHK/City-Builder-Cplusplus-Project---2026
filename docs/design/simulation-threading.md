@@ -21,6 +21,7 @@ Use this guide when changing tile update passes, buffer ownership, chunk schedul
 - Keep render-topology revisions separate from scalar tile updates.
 - Mark render chunks dirty only when topology or render masks change.
 - Transport route recalculation should read old loads and write new loads through worker-local deltas, then reduce after the batch. Path searches must not mutate shared load arrays directly.
+- City parameters use dense old/new vectors and per-worker-shaped delta buffers so future lot batches can aggregate drivers and satisfactions without hot shared writes.
 - Sample subsets of commuter/building routes over time so congestion feedback distributes statistically without relying on sequential determinism.
 - Preserve `fastForward` behavior: simulation may outrun presentation unless disabled.
 

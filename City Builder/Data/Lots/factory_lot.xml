@@ -1,0 +1,8 @@
+<lot id="factory_lot">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="2" height="2" />
+  <modules>
+    <moduleRef id="warehouse_module" x="0" y="0" />
+  </modules>
+</lot>
+

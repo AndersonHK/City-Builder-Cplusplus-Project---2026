@@ -36,6 +36,8 @@ Use this guide when changing road placement, lane topology, road render data, or
 - A* expands movement edges within one layer/mode and sparse transfer edges for mode/layer changes. There is no implicit connection between overlapping layers.
 - Congestion reads immutable old load and writes reassigned traffic into a separate new-load buffer so future per-building path recalculation can run in parallel and reduce deltas afterward.
 - Route tie-breaking uses tiny deterministic jitter from the route seed so equivalent alternatives can distribute statistically over repeated sampled updates.
+- The first commute pass routes low-wealth residential demand to compatible low-wealth job destinations, then commits accepted aggregate demand back into road loads and the traffic capacity overlay.
+- Querying a lot can publish coalesced commute route segments; rendering turns those tile/layer/mode/direction segments into green arrows above roads, buildings, and overlays.
 
 ## Crosswalk Rule
 A pedestrian lane renders as a crosswalk only when all of these are true:

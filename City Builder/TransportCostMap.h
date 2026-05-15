@@ -126,6 +126,7 @@ public:
     void collectBuildingAccessNodes(int footprintX, int footprintY, int footprintWidth, int footprintHeight, std::uint8_t allowedModeMask, std::vector<std::uint32_t>& nodeIds) const;
 
     void beginNextLoadFromOldLoad();
+    void beginNextLoadFromZero();
     void commitNextLoad();
     void applyPathLoad(const TransportPathResult& pathResult, std::uint16_t demand, bool addLoad);
 

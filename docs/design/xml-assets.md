@@ -11,12 +11,15 @@ Use this guide when changing `AssetLoader`, data XML files, or lot/module archet
 - `AssetLoader` reads module XML from `Data/Modules` and lot XML from `Data/Lots`.
 - File stems are fallback ids when an explicit `id` attribute is absent.
 - Modules define size, effects, and placeholder render values.
-- Lots define an anchor, optional render origin, and initial module references.
-- Lot validation ensures module references exist and the anchor is occupied.
+- Modules may also define city-parameter contributions inside `<parameters>` using `<driver>` or `<satisfaction>` tags.
+- Lots define an anchor, optional explicit footprint, optional render origin, and initial module references.
+- Lot validation ensures module references exist and the anchor is inside the lot footprint.
 
 ## Rules
 - Keep errors descriptive; asset failures should not become silent defaults.
 - Validate cross-file references after loading modules and lots.
+- Validate parameter ids against `CityParameterRegistry` during asset load.
+- Validate explicit footprints: positive dimensions, anchor inside footprint, and initial modules fully inside the footprint.
 - Prefer simple explicit schema additions over implicit behavior.
 - Keep XML-backed archetypes separate from live runtime placement state.
 
@@ -24,3 +27,4 @@ Use this guide when changing `AssetLoader`, data XML files, or lot/module archet
 - Build `x64 Release` so post-build copying preserves data beside the executable.
 - Test duplicate ids, missing required tags, and invalid module references when changing schema behavior.
 - Confirm data directory assumptions stay documented if project layout changes.
+- Confirm new lot/module XML files are copied beside the executable by the project post-build step.

@@ -6,6 +6,8 @@ enum class ActiveTool {
     PollutionBrush,
     SmokestackLot,
     ParkLot,
+    FactoryLot,
+    HouseLot,
     RoadStreet,
     RoadHighway,
     AddParkModule,
@@ -39,6 +41,9 @@ struct ViewState {
     RoadTrafficSide roadTrafficSide;
     RoadDirectionMode roadDirectionMode;
     OverlayMode overlayMode;
+    int queriedLotId;
+    std::uint64_t queryRouteRevision;
+    std::vector<CommuteRouteSegment> queriedCommuteRouteSegments;
 
     // Initializes the default camera span and active tool for a new session.
     ViewState()
@@ -61,7 +66,9 @@ struct ViewState {
           roadLaneCount(1),
           roadTrafficSide(RoadTrafficSide::RightHand),
           roadDirectionMode(RoadDirectionMode::TwoWay),
-          overlayMode(OverlayMode::None) {
+          overlayMode(OverlayMode::None),
+          queriedLotId(-1),
+          queryRouteRevision(0) {
     }
 };
 
@@ -93,7 +100,7 @@ private:
     void commitRoadDrag(int tileX, int tileY);
     RoadTemplate currentRoadTemplate(RoadFamily family, TransportLayerId layer) const;
     void printRoadTemplate() const;
-    void printQueryResult() const;
+    void printQueryResult();
 
     static const int kMinimumVisibleTiles = 32;
     static const int kMaximumVisibleTiles = 512;

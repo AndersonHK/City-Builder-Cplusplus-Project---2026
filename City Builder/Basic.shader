@@ -56,6 +56,17 @@ void main()
         vRoadGlyphs = vec2(aInstanceData0.w, aInstanceData1.x);
         vRoadMasks = vec2(aInstanceData1.y, aInstanceData1.z);
         vSurfaceLift = 0.0;
+    } else if (uRenderMode == 4) {
+        worldPosition = vec3(
+            aLocalPosition.x * aInstanceData0.z + aInstanceData0.x,
+            aInstanceData1.z,
+            aLocalPosition.z * aInstanceData0.w + aInstanceData0.y);
+        vTileUv = vec2(0.0);
+        vLocalUv = aLocalPosition.xz;
+        vLotColor = vec3(0.0);
+        vRoadGlyphs = aInstanceData1.xy;
+        vRoadMasks = vec2(aInstanceData1.w, 0.0);
+        vSurfaceLift = 0.0;
     } else {
         worldPosition = vec3(
             aLocalPosition.x + aInstanceData0.x,
@@ -210,6 +221,25 @@ void main()
         }
 
         color = overlayColor;
+        return;
+    }
+
+    if (vRenderMode == 4) {
+        vec2 direction = vRoadGlyphs;
+        float horizontal = step(abs(direction.y), abs(direction.x));
+        float alongHorizontal = direction.x >= 0.0 ? vLocalUv.x : 1.0 - vLocalUv.x;
+        float alongVertical = direction.y >= 0.0 ? vLocalUv.y : 1.0 - vLocalUv.y;
+        float along = mix(alongVertical, alongHorizontal, horizontal);
+        float across = mix(abs(vLocalUv.x - 0.5), abs(vLocalUv.y - 0.5), horizontal);
+        float shaft = smoothstep(0.085, 0.055, across) * step(0.08, along) * step(along, 0.78);
+        float headWidth = mix(0.18, 0.045, clamp((along - 0.78) / 0.18, 0.0, 1.0));
+        float head = smoothstep(headWidth + 0.025, headWidth, across) * step(0.76, along) * step(along, 0.96);
+        float alpha = max(shaft, head) * clamp(vRoadMasks.x, 0.0, 1.0);
+        if (alpha <= 0.001) {
+            discard;
+        }
+
+        color = vec4(0.08, 0.95, 0.26, alpha);
         return;
     }
 

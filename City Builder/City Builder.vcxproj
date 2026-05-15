@@ -129,7 +129,7 @@
     </Link>
     <PostBuildEvent>
       <Command>copy /Y "$(ProjectDir)Basic.shader" "$(OutDir)Basic.shader"
-xcopy /Y /I /E "$(ProjectDir)Data" "$(OutDir)Data"
+"$(SystemRoot)\System32\xcopy.exe" /Y /I /E "$(ProjectDir)Data" "$(OutDir)Data"
 copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\glew32.dll" "$(OutDir)glew32.dll"
 copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"</Command>
     </PostBuildEvent>
@@ -137,6 +137,7 @@ copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\
   <ItemGroup>
     <ClCompile Include="AssetLoader.cpp" />
     <ClCompile Include="AppController.cpp" />
+    <ClCompile Include="CityParameters.cpp" />
     <ClCompile Include="ChunkConfig.cpp" />
     <ClCompile Include="Lot.cpp" />
     <ClCompile Include="Road.cpp" />
@@ -153,15 +154,21 @@ copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\
   </ItemGroup>
   <ItemGroup>
     <None Include="Basic.shader" />
+    <None Include="Data\Lots\factory_lot.xml" />
+    <None Include="Data\Lots\house_lot.xml" />
     <None Include="Data\Lots\park_lot.xml" />
     <None Include="Data\Lots\smokestack_lot.xml" />
+    <None Include="Data\Modules\house_module.xml" />
     <None Include="Data\Modules\park_module.xml" />
     <None Include="Data\Modules\smokestack_module.xml" />
+    <None Include="Data\Modules\warehouse_module.xml" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AssetLoader.h" />
     <ClInclude Include="AppController.h" />
+    <ClInclude Include="CityParameters.h" />
     <ClInclude Include="ChunkConfig.h" />
+    <ClInclude Include="CommuteTypes.h" />
     <ClInclude Include="Lot.h" />
     <ClInclude Include="LotModule.h" />
     <ClInclude Include="Road.h" />

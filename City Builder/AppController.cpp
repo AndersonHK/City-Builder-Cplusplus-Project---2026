@@ -15,6 +15,8 @@ const int kKeyUp = 265;
 const int kKeyQ = 81;
 const int kKeyW = 87;
 const int kKeyE = 69;
+const int kKeyF = 70;
+const int kKeyG = 71;
 const int kKeyR = 82;
 const int kKeyO = 79;
 const int kKeyH = 72;
@@ -51,6 +53,12 @@ const char* ActiveToolName(ActiveTool activeTool) {
 
         case ActiveTool::ParkLot:
             return "place park lot";
+
+        case ActiveTool::FactoryLot:
+            return "place factory lot";
+
+        case ActiveTool::HouseLot:
+            return "place house lot";
 
         case ActiveTool::RoadStreet:
             return "place local street";
@@ -226,6 +234,14 @@ void AppController::onLeftMouseButtonPressed() {
             simulationRuntime_.queuePlacePark(tileX, tileY);
             break;
 
+        case ActiveTool::FactoryLot:
+            simulationRuntime_.queuePlaceFactory(tileX, tileY);
+            break;
+
+        case ActiveTool::HouseLot:
+            simulationRuntime_.queuePlaceHouse(tileX, tileY);
+            break;
+
         case ActiveTool::RoadStreet:
         case ActiveTool::RoadHighway:
             beginRoadDrag(tileX, tileY);
@@ -302,6 +318,14 @@ void AppController::onKeyPressed(int key, int action) {
 
         case kKeyE:
             setActiveTool(ActiveTool::ParkLot);
+            return;
+
+        case kKeyF:
+            setActiveTool(ActiveTool::FactoryLot);
+            return;
+
+        case kKeyG:
+            setActiveTool(ActiveTool::HouseLot);
             return;
 
         case kKeyR:
@@ -533,11 +557,14 @@ int AppController::hoveredTileY() const {
 }
 
 // Prints a compact debug readout for the hovered tile.
-void AppController::printQueryResult() const {
+void AppController::printQueryResult() {
     const int tileX = hoveredTileX();
     const int tileY = hoveredTileY();
     const TileQueryResult queryResult = simulationRuntime_.queryTile(tileX, tileY);
     if (!queryResult.isValid) {
+        viewState_.queriedLotId = -1;
+        viewState_.queriedCommuteRouteSegments.clear();
+        ++viewState_.queryRouteRevision;
         std::cout << "Query tool result: invalid tile selection." << std::endl;
         return;
     }
@@ -546,7 +573,17 @@ void AppController::printQueryResult() const {
               << " and air pollution " << queryResult.tile.airPollution << " at generation " << queryResult.generation;
 
     if (queryResult.hasLot) {
-        std::cout << " and belongs to lot #" << queryResult.lotId << " (" << queryResult.lotAssetId << ") with modules: " << queryResult.moduleSummary;
+        viewState_.queriedLotId = queryResult.lotId;
+        viewState_.queriedCommuteRouteSegments = queryResult.commuteRouteSegments;
+        ++viewState_.queryRouteRevision;
+        std::cout << " and belongs to lot #" << queryResult.lotId
+            << " (" << queryResult.lotAssetId << ") with modules: " << queryResult.moduleSummary
+            << " parameters: " << queryResult.parameterSummary
+            << " commute=" << queryResult.commuteSatisfied << "/" << queryResult.commuteDemand;
+    } else {
+        viewState_.queriedLotId = -1;
+        viewState_.queriedCommuteRouteSegments.clear();
+        ++viewState_.queryRouteRevision;
     }
 
     if (!queryResult.roads.empty()) {

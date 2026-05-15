@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "CommuteTypes.h"
 #include "LotModule.h"
 #include "Tile.h"
 
@@ -34,12 +35,18 @@ struct LotRenderInstance {
 struct LotAsset {
     std::string id;
     Int2 anchor;
+    Int2 footprintOrigin;
+    int footprintWidth;
+    int footprintHeight;
     Int2 renderOrigin;
     std::vector<LotModulePlacementDefinition> initialModules;
 
     // Starts an unloaded lot archetype with a zero anchor.
     LotAsset()
         : anchor(0, 0),
+          footprintOrigin(0, 0),
+          footprintWidth(0),
+          footprintHeight(0),
           renderOrigin(0, 0) {
     }
 };
@@ -56,7 +63,16 @@ public:
     const std::vector<LotModulePlacement>& modules() const;
     const std::vector<Int2>& occupiedOffsets() const;
     const std::vector<int>& occupiedTileIndices() const;
+    const std::vector<CityParameterContribution>& parameterContributions() const;
+    const std::vector<CommuteRouteSegment>& commuteRouteSegments() const;
+    int commuteDemand() const;
+    int commuteSatisfied() const;
+    int minimumTileX() const;
+    int minimumTileY() const;
+    int footprintWidth() const;
+    int footprintHeight() const;
 
+    void setExplicitFootprint(const Int2& localOrigin, int width, int height, int mapWidth);
     int addModule(const LotModule& module, const Int2& localOrigin, int mapWidth);
     bool removeModule(int moduleInstanceId, int mapWidth);
     int moduleInstanceIdAtLocalTile(const Int2& localTile) const;
@@ -64,6 +80,10 @@ public:
     void applyEffects(std::vector<Tile>& tiles) const;
     LotRenderInstance buildRenderInstance() const;
     std::string moduleSummary() const;
+    std::string parameterSummary(const CityParameterRegistry& registry) const;
+    void clearCommutes();
+    void addCommuteDemand(int demand);
+    void addCommuteRoute(int demand, const std::vector<CommuteRouteSegment>& segments);
 
 private:
     void rebuildCachedState(int mapWidth);
@@ -74,8 +94,13 @@ private:
     int anchorTileY_;
     int nextModuleInstanceId_;
     std::vector<LotModulePlacement> modules_;
+    std::vector<Int2> explicitFootprintOffsets_;
     std::vector<Int2> occupiedOffsets_;
     std::vector<int> occupiedTileIndices_;
+    std::vector<CityParameterContribution> parameterContributions_;
+    std::vector<CommuteRouteSegment> commuteRouteSegments_;
+    int commuteDemand_;
+    int commuteSatisfied_;
     int airPollutionEmit_;
     int landValueEmit_;
     Int2 minimumOccupiedOffset_;

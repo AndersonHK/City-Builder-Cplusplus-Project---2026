@@ -142,6 +142,11 @@ float ParseOptionalFloat(const std::string& attributes, const std::string& attri
     return static_cast<float>(std::atof(value.c_str()));
 }
 
+// Parses a required float XML attribute.
+float ParseRequiredFloat(const std::string& attributes, const std::string& attributeName) {
+    return static_cast<float>(std::atof(GetRequiredAttribute(attributes, attributeName).c_str()));
+}
+
 // Extracts XML tags while skipping declarations and comments.
 std::vector<std::string> ExtractTagTokens(const std::string& xmlText) {
     std::vector<std::string> tokens;
@@ -164,7 +169,7 @@ std::vector<std::string> ExtractTagTokens(const std::string& xmlText) {
 }
 
 // Loads one module archetype from XML and validates its required fields.
-LotModule LoadModuleAsset(const std::string& filePath, const std::string& fileName) {
+LotModule LoadModuleAsset(const std::string& filePath, const std::string& fileName, const CityParameterRegistry& parameterRegistry) {
     const std::vector<std::string> tokens = ExtractTagTokens(ReadTextFile(filePath));
     if (tokens.empty()) {
         throw std::runtime_error("Empty module XML: " + filePath);
@@ -183,11 +188,17 @@ LotModule LoadModuleAsset(const std::string& filePath, const std::string& fileNa
 
     bool hasSize = false;
     bool hasEffects = false;
+    bool isInsideParametersBlock = false;
 
     std::size_t tokenIndex = 1;
     for (; tokenIndex < tokens.size(); ++tokenIndex) {
         const ParsedTag tag = ParseTag(tokens[tokenIndex]);
         if (tag.isClosing) {
+            if (tag.name == "parameters") {
+                isInsideParametersBlock = false;
+                continue;
+            }
+
             if (tag.name != "module") {
                 throw std::runtime_error("Unexpected closing tag in module XML: " + filePath);
             }
@@ -214,6 +225,30 @@ LotModule LoadModuleAsset(const std::string& filePath, const std::string& fileNa
             module.colorR = ParseOptionalFloat(tag.attributes, "colorR", module.colorR);
             module.colorG = ParseOptionalFloat(tag.attributes, "colorG", module.colorG);
             module.colorB = ParseOptionalFloat(tag.attributes, "colorB", module.colorB);
+            continue;
+        }
+
+        if (tag.name == "parameters" && !tag.isSelfClosing) {
+            isInsideParametersBlock = true;
+            continue;
+        }
+
+        if ((tag.name == "driver" || tag.name == "satisfaction") && tag.isSelfClosing && isInsideParametersBlock) {
+            const std::string parameterId = GetRequiredAttribute(tag.attributes, "id");
+            const int resolvedParameterId = parameterRegistry.parameterId(parameterId);
+            if (resolvedParameterId < 0) {
+                throw std::runtime_error("Module '" + module.id + "' references unknown city parameter '" + parameterId + "' in " + filePath);
+            }
+
+            const CityParameterKind expectedKind = tag.name == "driver" ? CityParameterKind::Driver : CityParameterKind::Satisfaction;
+            if (parameterRegistry.definition(resolvedParameterId).kind != expectedKind) {
+                throw std::runtime_error("Module '" + module.id + "' parameter '" + parameterId + "' uses the wrong parameter kind in " + filePath);
+            }
+
+            CityParameterContribution contribution;
+            contribution.parameterId = resolvedParameterId;
+            contribution.amount = ParseRequiredFloat(tag.attributes, "amount");
+            module.parameterContributions.push_back(contribution);
             continue;
         }
 
@@ -250,6 +285,7 @@ LotAsset LoadLotAsset(const std::string& filePath, const std::string& fileName) 
     }
 
     bool hasAnchor = false;
+    bool hasFootprint = false;
     bool isInsideModulesBlock = false;
 
     std::size_t tokenIndex = 1;
@@ -272,6 +308,15 @@ LotAsset LoadLotAsset(const std::string& filePath, const std::string& fileName) 
             lotAsset.anchor.x = ParseRequiredInt(tag.attributes, "x");
             lotAsset.anchor.y = ParseRequiredInt(tag.attributes, "y");
             hasAnchor = true;
+            continue;
+        }
+
+        if (tag.name == "footprint" && tag.isSelfClosing) {
+            lotAsset.footprintOrigin.x = ParseRequiredInt(tag.attributes, "x");
+            lotAsset.footprintOrigin.y = ParseRequiredInt(tag.attributes, "y");
+            lotAsset.footprintWidth = ParseRequiredInt(tag.attributes, "width");
+            lotAsset.footprintHeight = ParseRequiredInt(tag.attributes, "height");
+            hasFootprint = true;
             continue;
         }
 
@@ -306,10 +351,14 @@ LotAsset LoadLotAsset(const std::string& filePath, const std::string& fileName) 
         throw std::runtime_error("Lot XML must define at least one initial module: " + filePath);
     }
 
+    if (hasFootprint && (lotAsset.footprintWidth <= 0 || lotAsset.footprintHeight <= 0)) {
+        throw std::runtime_error("Lot XML footprint dimensions must be positive: " + filePath);
+    }
+
     return lotAsset;
 }
 
-// Verifies that a lot references real modules and occupies its anchor tile.
+// Verifies that a lot references real modules and has a valid footprint.
 void ValidateLotAsset(LotAsset& lotAsset, const std::vector<LotModule>& modules) {
     std::set<std::string> moduleIds;
     std::size_t moduleIndex = 0;
@@ -317,7 +366,7 @@ void ValidateLotAsset(LotAsset& lotAsset, const std::vector<LotModule>& modules)
         moduleIds.insert(modules[moduleIndex].id);
     }
 
-    std::vector<Int2> occupiedTiles;
+    std::vector<Int2> moduleTiles;
     std::size_t placementIndex = 0;
     for (; placementIndex < lotAsset.initialModules.size(); ++placementIndex) {
         const LotModulePlacementDefinition& placement = lotAsset.initialModules[placementIndex];
@@ -335,7 +384,7 @@ void ValidateLotAsset(LotAsset& lotAsset, const std::vector<LotModule>& modules)
             for (; tileY < modules[candidateModuleIndex].height; ++tileY) {
                 int tileX = 0;
                 for (; tileX < modules[candidateModuleIndex].width; ++tileX) {
-                    occupiedTiles.push_back(Int2(placement.localOrigin.x + tileX, placement.localOrigin.y + tileY));
+                    moduleTiles.push_back(Int2(placement.localOrigin.x + tileX, placement.localOrigin.y + tileY));
                 }
             }
 
@@ -343,17 +392,41 @@ void ValidateLotAsset(LotAsset& lotAsset, const std::vector<LotModule>& modules)
         }
     }
 
-    bool anchorIsOccupied = false;
-    std::size_t tileIndex = 0;
-    for (; tileIndex < occupiedTiles.size(); ++tileIndex) {
-        if (occupiedTiles[tileIndex] == lotAsset.anchor) {
-            anchorIsOccupied = true;
-            break;
-        }
+    if (moduleTiles.empty()) {
+        throw std::runtime_error("Lot asset '" + lotAsset.id + "' does not occupy any module tiles.");
     }
 
-    if (!anchorIsOccupied) {
-        throw std::runtime_error("Lot asset '" + lotAsset.id + "' anchor must be inside the tiles occupied by its initial modules.");
+    if (lotAsset.footprintWidth <= 0 || lotAsset.footprintHeight <= 0) {
+        int minX = moduleTiles[0].x;
+        int minY = moduleTiles[0].y;
+        int maxX = moduleTiles[0].x;
+        int maxY = moduleTiles[0].y;
+        std::size_t tileIndex = 1;
+        for (; tileIndex < moduleTiles.size(); ++tileIndex) {
+            minX = std::min(minX, moduleTiles[tileIndex].x);
+            minY = std::min(minY, moduleTiles[tileIndex].y);
+            maxX = std::max(maxX, moduleTiles[tileIndex].x);
+            maxY = std::max(maxY, moduleTiles[tileIndex].y);
+        }
+
+        lotAsset.footprintOrigin = Int2(minX, minY);
+        lotAsset.footprintWidth = maxX - minX + 1;
+        lotAsset.footprintHeight = maxY - minY + 1;
+    }
+
+    const int footprintMaxX = lotAsset.footprintOrigin.x + lotAsset.footprintWidth;
+    const int footprintMaxY = lotAsset.footprintOrigin.y + lotAsset.footprintHeight;
+    if (lotAsset.anchor.x < lotAsset.footprintOrigin.x || lotAsset.anchor.x >= footprintMaxX ||
+        lotAsset.anchor.y < lotAsset.footprintOrigin.y || lotAsset.anchor.y >= footprintMaxY) {
+        throw std::runtime_error("Lot asset '" + lotAsset.id + "' anchor must be inside its footprint.");
+    }
+
+    std::size_t tileIndex = 0;
+    for (; tileIndex < moduleTiles.size(); ++tileIndex) {
+        if (moduleTiles[tileIndex].x < lotAsset.footprintOrigin.x || moduleTiles[tileIndex].x >= footprintMaxX ||
+            moduleTiles[tileIndex].y < lotAsset.footprintOrigin.y || moduleTiles[tileIndex].y >= footprintMaxY) {
+            throw std::runtime_error("Lot asset '" + lotAsset.id + "' has an initial module outside its footprint.");
+        }
     }
 
     for (placementIndex = 0; placementIndex < lotAsset.initialModules.size(); ++placementIndex) {
@@ -361,6 +434,8 @@ void ValidateLotAsset(LotAsset& lotAsset, const std::vector<LotModule>& modules)
         lotAsset.initialModules[placementIndex].localOrigin.y -= lotAsset.anchor.y;
     }
 
+    lotAsset.footprintOrigin.x -= lotAsset.anchor.x;
+    lotAsset.footprintOrigin.y -= lotAsset.anchor.y;
     lotAsset.renderOrigin.x -= lotAsset.anchor.x;
     lotAsset.renderOrigin.y -= lotAsset.anchor.y;
     lotAsset.anchor = Int2(0, 0);
@@ -392,7 +467,7 @@ std::vector<std::string> CollectXmlFiles(const std::string& directoryPath) {
 }
 
 // Loads all module and lot archetypes, returning errors instead of throwing across the runtime boundary.
-bool LoadGameAssets(const std::string& dataDirectory, LoadedGameAssets& assets, std::string& errorMessage) {
+bool LoadGameAssets(const std::string& dataDirectory, const CityParameterRegistry& parameterRegistry, LoadedGameAssets& assets, std::string& errorMessage) {
     assets.modules.clear();
     assets.lots.clear();
 
@@ -413,7 +488,7 @@ bool LoadGameAssets(const std::string& dataDirectory, LoadedGameAssets& assets, 
         std::unordered_set<std::string> seenIds;
         std::size_t fileIndex = 0;
         for (; fileIndex < moduleFiles.size(); ++fileIndex) {
-            LotModule module = LoadModuleAsset(modulesDirectory + "\\" + moduleFiles[fileIndex], moduleFiles[fileIndex]);
+            LotModule module = LoadModuleAsset(modulesDirectory + "\\" + moduleFiles[fileIndex], moduleFiles[fileIndex], parameterRegistry);
             if (!seenIds.insert(module.id).second) {
                 throw std::runtime_error("Duplicate asset id: " + module.id);
             }

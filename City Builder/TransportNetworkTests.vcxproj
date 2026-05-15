@@ -71,6 +71,9 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="AssetLoader.cpp" />
+    <ClCompile Include="CityParameters.cpp" />
+    <ClCompile Include="Lot.cpp" />
     <ClCompile Include="Road.cpp" />
     <ClCompile Include="RoadLane.cpp" />
     <ClCompile Include="RoadRenderState.cpp" />
@@ -81,7 +84,11 @@
     <ClCompile Include="TransportTypes.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AssetLoader.h" />
+    <ClInclude Include="CityParameters.h" />
     <ClInclude Include="ChunkConfig.h" />
+    <ClInclude Include="CommuteTypes.h" />
+    <ClInclude Include="Lot.h" />
     <ClInclude Include="LotModule.h" />
     <ClInclude Include="Road.h" />
     <ClInclude Include="RoadLane.h" />

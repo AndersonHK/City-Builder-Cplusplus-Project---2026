@@ -11,6 +11,8 @@ Lot::Lot()
       anchorTileX_(0),
       anchorTileY_(0),
       nextModuleInstanceId_(1),
+      commuteDemand_(0),
+      commuteSatisfied_(0),
       airPollutionEmit_(0),
       landValueEmit_(0),
       minimumOccupiedOffset_(0, 0),
@@ -28,6 +30,8 @@ Lot::Lot(int lotId, const std::string& assetId, int anchorTileX, int anchorTileY
       anchorTileX_(anchorTileX),
       anchorTileY_(anchorTileY),
       nextModuleInstanceId_(1),
+      commuteDemand_(0),
+      commuteSatisfied_(0),
       airPollutionEmit_(0),
       landValueEmit_(0),
       minimumOccupiedOffset_(0, 0),
@@ -71,6 +75,65 @@ const std::vector<Int2>& Lot::occupiedOffsets() const {
 // Returns cached occupied world tile indices for fast occupancy updates.
 const std::vector<int>& Lot::occupiedTileIndices() const {
     return occupiedTileIndices_;
+}
+
+// Returns the lot's aggregate city-parameter contributions.
+const std::vector<CityParameterContribution>& Lot::parameterContributions() const {
+    return parameterContributions_;
+}
+
+// Returns coalesced route segments for the latest accepted commute assignment.
+const std::vector<CommuteRouteSegment>& Lot::commuteRouteSegments() const {
+    return commuteRouteSegments_;
+}
+
+// Returns low-wealth commute demand assigned to this lot in the latest pass.
+int Lot::commuteDemand() const {
+    return commuteDemand_;
+}
+
+// Returns commute demand that successfully found a compatible destination.
+int Lot::commuteSatisfied() const {
+    return commuteSatisfied_;
+}
+
+// Returns the world-space minimum x tile of the lot footprint.
+int Lot::minimumTileX() const {
+    return anchorTileX_ + minimumOccupiedOffset_.x;
+}
+
+// Returns the world-space minimum y tile of the lot footprint.
+int Lot::minimumTileY() const {
+    return anchorTileY_ + minimumOccupiedOffset_.y;
+}
+
+// Returns the cached footprint width in tiles.
+int Lot::footprintWidth() const {
+    return maximumOccupiedOffset_.x - minimumOccupiedOffset_.x + 1;
+}
+
+// Returns the cached footprint height in tiles.
+int Lot::footprintHeight() const {
+    return maximumOccupiedOffset_.y - minimumOccupiedOffset_.y + 1;
+}
+
+// Sets an explicit lot footprint before modules are attached.
+void Lot::setExplicitFootprint(const Int2& localOrigin, int width, int height, int mapWidth) {
+    explicitFootprintOffsets_.clear();
+    if (width <= 0 || height <= 0) {
+        rebuildCachedState(mapWidth);
+        return;
+    }
+
+    int tileY = 0;
+    for (; tileY < height; ++tileY) {
+        int tileX = 0;
+        for (; tileX < width; ++tileX) {
+            explicitFootprintOffsets_.push_back(Int2(localOrigin.x + tileX, localOrigin.y + tileY));
+        }
+    }
+
+    rebuildCachedState(mapWidth);
 }
 
 // Adds a module placement and refreshes the lot footprint caches.
@@ -131,6 +194,12 @@ void Lot::rebaseAnchorToMinimumTile(int mapWidth) {
     for (; moduleIndex < modules_.size(); ++moduleIndex) {
         modules_[moduleIndex].localOrigin.x -= newAnchorOffset.x;
         modules_[moduleIndex].localOrigin.y -= newAnchorOffset.y;
+    }
+
+    std::size_t footprintIndex = 0;
+    for (; footprintIndex < explicitFootprintOffsets_.size(); ++footprintIndex) {
+        explicitFootprintOffsets_[footprintIndex].x -= newAnchorOffset.x;
+        explicitFootprintOffsets_[footprintIndex].y -= newAnchorOffset.y;
     }
 
     rebuildCachedState(mapWidth);
@@ -197,10 +266,62 @@ std::string Lot::moduleSummary() const {
     return summary.str();
 }
 
+// Produces a compact city-parameter string for tile queries.
+std::string Lot::parameterSummary(const CityParameterRegistry& registry) const {
+    std::ostringstream summary;
+    bool isFirst = true;
+
+    std::size_t contributionIndex = 0;
+    for (; contributionIndex < parameterContributions_.size(); ++contributionIndex) {
+        const CityParameterContribution& contribution = parameterContributions_[contributionIndex];
+        if (contribution.parameterId < 0 || contribution.parameterId >= static_cast<int>(registry.count()) || contribution.amount == 0.0f) {
+            continue;
+        }
+
+        if (!isFirst) {
+            summary << ", ";
+        }
+
+        summary << registry.definition(contribution.parameterId).id << "=" << contribution.amount;
+        isFirst = false;
+    }
+
+    if (summary.str().empty()) {
+        return "none";
+    }
+
+    return summary.str();
+}
+
+// Clears committed commute visualization/statistics for a fresh assignment pass.
+void Lot::clearCommutes() {
+    commuteRouteSegments_.clear();
+    commuteDemand_ = 0;
+    commuteSatisfied_ = 0;
+}
+
+// Adds commute demand whether or not it finds a route this pass.
+void Lot::addCommuteDemand(int demand) {
+    if (demand > 0) {
+        commuteDemand_ += demand;
+    }
+}
+
+// Adds one accepted commute route to the lot's latest assignment data.
+void Lot::addCommuteRoute(int demand, const std::vector<CommuteRouteSegment>& segments) {
+    if (demand <= 0) {
+        return;
+    }
+
+    commuteSatisfied_ += demand;
+    commuteRouteSegments_.insert(commuteRouteSegments_.end(), segments.begin(), segments.end());
+}
+
 // Recomputes occupied tiles, bounds, render height, and aggregate color.
 void Lot::rebuildCachedState(int mapWidth) {
     occupiedOffsets_.clear();
     occupiedTileIndices_.clear();
+    parameterContributions_.clear();
     airPollutionEmit_ = 0;
     landValueEmit_ = 0;
     renderHeight_ = 0.25f;
@@ -208,7 +329,7 @@ void Lot::rebuildCachedState(int mapWidth) {
     colorG_ = 0.35f;
     colorB_ = 0.35f;
 
-    if (modules_.empty()) {
+    if (modules_.empty() && explicitFootprintOffsets_.empty()) {
         minimumOccupiedOffset_ = Int2(0, 0);
         maximumOccupiedOffset_ = Int2(0, 0);
         return;
@@ -223,6 +344,7 @@ void Lot::rebuildCachedState(int mapWidth) {
     float weightedColorB = 0.0f;
     float totalWeight = 0.0f;
 
+    occupiedOffsets_ = explicitFootprintOffsets_;
     std::size_t moduleIndex = 0;
     for (; moduleIndex < modules_.size(); ++moduleIndex) {
         const LotModulePlacement& placement = modules_[moduleIndex];
@@ -233,6 +355,28 @@ void Lot::rebuildCachedState(int mapWidth) {
         airPollutionEmit_ += placement.module->airPollutionEmit;
         landValueEmit_ += placement.module->landValueEmit;
         renderHeight_ = std::max(renderHeight_, placement.module->renderHeight);
+
+        std::size_t contributionIndex = 0;
+        for (; contributionIndex < placement.module->parameterContributions.size(); ++contributionIndex) {
+            const CityParameterContribution& moduleContribution = placement.module->parameterContributions[contributionIndex];
+            if (moduleContribution.parameterId < 0 || moduleContribution.amount == 0.0f) {
+                continue;
+            }
+
+            bool merged = false;
+            std::size_t existingIndex = 0;
+            for (; existingIndex < parameterContributions_.size(); ++existingIndex) {
+                if (parameterContributions_[existingIndex].parameterId == moduleContribution.parameterId) {
+                    parameterContributions_[existingIndex].amount += moduleContribution.amount;
+                    merged = true;
+                    break;
+                }
+            }
+
+            if (!merged) {
+                parameterContributions_.push_back(moduleContribution);
+            }
+        }
 
         const float moduleWeight = static_cast<float>(placement.module->width * placement.module->height);
         weightedColorR += placement.module->colorR * moduleWeight;
@@ -252,6 +396,15 @@ void Lot::rebuildCachedState(int mapWidth) {
                 maxY = std::max(maxY, localTile.y);
             }
         }
+    }
+
+    std::size_t explicitIndex = 0;
+    for (; explicitIndex < explicitFootprintOffsets_.size(); ++explicitIndex) {
+        const Int2& localTile = explicitFootprintOffsets_[explicitIndex];
+        minX = std::min(minX, localTile.x);
+        minY = std::min(minY, localTile.y);
+        maxX = std::max(maxX, localTile.x);
+        maxY = std::max(maxY, localTile.y);
     }
 
     std::sort(occupiedOffsets_.begin(), occupiedOffsets_.end(), [](const Int2& left, const Int2& right) {
