@@ -314,7 +314,8 @@ RciRoadPlan::RciRoadPlan(int startX, int startY, int endX, int endY)
 }
 
 RciLot::RciLot()
-    : zoningType(TileZoningNone) {
+    : zoningType(TileZoningNone),
+      availableAfterTick(0) {
 }
 
 RciPlan::RciPlan()

@@ -51,6 +51,7 @@ struct RciLot {
     std::uint16_t zoningType;
     RciColor color;
     RciRect rect;
+    std::uint64_t availableAfterTick;
 
     RciLot();
 };

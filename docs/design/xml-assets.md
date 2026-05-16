@@ -8,17 +8,19 @@ Use this guide when changing `AssetLoader`, data XML files, lot/module archetype
 - Runtime systems should receive validated module and lot definitions.
 
 ## Current Shape
-- `AssetLoader` reads module XML from `Data/Modules`, lot XML from `Data/Lots`, and the congestion curve from `Data/TransportNetwork/congestion.xml` when present.
+- `AssetLoader` reads module XML from `Data/Modules`, lot XML from `Data/Lots`, initial RCI demand XML from `Data/RCI/initial_demands.xml` when present, and the congestion curve from `Data/TransportNetwork/congestion.xml` when present.
 - UI window/menu XML lives under `Data/UI` and is parsed by `InGameWindow` and `UiLayout`, not `AssetLoader`.
-- RCI zoning tool XML lives under `Data/RCI` and is parsed by `RciToolCatalog`. It defines tool id/name/color plus min/preferred/max lot depth and width.
+- RCI zoning tool XML lives under `Data/RCI` and is parsed by `RciToolCatalog`. It defines tool id/name/color plus min/preferred/max lot depth and width. `AssetLoader` also reads constructor knobs from the same root, currently `constructorAttemptsPerTick` and `constructorOverbuildPercent`.
 - App preferences are intentionally not XML-backed. Startup window options, hotkeys, date display format, and query debug output live in `Data/config.ini` and are parsed by `AppConfig`.
 - File stems are fallback ids when an explicit `id` attribute is absent.
 - Modules define size, effects, and placeholder render values.
 - Modules may also define city-parameter contributions inside `<parameters>` using `<driver>` or `<satisfaction>` tags.
-- Lots define an anchor, optional constructor-facing `zoningType` / `rciType`, optional explicit footprint, optional render origin, optional front direction, initial module references, and optional access connections.
+- Lots define an anchor, optional constructor-facing `zoningType` / `rciType`, optional `constructionTicks`, optional explicit footprint, optional render origin, optional front direction, initial module references, and optional access connections.
 - Lot access can be declared with individual `<connection>` rows or a compact `<perimeter modes="..." />` row inside `<access>`, which expands to all exterior footprint edges after the footprint has been declared.
 - Lot validation ensures module references exist, the anchor is inside the lot footprint, access tiles are inside the footprint, access directions point outside the footprint, and access modes are known.
 - The congestion XML defines `<point utilization="..." speedMultiplier="..." />` rows. Invalid or duplicate utilization points fail asset load.
+- Initial demand XML defines `<demand id="..." amount="..." />` rows keyed by city parameter id. The checked-in defaults seed 20 low-wealth residents and 20 dirty-industry demand.
+- RCI constructor overbuild is stored as a multiplier internally. XML may spell `constructorOverbuildPercent="120"` for 120 percent, or `constructorOverbuildMultiplier="1.2"` for the same result.
 - The query window XML defines one `<window>` plus flat `<textField>` entries. City tool XML defines flat `<menu>` containers plus `<button>` children and action strings. Both UI parsers are tolerant and fall back to built-in layouts when missing or malformed.
 
 ## Rules
@@ -28,6 +30,7 @@ Use this guide when changing `AssetLoader`, data XML files, lot/module archetype
 - Validate explicit footprints: positive dimensions, anchor inside footprint, and initial modules fully inside the footprint.
 - Validate access declarations before normalizing the lot anchor, then store them relative to the normalized anchor so placement rotation can transform them.
 - Validate lot zoning type names when present; unknown `zoningType` / `rciType` values should fail asset load.
+- Validate `constructionTicks` as non-negative. A zero-tick lot is immediately active; positive values render construction growth and delay city-parameter effects.
 - Prefer simple explicit schema additions over implicit behavior.
 - Keep XML-backed archetypes separate from live runtime placement state.
 - Keep UI layout XML separate from gameplay archetype XML. UI parser fallbacks are acceptable for tools/debug windows, tool buttons, and the first RCI tool catalog; gameplay lot/module asset XML should continue to fail early.

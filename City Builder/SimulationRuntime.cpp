@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <ctime>
 #include <iostream>
 #include <random>
@@ -24,6 +25,7 @@ const float kTransportCostUnitsPerCommuteTime = 1000.0f;
 const float kMaximumCommuteTime = 300.0f;
 const float kMaximumCommuteCost = kMaximumCommuteTime * kTransportCostUnitsPerCommuteTime;
 const float kLongCommuteComplaintCost = kMaximumCommuteCost * 0.5f;
+const int kRciRedevelopmentGraceTicks = 30;
 
 const char* RciNameForZoningType(std::uint16_t zoningType) {
     if (zoningType == TileZoningResidential) {
@@ -33,6 +35,26 @@ const char* RciNameForZoningType(std::uint16_t zoningType) {
         return "Industry";
     }
     return "Unzoned";
+}
+
+const char* RciToolIdForZoningType(std::uint16_t zoningType) {
+    if (zoningType == TileZoningResidential) {
+        return "residential";
+    }
+    if (zoningType == TileZoningIndustrial) {
+        return "industrial";
+    }
+    return "rci";
+}
+
+RciColor RciColorForZoningType(std::uint16_t zoningType) {
+    if (zoningType == TileZoningResidential) {
+        return RciColor(0.18f, 0.86f, 0.32f, 0.50f);
+    }
+    if (zoningType == TileZoningIndustrial) {
+        return RciColor(0.92f, 0.76f, 0.15f, 0.50f);
+    }
+    return RciColor(0.45f, 0.45f, 0.45f, 0.50f);
 }
 
 bool CommuteRouteSegmentTouchesTile(const CommuteRouteSegment& segment, int tileX, int tileY) {
@@ -163,6 +185,8 @@ SimulationRuntime::SimulationRuntime(const RuntimeOptions& runtimeOptions)
       zoningLotsRevision_(0),
       simulationTick_(0),
       cityPopulation_(0),
+      rciConstructorAttemptsPerTick_(5),
+      rciConstructorOverbuildMultiplier_(1.2f),
       commuteRevision_(0),
       commutesDirty_(true),
       commuteRebalanceCursor_(0),
@@ -626,6 +650,8 @@ CitySaveState SimulationRuntime::exportCitySaveState() const {
         lotSaveState.anchorTileX = lot.anchorTileX();
         lotSaveState.anchorTileY = lot.anchorTileY();
         lotSaveState.rotationSteps = lot.rotationSteps();
+        lotSaveState.constructionTotalTicks = lot.constructionTotalTicks();
+        lotSaveState.constructionRemainingTicks = lot.constructionRemainingTicks();
 
         const std::vector<LotModulePlacement>& modules = lot.modules();
         std::size_t moduleIndex = 0;
@@ -696,6 +722,7 @@ void SimulationRuntime::importCitySaveState(const CitySaveState& saveState) {
                 lot.addModule(*moduleAsset, lotSaveState.modules[moduleIndex].localOrigin, kMapWidth, rotatedModuleWidth, rotatedModuleHeight);
             }
         }
+        lot.setConstructionState(lotSaveState.constructionTotalTicks, lotSaveState.constructionRemainingTicks, kMapWidth);
 
         bool isInsideMap = true;
         const std::vector<int>& occupiedTileIndices = lot.occupiedTileIndices();
@@ -879,6 +906,12 @@ void SimulationRuntime::loadAssets() {
 
     moduleAssets_ = loadedAssets.modules;
     lotAssets_ = loadedAssets.lots;
+    initialCityDemands_ = loadedAssets.initialDemands;
+    if (initialCityDemands_.size() < cityParameterRegistry_.count()) {
+        initialCityDemands_.resize(cityParameterRegistry_.count(), 0.0f);
+    }
+    rciConstructorAttemptsPerTick_ = std::max(1, loadedAssets.rciConstructorAttemptsPerTick);
+    rciConstructorOverbuildMultiplier_ = std::max(0.0f, loadedAssets.rciConstructorOverbuildMultiplier);
     transportNetwork_.setCongestionCurve(loadedAssets.congestionCurve);
 
     moduleAssetIndexById_.clear();
@@ -950,6 +983,9 @@ void SimulationRuntime::initializeWorld() {
     commuteRebalanceCursor_ = 0u;
     oldCityParameters_.assign(cityParameterRegistry_.count(), 0.0f);
     nextCityParameters_.assign(cityParameterRegistry_.count(), 0.0f);
+    if (initialCityDemands_.size() < cityParameterRegistry_.count()) {
+        initialCityDemands_.resize(cityParameterRegistry_.count(), 0.0f);
+    }
     transportNetwork_.clear();
 
     std::lock_guard<std::mutex> publishedLock(publishedMutex_);
@@ -973,12 +1009,13 @@ void SimulationRuntime::simulationLoop() {
 
         const std::chrono::steady_clock::time_point commandStart = std::chrono::steady_clock::now();
         applyQueuedCommands(tileBuffers_[simulationWriteBufferIndex_]);
-        runRciConstructor(tileBuffers_[simulationWriteBufferIndex_]);
+        advanceLotConstruction(tileBuffers_[simulationWriteBufferIndex_]);
         commandPassMicros_.store(DurationMicros(commandStart, std::chrono::steady_clock::now()));
 
         const std::chrono::steady_clock::time_point lotEffectsStart = std::chrono::steady_clock::now();
         applyLotEffects(tileBuffers_[simulationWriteBufferIndex_].tiles);
         runCommuteAssignment();
+        runRciConstructor(tileBuffers_[simulationWriteBufferIndex_]);
         lotEffectsMicros_.store(DurationMicros(lotEffectsStart, std::chrono::steady_clock::now()));
 
         const std::chrono::steady_clock::time_point localStart = std::chrono::steady_clock::now();
@@ -1297,6 +1334,35 @@ void SimulationRuntime::applyQueuedCommands(TileBuffer& writeBuffer) {
     }
 }
 
+// Advances constructor-started lots before demand is recalculated. Until a lot
+// completes, its modules render as rising construction geometry but do not
+// contribute city parameters, pollution, land value, or commute demand.
+void SimulationRuntime::advanceLotConstruction(TileBuffer& writeBuffer) {
+    std::vector<int> dirtyTiles;
+    std::size_t lotIndex = 0;
+    for (; lotIndex < lots_.size(); ++lotIndex) {
+        Lot& lot = lots_[lotIndex];
+        const bool wasUnderConstruction = lot.isUnderConstruction();
+        if (!lot.advanceConstructionTick(kMapWidth)) {
+            continue;
+        }
+
+        const std::vector<int>& occupiedTileIndices = lot.occupiedTileIndices();
+        dirtyTiles.insert(dirtyTiles.end(), occupiedTileIndices.begin(), occupiedTileIndices.end());
+        if (wasUnderConstruction && !lot.isUnderConstruction()) {
+            queueCommuteRecalculationForLot(lot.id());
+            queueCommuteSourcesForDestination(lot.id());
+        }
+    }
+
+    if (dirtyTiles.empty()) {
+        return;
+    }
+
+    markChunksDirtyByTileIndices(writeBuffer.chunkRevisions, dirtyTiles);
+    ++lotsRevision_;
+}
+
 // Applies all active lot/module effects after direct commands.
 void SimulationRuntime::applyLotEffects(std::vector<Tile>& writeTiles) {
     std::size_t lotIndex = 0;
@@ -1555,7 +1621,25 @@ void SimulationRuntime::runCommuteAssignment() {
         }
     }
 
+    const auto updateCommuteSatisfactionParameters = [this]() {
+        int totalSatisfied = 0;
+        std::size_t satisfiedLotIndex = 0;
+        for (; satisfiedLotIndex < lots_.size(); ++satisfiedLotIndex) {
+            totalSatisfied += lots_[satisfiedLotIndex].commuteSatisfied();
+        }
+
+        if (cityParameterRegistry_.satisfactionLowWealthCommuteId() >= 0 &&
+            cityParameterRegistry_.satisfactionLowWealthCommuteId() < static_cast<int>(nextCityParameters_.size())) {
+            nextCityParameters_[cityParameterRegistry_.satisfactionLowWealthCommuteId()] = static_cast<float>(totalSatisfied);
+        }
+        if (cityParameterRegistry_.satisfactionDirtyIndustryStaffingId() >= 0 &&
+            cityParameterRegistry_.satisfactionDirtyIndustryStaffingId() < static_cast<int>(nextCityParameters_.size())) {
+            nextCityParameters_[cityParameterRegistry_.satisfactionDirtyIndustryStaffingId()] = static_cast<float>(totalSatisfied);
+        }
+    };
+
     if (selectedLotIndices.empty() && !commutesDirty_) {
+        updateCommuteSatisfactionParameters();
         oldCityParameters_ = nextCityParameters_;
         refreshCityPopulation();
         if (!forcedCommuteLotIds_.empty()) {
@@ -1687,19 +1771,7 @@ void SimulationRuntime::runCommuteAssignment() {
 
     transportNetwork_.commitTrafficAssignment();
 
-    int totalSatisfied = 0;
-    for (lotIndex = 0; lotIndex < lots_.size(); ++lotIndex) {
-        totalSatisfied += lots_[lotIndex].commuteSatisfied();
-    }
-
-    if (cityParameterRegistry_.satisfactionLowWealthCommuteId() >= 0 &&
-        cityParameterRegistry_.satisfactionLowWealthCommuteId() < static_cast<int>(nextCityParameters_.size())) {
-        nextCityParameters_[cityParameterRegistry_.satisfactionLowWealthCommuteId()] = static_cast<float>(totalSatisfied);
-    }
-    if (cityParameterRegistry_.satisfactionDirtyIndustryStaffingId() >= 0 &&
-        cityParameterRegistry_.satisfactionDirtyIndustryStaffingId() < static_cast<int>(nextCityParameters_.size())) {
-        nextCityParameters_[cityParameterRegistry_.satisfactionDirtyIndustryStaffingId()] = static_cast<float>(totalSatisfied);
-    }
+    updateCommuteSatisfactionParameters();
 
     oldCityParameters_ = nextCityParameters_;
     refreshCityPopulation();
@@ -2034,31 +2106,56 @@ bool SimulationRuntime::tryConstructOneRciLot(std::uint16_t zoningType, TileBuff
         return false;
     }
 
+    const float demand = rciDemandForZoningType(zoningType);
+    if (demand <= 0.0f) {
+        return false;
+    }
+
+    // Under-construction lots do not affect city parameters yet, but they still
+    // reserve demand budget so the constructor does not keep filling the same demand.
+    float remainingBudget = (demand * rciConstructorOverbuildMultiplier_) - rciPendingConstructionCapacity(zoningType);
+    if (remainingBudget <= 0.0f) {
+        return false;
+    }
+
+    bool constructedAny = false;
+    int attempts = 0;
     std::size_t zoningLotIndex = 0;
-    while (zoningLotIndex < zoningLots_.size()) {
-        if (zoningLots_[zoningLotIndex].zoningType == zoningType &&
-            tryConstructRciLotAtIndex(zoningLotIndex, writeBuffer)) {
-            return true;
+    while (zoningLotIndex < zoningLots_.size() && attempts < rciConstructorAttemptsPerTick_ && remainingBudget > 0.0f) {
+        const RciLot& zoningLot = zoningLots_[zoningLotIndex];
+        if (zoningLot.zoningType != zoningType || zoningLot.availableAfterTick > simulationTick_) {
+            ++zoningLotIndex;
+            continue;
+        }
+
+        ++attempts;
+        float constructedCapacity = 0.0f;
+        if (tryConstructRciLotAtIndex(zoningLotIndex, remainingBudget, writeBuffer, constructedCapacity)) {
+            constructedAny = true;
+            remainingBudget -= constructedCapacity;
+            continue;
         }
 
         ++zoningLotIndex;
     }
 
-    return false;
+    return constructedAny;
 }
 
-bool SimulationRuntime::tryConstructRciLotAtIndex(std::size_t zoningLotIndex, TileBuffer& writeBuffer) {
+bool SimulationRuntime::tryConstructRciLotAtIndex(std::size_t zoningLotIndex, float demandBudget, TileBuffer& writeBuffer, float& constructedCapacity) {
+    constructedCapacity = 0.0f;
     if (zoningLotIndex >= zoningLots_.size()) {
         return false;
     }
 
     const RciLot zoningLot = zoningLots_[zoningLotIndex];
-    if (zoningLot.zoningType == TileZoningNone || !zoningLot.rect.isValid()) {
+    if (zoningLot.zoningType == TileZoningNone || !zoningLot.rect.isValid() || zoningLot.availableAfterTick > simulationTick_) {
         return false;
     }
 
     int rotationSteps = 0;
-    const LotAsset* lotAsset = findRciConstructorLotAsset(zoningLot.zoningType, zoningLot.rect.width(), zoningLot.rect.height(), rotationSteps);
+    float lotCapacity = 0.0f;
+    const LotAsset* lotAsset = findRciConstructorLotAsset(zoningLot.zoningType, zoningLot.rect.width(), zoningLot.rect.height(), demandBudget, rotationSteps, lotCapacity);
     if (lotAsset == 0) {
         return false;
     }
@@ -2102,21 +2199,27 @@ bool SimulationRuntime::tryConstructRciLotAtIndex(std::size_t zoningLotIndex, Ti
         return false;
     }
 
+    candidateLot.startConstruction(lotAsset->constructionTicks, kMapWidth);
     lots_.push_back(candidateLot);
     setLotOccupancy(candidateLot.id(), candidateLot.occupiedTileIndices());
     markChunksDirtyByTileIndices(writeBuffer.chunkRevisions, candidateLot.occupiedTileIndices());
     ++nextLotId_;
     ++lotsRevision_;
-    queueCommuteRecalculationForLot(candidateLot.id());
+    constructedCapacity = lotCapacity;
+    if (!candidateLot.isUnderConstruction()) {
+        queueCommuteRecalculationForLot(candidateLot.id());
+    }
 
     zoningLots_.erase(zoningLots_.begin() + static_cast<std::ptrdiff_t>(zoningLotIndex));
     ++zoningLotsRevision_;
     return true;
 }
 
-const LotAsset* SimulationRuntime::findRciConstructorLotAsset(std::uint16_t zoningType, int width, int height, int& rotationSteps) const {
+const LotAsset* SimulationRuntime::findRciConstructorLotAsset(std::uint16_t zoningType, int width, int height, float demandBudget, int& rotationSteps, float& capacity) const {
     rotationSteps = 0;
-    const LotAsset* rotatedMatch = 0;
+    capacity = 0.0f;
+    const LotAsset* bestMatch = 0;
+    int bestRotationSteps = 0;
     std::size_t lotAssetIndex = 0;
     for (; lotAssetIndex < lotAssets_.size(); ++lotAssetIndex) {
         const LotAsset& lotAsset = lotAssets_[lotAssetIndex];
@@ -2124,20 +2227,171 @@ const LotAsset* SimulationRuntime::findRciConstructorLotAsset(std::uint16_t zoni
             continue;
         }
 
+        int candidateRotationSteps = -1;
         if (lotAsset.footprintWidth == width && lotAsset.footprintHeight == height) {
-            rotationSteps = 0;
-            return &lotAsset;
+            candidateRotationSteps = 0;
+        } else if (lotAsset.footprintWidth == height && lotAsset.footprintHeight == width) {
+            candidateRotationSteps = 1;
         }
 
-        if (rotatedMatch == 0 && lotAsset.footprintWidth == height && lotAsset.footprintHeight == width) {
-            rotatedMatch = &lotAsset;
+        if (candidateRotationSteps < 0) {
+            continue;
+        }
+
+        const float candidateCapacity = rciCapacityForLotAsset(lotAsset, zoningType);
+        if (candidateCapacity <= 0.0f || candidateCapacity > demandBudget + 0.001f) {
+            continue;
+        }
+
+        if (bestMatch == 0 || candidateCapacity > capacity) {
+            bestMatch = &lotAsset;
+            bestRotationSteps = candidateRotationSteps;
+            capacity = candidateCapacity;
         }
     }
 
-    if (rotatedMatch != 0) {
-        rotationSteps = 1;
+    if (bestMatch != 0) {
+        rotationSteps = bestRotationSteps;
     }
-    return rotatedMatch;
+    return bestMatch;
+}
+
+float SimulationRuntime::rciDemandForZoningType(std::uint16_t zoningType) const {
+    const int residentsLowWealthId = cityParameterRegistry_.residentsLowWealthId();
+    const int jobsLowWealthId = cityParameterRegistry_.jobsLowWealthId();
+    const int jobsDirtyIndustryId = cityParameterRegistry_.jobsDirtyIndustryId();
+
+    const auto parameterValue = [this](int parameterId) -> float {
+        if (parameterId < 0 || parameterId >= static_cast<int>(oldCityParameters_.size())) {
+            return 0.0f;
+        }
+
+        return oldCityParameters_[static_cast<std::size_t>(parameterId)];
+    };
+
+    const auto initialDemand = [this](int parameterId) -> float {
+        if (parameterId < 0 || parameterId >= static_cast<int>(initialCityDemands_.size())) {
+            return 0.0f;
+        }
+
+        return initialCityDemands_[static_cast<std::size_t>(parameterId)];
+    };
+
+    if (zoningType == TileZoningResidential) {
+        return std::max(0.0f, initialDemand(residentsLowWealthId) + parameterValue(jobsLowWealthId) - parameterValue(residentsLowWealthId));
+    }
+
+    if (zoningType == TileZoningIndustrial) {
+        return std::max(0.0f, initialDemand(jobsDirtyIndustryId) + parameterValue(residentsLowWealthId) - parameterValue(jobsDirtyIndustryId));
+    }
+
+    return 0.0f;
+}
+
+float SimulationRuntime::rciPendingConstructionCapacity(std::uint16_t zoningType) const {
+    float capacity = 0.0f;
+    std::size_t lotIndex = 0;
+    for (; lotIndex < lots_.size(); ++lotIndex) {
+        const Lot& lot = lots_[lotIndex];
+        if (!lot.isUnderConstruction()) {
+            continue;
+        }
+
+        const LotAsset* lotAsset = findLotAssetById(lot.assetId());
+        if (lotAsset == 0 || lotAsset->zoningType != zoningType) {
+            continue;
+        }
+
+        capacity += rciCapacityForLotAsset(*lotAsset, zoningType);
+    }
+
+    return capacity;
+}
+
+float SimulationRuntime::rciCapacityForLotAsset(const LotAsset& lotAsset, std::uint16_t zoningType) const {
+    const int parameterId = rciDemandParameterId(zoningType);
+    if (parameterId < 0) {
+        return 0.0f;
+    }
+
+    float capacity = 0.0f;
+    std::size_t placementIndex = 0;
+    for (; placementIndex < lotAsset.initialModules.size(); ++placementIndex) {
+        const LotModule* moduleAsset = findModuleAssetById(lotAsset.initialModules[placementIndex].moduleId);
+        if (moduleAsset == 0) {
+            continue;
+        }
+
+        std::size_t contributionIndex = 0;
+        for (; contributionIndex < moduleAsset->parameterContributions.size(); ++contributionIndex) {
+            const CityParameterContribution& contribution = moduleAsset->parameterContributions[contributionIndex];
+            if (contribution.parameterId == parameterId) {
+                capacity += contribution.amount;
+            }
+        }
+    }
+
+    return capacity;
+}
+
+int SimulationRuntime::rciDemandParameterId(std::uint16_t zoningType) const {
+    if (zoningType == TileZoningResidential) {
+        return cityParameterRegistry_.residentsLowWealthId();
+    }
+
+    if (zoningType == TileZoningIndustrial) {
+        return cityParameterRegistry_.jobsDirtyIndustryId();
+    }
+
+    return -1;
+}
+
+RciLot SimulationRuntime::buildRedevelopmentRciLot(const Lot& lot, const LotAsset& lotAsset, std::uint64_t availableAfterTick) const {
+    RciLot redevelopmentLot;
+    redevelopmentLot.toolId = RciToolIdForZoningType(lotAsset.zoningType);
+    redevelopmentLot.name = RciNameForZoningType(lotAsset.zoningType);
+    redevelopmentLot.zoningType = lotAsset.zoningType;
+    redevelopmentLot.color = RciColorForZoningType(lotAsset.zoningType);
+    redevelopmentLot.rect = RciRect(
+        lot.minimumTileX(),
+        lot.minimumTileY(),
+        lot.minimumTileX() + lot.footprintWidth() - 1,
+        lot.minimumTileY() + lot.footprintHeight() - 1);
+    redevelopmentLot.availableAfterTick = availableAfterTick;
+    return redevelopmentLot;
+}
+
+bool SimulationRuntime::exposeRciLotForRedevelopment(std::size_t lotIndex, const LotAsset& lotAsset, TileBuffer& writeBuffer, std::uint64_t availableAfterTick) {
+    if (lotIndex >= lots_.size() || lotAsset.zoningType == TileZoningNone) {
+        return false;
+    }
+
+    const int lotId = lots_[lotIndex].id();
+    const std::vector<int> occupiedTiles = lots_[lotIndex].occupiedTileIndices();
+    const RciLot redevelopmentLot = buildRedevelopmentRciLot(lots_[lotIndex], lotAsset, availableAfterTick);
+
+    queueCommuteSourcesForDestination(lotId);
+    removeCommuteLoadsForLot(lots_[lotIndex]);
+    clearLotOccupancy(occupiedTiles);
+    lots_.erase(lots_.begin() + static_cast<std::ptrdiff_t>(lotIndex));
+
+    std::size_t tileIndexValue = 0;
+    for (; tileIndexValue < occupiedTiles.size(); ++tileIndexValue) {
+        const int tileLinearIndex = occupiedTiles[tileIndexValue];
+        if (tileLinearIndex < 0 || tileLinearIndex >= static_cast<int>(writeBuffer.tiles.size())) {
+            continue;
+        }
+
+        writeBuffer.tiles[tileLinearIndex].zoningType = lotAsset.zoningType;
+        writeBuffer.tiles[tileLinearIndex].isVacant = true;
+    }
+
+    removeZoningLotsIntersectingRect(redevelopmentLot.rect);
+    zoningLots_.push_back(redevelopmentLot);
+    markChunksDirtyByTileIndices(writeBuffer.chunkRevisions, occupiedTiles);
+    ++lotsRevision_;
+    ++zoningLotsRevision_;
+    return true;
 }
 
 // Attempts to attach a module to exactly one adjacent lot.
@@ -2204,16 +2458,19 @@ bool SimulationRuntime::tryRemoveModuleAtTile(int clickedTileX, int clickedTileY
     const bool preserveEmptyRciLot = targetLotAsset != 0 && targetLotAsset->zoningType != TileZoningNone;
     queueCommuteSourcesForDestination(lotId);
 
-    clearLotOccupancy(oldOccupiedTiles);
-
     std::vector<int> dirtyTiles = oldOccupiedTiles;
     if (targetLot->modules().empty()) {
         if (preserveEmptyRciLot) {
-            removeCommuteLoadsForLot(*targetLot);
-            targetLot->clearCommutes();
-            setLotOccupancy(lotId, targetLot->occupiedTileIndices());
-            dirtyTiles.insert(dirtyTiles.end(), targetLot->occupiedTileIndices().begin(), targetLot->occupiedTileIndices().end());
+            std::size_t lotIndex = 0;
+            for (; lotIndex < lots_.size(); ++lotIndex) {
+                if (lots_[lotIndex].id() == lotId) {
+                    return exposeRciLotForRedevelopment(lotIndex, *targetLotAsset, writeBuffer, simulationTick_ + kRciRedevelopmentGraceTicks);
+                }
+            }
+
+            return false;
         } else {
+            clearLotOccupancy(oldOccupiedTiles);
             std::size_t lotIndex = 0;
             for (; lotIndex < lots_.size(); ++lotIndex) {
                 if (lots_[lotIndex].id() != lotId) {
@@ -2226,6 +2483,7 @@ bool SimulationRuntime::tryRemoveModuleAtTile(int clickedTileX, int clickedTileY
             }
         }
     } else {
+        clearLotOccupancy(oldOccupiedTiles);
         targetLot->rebaseAnchorToMinimumTile(kMapWidth);
         setLotOccupancy(lotId, targetLot->occupiedTileIndices());
         dirtyTiles.insert(dirtyTiles.end(), targetLot->occupiedTileIndices().begin(), targetLot->occupiedTileIndices().end());
@@ -2237,8 +2495,9 @@ bool SimulationRuntime::tryRemoveModuleAtTile(int clickedTileX, int clickedTileY
     return true;
 }
 
-// Destroys buildings under a tile. RCI lots keep their parcel footprint and zoning;
-// dezoning/road removal are intentionally separate tool responsibilities.
+// Destroys buildings under a tile. RCI lots turn back into empty redevelopment
+// parcels, while roads remain a bulldozer responsibility and zoning remains a
+// separate dezoning concern.
 bool SimulationRuntime::tryBulldozeAtTile(int clickedTileX, int clickedTileY, TileBuffer& writeBuffer) {
     const int tileLinearIndex = tileIndex(clickedTileX, clickedTileY);
     const int lotId = lotOccupancy_[tileLinearIndex];
@@ -2256,18 +2515,7 @@ bool SimulationRuntime::tryBulldozeAtTile(int clickedTileX, int clickedTileY, Ti
                     return false;
                 }
 
-                queueCommuteSourcesForDestination(lotId);
-                removeCommuteLoadsForLot(lots_[lotIndex]);
-                clearLotOccupancy(oldOccupiedTiles);
-                lots_[lotIndex].clearModules(kMapWidth);
-                setLotOccupancy(lotId, lots_[lotIndex].occupiedTileIndices());
-
-                std::vector<int> dirtyTiles = oldOccupiedTiles;
-                dirtyTiles.insert(dirtyTiles.end(), lots_[lotIndex].occupiedTileIndices().begin(), lots_[lotIndex].occupiedTileIndices().end());
-                markChunksDirtyByTileIndices(writeBuffer.chunkRevisions, dirtyTiles);
-                ++lotsRevision_;
-                queueCommuteRecalculationForLot(lotId);
-                return true;
+                return exposeRciLotForRedevelopment(lotIndex, *lotAsset, writeBuffer, simulationTick_ + kRciRedevelopmentGraceTicks);
             }
 
             queueCommuteSourcesForDestination(lotId);
@@ -2280,6 +2528,11 @@ bool SimulationRuntime::tryBulldozeAtTile(int clickedTileX, int clickedTileY, Ti
         }
 
         return false;
+    }
+
+    if (transportNetwork_.removeRoadAtTile(clickedTileX, clickedTileY)) {
+        commutesDirty_ = true;
+        return true;
     }
 
     return false;

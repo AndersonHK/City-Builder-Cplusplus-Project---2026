@@ -79,7 +79,7 @@ std::uint16_t RoadLane::traversalCost(RoadFamily family) const {
         case RoadLaneTypeId::Car:
             return family == RoadFamily::Highway ? kTravelCostScale / 14u : kTravelCostScale / 10u;
         case RoadLaneTypeId::Pedestrian:
-            return kTravelCostScale / 1u;
+            return kTravelCostScale / 2u;
         case RoadLaneTypeId::Bike:
             return kTravelCostScale / 4u;
         case RoadLaneTypeId::Bus:

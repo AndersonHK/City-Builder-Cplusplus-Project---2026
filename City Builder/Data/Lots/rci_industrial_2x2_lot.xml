@@ -1,4 +1,4 @@
-<lot id="rci_industrial_2x2_lot" zoningType="industrial">
+<lot id="rci_industrial_2x2_lot" zoningType="industrial" constructionTicks="4">
   <anchor x="0" y="0" />
   <footprint x="0" y="0" width="2" height="2" />
   <modules>

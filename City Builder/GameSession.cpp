@@ -20,7 +20,7 @@ namespace {
 const std::uint32_t kRegionSaveMagic = 0x52424743u; // CBGR
 const std::uint32_t kRegionSaveVersion = 3u;
 const std::uint32_t kCitySaveMagic = 0x59544243u; // CBTY
-const std::uint32_t kCitySaveVersion = 6u;
+const std::uint32_t kCitySaveVersion = 7u;
 const int kMaximumPreviewBuildsInFlight = 2;
 
 std::string GetExecutableDirectory() {
@@ -100,6 +100,7 @@ void WriteRciLot(std::ostream& stream, const RciLot& lot) {
     WriteValue(stream, lot.rect.minTileY);
     WriteValue(stream, lot.rect.maxTileX);
     WriteValue(stream, lot.rect.maxTileY);
+    WriteValue(stream, lot.availableAfterTick);
 }
 
 RciLot ReadRciLot(std::istream& stream) {
@@ -115,6 +116,7 @@ RciLot ReadRciLot(std::istream& stream) {
     ReadValue(stream, lot.rect.minTileY);
     ReadValue(stream, lot.rect.maxTileX);
     ReadValue(stream, lot.rect.maxTileY);
+    ReadValue(stream, lot.availableAfterTick);
     return lot;
 }
 
@@ -307,6 +309,8 @@ void WriteCityState(std::ostream& stream, const CitySaveState& state) {
         WriteValue(stream, lot.anchorTileX);
         WriteValue(stream, lot.anchorTileY);
         WriteValue(stream, lot.rotationSteps);
+        WriteValue(stream, lot.constructionTotalTicks);
+        WriteValue(stream, lot.constructionRemainingTicks);
         const std::uint32_t moduleCount = static_cast<std::uint32_t>(lot.modules.size());
         WriteValue(stream, moduleCount);
         std::size_t moduleIndex = 0;
@@ -380,6 +384,8 @@ CitySaveState ReadCityState(std::istream& stream) {
         ReadValue(stream, lot.anchorTileX);
         ReadValue(stream, lot.anchorTileY);
         ReadValue(stream, lot.rotationSteps);
+        ReadValue(stream, lot.constructionTotalTicks);
+        ReadValue(stream, lot.constructionRemainingTicks);
         std::uint32_t moduleCount = 0u;
         ReadValue(stream, moduleCount);
         lot.modules.resize(moduleCount);

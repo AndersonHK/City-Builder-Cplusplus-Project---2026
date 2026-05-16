@@ -1,0 +1,5 @@
+<module id="concrete_floor_module">
+  <size width="1" height="1" />
+  <effects airPollution="0" landValue="-75" />
+  <render height="0.06" colorR="0.50" colorG="0.50" colorB="0.48" />
+</module>

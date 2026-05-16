@@ -119,7 +119,7 @@ std::uint16_t FullLaneCapacityForLane(const RoadLanePlacement& lanePlacement) {
         return 1200u;
     }
     if (lanePlacement.laneType == RoadLaneTypeId::Car) {
-        return 100u;
+        return 200u;
     }
 
     return 0u;

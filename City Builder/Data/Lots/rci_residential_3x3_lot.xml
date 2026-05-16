@@ -1,7 +1,10 @@
-<lot id="rci_residential_3x3_lot" zoningType="residential">
+<lot id="rci_residential_3x3_lot" zoningType="residential" constructionTicks="8">
   <anchor x="0" y="0" />
   <footprint x="0" y="0" width="3" height="3" />
   <modules>
+    <moduleRef id="pathway_module" x="0" y="0" />
+    <moduleRef id="garden_module" x="1" y="0" />
+    <moduleRef id="driveway_module" x="2" y="0" />
     <moduleRef id="duplex_module" x="0" y="1" />
   </modules>
   <access>

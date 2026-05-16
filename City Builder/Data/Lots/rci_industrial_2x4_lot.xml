@@ -1,7 +1,9 @@
-<lot id="rci_industrial_2x4_lot" zoningType="industrial">
+<lot id="rci_industrial_2x4_lot" zoningType="industrial" constructionTicks="9">
   <anchor x="0" y="0" />
   <footprint x="0" y="0" width="2" height="4" />
   <modules>
+    <moduleRef id="concrete_floor_module" x="1" y="2" />
+    <moduleRef id="concrete_floor_module" x="1" y="3" />
     <moduleRef id="warehouse_module" x="0" y="0" />
     <moduleRef id="smokestack_module" x="0" y="2" />
   </modules>

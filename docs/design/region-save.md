@@ -14,7 +14,7 @@ Use this guide when changing `GameSession`, `City`, `Region`, city save export/i
 - `region.bin` stores region/city metadata only; individual `city_X_Y.bin` files store full `CitySaveState` payloads.
 - `City` stores name, unique region coordinates, map dimensions, camera metadata, parameter summaries, dirty state, and optionally one loaded `CitySaveState`. The simulation date belongs to the city through its saved simulation tick; regions do not own date state.
 - Region preview data is loaded/generated on background futures and rendered through the normal city draw passes with a top-down orthographic camera; CPU preview pixels are not kept on `City` after upload.
-- `SimulationRuntime::exportCitySaveState` writes the current simulation tick, tiles, RCI zoning parcel rectangles, reconstructable lot/module placement state, city parameters, and authored transport lanes.
+- `SimulationRuntime::exportCitySaveState` writes the current simulation tick, tiles, RCI zoning parcel rectangles and redevelopment availability ticks, reconstructable lot/module placement state, lot construction state, city parameters, and authored transport lanes.
 - `SimulationRuntime::importCitySaveState` rebuilds live lots, lot occupancy, transport derived state, and published renderer snapshots from saved authored state.
 - `TransportNetwork` exports/imports authored `RoadLanePlacement` records, then resolves road render/cost data after load.
 
@@ -28,6 +28,7 @@ Use this guide when changing `GameSession`, `City`, `Region`, city save export/i
 - Push the active camera into the active city before F1/F3 exports, and restore the city camera after enter-city/F2 reload.
 - Bump or invalidate renderer upload freshness when moving from region mode into city mode.
 - Do not delete existing `Data\Saves` during build, launch, save, or load flows. Saves are still alpha-only and may be rejected when incompatible, but convenient one-time salvage is now preferred over wiping them.
+- City save version 7 adds RCI parcel redevelopment availability and lot construction remaining/total ticks. There is still no general backward-compatibility layer; preserve existing saves on disk and only salvage when a one-time conversion is convenient.
 
 ## Checks
 - Build `x64 Release`.

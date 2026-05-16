@@ -59,6 +59,7 @@ struct LotAsset {
     Int2 renderOrigin;
     std::uint8_t frontDirection;
     bool hasFrontDirection;
+    int constructionTicks;
     std::vector<LotModulePlacementDefinition> initialModules;
     std::vector<LotAccessDefinition> accessDefinitions;
 
@@ -71,7 +72,8 @@ struct LotAsset {
           footprintHeight(0),
           renderOrigin(0, 0),
           frontDirection(kRoadDirectionNorth),
-          hasFrontDirection(false) {
+          hasFrontDirection(false),
+          constructionTicks(0) {
     }
 };
 
@@ -102,11 +104,18 @@ public:
     int minimumTileY() const;
     int footprintWidth() const;
     int footprintHeight() const;
+    bool isUnderConstruction() const;
+    int constructionTotalTicks() const;
+    int constructionRemainingTicks() const;
+    float constructionProgress() const;
 
     void setExplicitFootprint(const Int2& localOrigin, int width, int height, int mapWidth);
     int addModule(const LotModule& module, const Int2& localOrigin, int mapWidth, int footprintWidth = 0, int footprintHeight = 0);
     bool removeModule(int moduleInstanceId, int mapWidth);
     void clearModules(int mapWidth);
+    void startConstruction(int totalTicks, int mapWidth);
+    void setConstructionState(int totalTicks, int remainingTicks, int mapWidth);
+    bool advanceConstructionTick(int mapWidth);
     int moduleInstanceIdAtLocalTile(const Int2& localTile) const;
     void rebaseAnchorToMinimumTile(int mapWidth);
     void applyEffects(std::vector<Tile>& tiles) const;
@@ -162,4 +171,6 @@ private:
     float colorR_;
     float colorG_;
     float colorB_;
+    int constructionTotalTicks_;
+    int constructionRemainingTicks_;
 };

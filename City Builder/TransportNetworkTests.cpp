@@ -1667,7 +1667,7 @@ void TestLocalLaneSpeedCosts(TestRunner& runner) {
     const TransportCostCell& pedestrianCell = CostCellAt(network, TransportLayerId::Ground, TransportMode::Pedestrian, 4, 5);
 
     runner.expect(DirectionCost(carCell, kRoadDirectionEast) == 100u, "local car lane uses 10 tiles per time at capacity");
-    runner.expect(DirectionCost(pedestrianCell, kRoadDirectionEast) == 1000u, "pedestrian lane uses 1 tile per time at capacity");
+    runner.expect(DirectionCost(pedestrianCell, kRoadDirectionEast) == 500u, "pedestrian lane uses 2 tiles per time at capacity");
 }
 
 void TestCostMapLowerCostAndCapacityAccumulation(TestRunner& runner) {
@@ -1931,7 +1931,7 @@ void TestFactoryHouseAssetsAndParameters(TestRunner& runner) {
         runner.expect(ModuleParameterAmount(*largerHouseModule, registry.residentsLowWealthId()) == 7.0f, "larger house contributes seven low wealth residents");
     }
     if (smallApartmentModule != 0) {
-        runner.expect(ModuleParameterAmount(*smallApartmentModule, registry.residentsMediumWealthId()) == 14.0f, "small apartment contributes medium wealth residents");
+        runner.expect(ModuleParameterAmount(*smallApartmentModule, registry.residentsLowWealthId()) == 14.0f, "small apartment contributes low wealth residents");
     }
     if (workshopModule != 0) {
         runner.expect(ModuleParameterAmount(*workshopModule, registry.jobsDirtyIndustryId()) == 4.0f, "workshop contributes four dirty industry jobs");

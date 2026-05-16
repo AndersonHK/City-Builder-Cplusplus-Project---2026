@@ -316,6 +316,7 @@ private:
 
     void runNeighborPass(const std::vector<Tile>& readTiles, std::vector<Tile>& writeTiles);
     void applyQueuedCommands(TileBuffer& writeBuffer);
+    void advanceLotConstruction(TileBuffer& writeBuffer);
     void applyLotEffects(std::vector<Tile>& writeTiles);
     void rebuildCityParameters();
     void refreshCityPopulation();
@@ -345,8 +346,14 @@ private:
     bool tryPlaceLot(const LotAsset& lotAsset, int clickedTileX, int clickedTileY, int rotationSteps, TileBuffer& writeBuffer);
     void runRciConstructor(TileBuffer& writeBuffer);
     bool tryConstructOneRciLot(std::uint16_t zoningType, TileBuffer& writeBuffer);
-    bool tryConstructRciLotAtIndex(std::size_t zoningLotIndex, TileBuffer& writeBuffer);
-    const LotAsset* findRciConstructorLotAsset(std::uint16_t zoningType, int width, int height, int& rotationSteps) const;
+    bool tryConstructRciLotAtIndex(std::size_t zoningLotIndex, float demandBudget, TileBuffer& writeBuffer, float& constructedCapacity);
+    const LotAsset* findRciConstructorLotAsset(std::uint16_t zoningType, int width, int height, float demandBudget, int& rotationSteps, float& capacity) const;
+    float rciDemandForZoningType(std::uint16_t zoningType) const;
+    float rciPendingConstructionCapacity(std::uint16_t zoningType) const;
+    float rciCapacityForLotAsset(const LotAsset& lotAsset, std::uint16_t zoningType) const;
+    int rciDemandParameterId(std::uint16_t zoningType) const;
+    bool exposeRciLotForRedevelopment(std::size_t lotIndex, const LotAsset& lotAsset, TileBuffer& writeBuffer, std::uint64_t availableAfterTick);
+    RciLot buildRedevelopmentRciLot(const Lot& lot, const LotAsset& lotAsset, std::uint64_t availableAfterTick) const;
     bool tryAddModuleAtTile(const LotModule& moduleAsset, int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
     bool tryRemoveModuleAtTile(int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
     bool tryBulldozeAtTile(int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
@@ -410,7 +417,10 @@ private:
     CityParameterRegistry cityParameterRegistry_;
     std::vector<float> oldCityParameters_;
     std::vector<float> nextCityParameters_;
+    std::vector<float> initialCityDemands_;
     std::vector<std::vector<float> > cityParameterDeltaBuffers_;
+    int rciConstructorAttemptsPerTick_;
+    float rciConstructorOverbuildMultiplier_;
     std::uint64_t commuteRevision_;
     bool commutesDirty_;
     std::vector<int> forcedCommuteLotIds_;

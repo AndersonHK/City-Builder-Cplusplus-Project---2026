@@ -64,7 +64,9 @@ Lot::Lot()
       renderHeight_(0.5f),
       colorR_(0.4f),
       colorG_(0.4f),
-      colorB_(0.4f) {
+      colorB_(0.4f),
+      constructionTotalTicks_(0),
+      constructionRemainingTicks_(0) {
 }
 
 // Creates a lot instance anchored in world tile coordinates.
@@ -90,7 +92,9 @@ Lot::Lot(int lotId, const std::string& assetId, int anchorTileX, int anchorTileY
       renderHeight_(0.5f),
       colorR_(0.4f),
       colorG_(0.4f),
-      colorB_(0.4f) {
+      colorB_(0.4f),
+      constructionTotalTicks_(0),
+      constructionRemainingTicks_(0) {
 }
 
 // Returns the stable runtime lot id.
@@ -198,6 +202,27 @@ int Lot::footprintHeight() const {
     return maximumOccupiedOffset_.y - minimumOccupiedOffset_.y + 1;
 }
 
+bool Lot::isUnderConstruction() const {
+    return constructionRemainingTicks_ > 0;
+}
+
+int Lot::constructionTotalTicks() const {
+    return constructionTotalTicks_;
+}
+
+int Lot::constructionRemainingTicks() const {
+    return constructionRemainingTicks_;
+}
+
+float Lot::constructionProgress() const {
+    if (constructionTotalTicks_ <= 0) {
+        return 1.0f;
+    }
+
+    const float completedTicks = static_cast<float>(constructionTotalTicks_ - constructionRemainingTicks_);
+    return std::max(0.0f, std::min(1.0f, completedTicks / static_cast<float>(constructionTotalTicks_)));
+}
+
 // Sets an explicit lot footprint before modules are attached.
 void Lot::setExplicitFootprint(const Int2& localOrigin, int width, int height, int mapWidth) {
     explicitFootprintOffsets_.clear();
@@ -249,8 +274,31 @@ bool Lot::removeModule(int moduleInstanceId, int mapWidth) {
 // Removes all building modules while preserving an explicit RCI parcel footprint.
 void Lot::clearModules(int mapWidth) {
     modules_.clear();
+    constructionTotalTicks_ = 0;
+    constructionRemainingTicks_ = 0;
     clearCommutes();
     rebuildCachedState(mapWidth);
+}
+
+void Lot::startConstruction(int totalTicks, int mapWidth) {
+    setConstructionState(totalTicks, totalTicks, mapWidth);
+}
+
+void Lot::setConstructionState(int totalTicks, int remainingTicks, int mapWidth) {
+    constructionTotalTicks_ = std::max(0, totalTicks);
+    constructionRemainingTicks_ = std::max(0, std::min(remainingTicks, constructionTotalTicks_));
+    clearCommutes();
+    rebuildCachedState(mapWidth);
+}
+
+bool Lot::advanceConstructionTick(int mapWidth) {
+    if (constructionRemainingTicks_ <= 0) {
+        return false;
+    }
+
+    --constructionRemainingTicks_;
+    rebuildCachedState(mapWidth);
+    return true;
 }
 
 // Finds the module occupying a tile inside the lot-local footprint.
@@ -324,7 +372,7 @@ LotRenderInstance Lot::buildRenderInstance() const {
     renderInstance.originY = anchorTileY_ + minimumOccupiedOffset_.y;
     renderInstance.width = maximumOccupiedOffset_.x - minimumOccupiedOffset_.x + 1;
     renderInstance.height = maximumOccupiedOffset_.y - minimumOccupiedOffset_.y + 1;
-    renderInstance.renderHeight = renderHeight_;
+    renderInstance.renderHeight = renderHeight_ * constructionProgress();
     renderInstance.colorR = colorR_;
     renderInstance.colorG = colorG_;
     renderInstance.colorB = colorB_;
@@ -372,7 +420,7 @@ void Lot::buildRenderInstances(std::vector<LotRenderInstance>& instances) const 
         moduleInstance.originY = anchorTileY_ + placement.localOrigin.y;
         moduleInstance.width = placement.footprintWidth;
         moduleInstance.height = placement.footprintHeight;
-        moduleInstance.renderHeight = placement.module->renderHeight;
+        moduleInstance.renderHeight = placement.module->renderHeight * constructionProgress();
         moduleInstance.colorR = placement.module->colorR;
         moduleInstance.colorG = placement.module->colorG;
         moduleInstance.colorB = placement.module->colorB;
@@ -583,6 +631,7 @@ void Lot::rebuildCachedState(int mapWidth) {
     float weightedColorG = 0.0f;
     float weightedColorB = 0.0f;
     float totalWeight = 0.0f;
+    const bool activeModuleEffects = !isUnderConstruction();
 
     occupiedOffsets_ = explicitFootprintOffsets_;
     std::size_t moduleIndex = 0;
@@ -592,12 +641,18 @@ void Lot::rebuildCachedState(int mapWidth) {
             continue;
         }
 
-        airPollutionEmit_ += placement.module->airPollutionEmit;
-        landValueEmit_ += placement.module->landValueEmit;
+        if (activeModuleEffects) {
+            airPollutionEmit_ += placement.module->airPollutionEmit;
+            landValueEmit_ += placement.module->landValueEmit;
+        }
         renderHeight_ = std::max(renderHeight_, placement.module->renderHeight);
 
         std::size_t contributionIndex = 0;
         for (; contributionIndex < placement.module->parameterContributions.size(); ++contributionIndex) {
+            if (!activeModuleEffects) {
+                continue;
+            }
+
             const CityParameterContribution& moduleContribution = placement.module->parameterContributions[contributionIndex];
             if (moduleContribution.parameterId < 0 || moduleContribution.amount == 0.0f) {
                 continue;

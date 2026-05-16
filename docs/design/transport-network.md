@@ -29,7 +29,7 @@ Use this guide when changing road placement, lane topology, road render data, or
 - Perpendicular overlap is allowed as lane coexistence inside the same transport tile. Intersection behavior is resolved afterward from lane adjacency.
 - A resolved tile aggregates lane type masks, surface masks, costs, travel, exits, junction glyphs, lane graphics, and dividers for renderer/query consumers.
 - A pathing lane contributes only the outgoing directions it actually permits. If multiple lanes contribute to the same tile/layer/mode/direction, the cost map keeps the lower cost and accumulates capacity.
-- Local car lane base cost is calibrated as 10 tiles/time at 100 percent capacity. Pedestrian path base cost is 1 tile/time. Current alpha car-lane capacity is 100 for all car lanes.
+- Local car lane base cost is calibrated as 10 tiles/time at 100 percent capacity. Pedestrian paths currently move 2 tiles/time. Current alpha car-lane capacity is 200 for all car lanes.
 - Ground local sidewalks expose adjacent building access for pedestrian and car spawning. Highways, elevated lanes, underground lanes, and through-only lanes do not expose adjacent building access by default.
 
 ## Pathfinding And Traffic Loads
@@ -116,7 +116,7 @@ A car intersection node is a resolved car junction with at least three cardinal 
 - Build and run `TransportNetworkTests.vcxproj`.
 - Verify straight one-way and two-way local streets, elevated highways, corners, tees, crosses, same-axis overlap rejection, exact replay revision stability, and lot-road occupancy rejection.
 - Verify directional one-way costs, lower-cost merge behavior, mode start costs, capacity accumulation, no implicit layer connection, explicit transfer edges, load add/subtract, congestion rerouting, and traffic-overlay colors.
-- Verify congestion XML keeps car cost at 10 tiles/time and pedestrian cost at 1 tile/time at 100 percent capacity before applying over-capacity slowdowns.
+- Verify congestion XML keeps car cost at 10 tiles/time and pedestrian cost at 2 tiles/time at 100 percent capacity before applying over-capacity slowdowns.
 - In game, pan away and back after road edits to confirm deferred chunk uploads still catch up when visible.
 
 ## Related Guides

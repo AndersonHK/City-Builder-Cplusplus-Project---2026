@@ -150,6 +150,16 @@ int ParseRequiredInt(const std::string& attributes, const std::string& attribute
     return std::stoi(GetRequiredAttribute(attributes, attributeName));
 }
 
+// Parses an optional integer XML attribute.
+int ParseOptionalInt(const std::string& attributes, const std::string& attributeName, int defaultValue) {
+    const std::string value = GetOptionalAttribute(attributes, attributeName, "");
+    if (value.empty()) {
+        return defaultValue;
+    }
+
+    return std::stoi(value);
+}
+
 // Parses an optional float XML attribute.
 float ParseOptionalFloat(const std::string& attributes, const std::string& attributeName, float defaultValue) {
     const std::string value = GetOptionalAttribute(attributes, attributeName, "");
@@ -163,6 +173,16 @@ float ParseOptionalFloat(const std::string& attributes, const std::string& attri
 // Parses a required float XML attribute.
 float ParseRequiredFloat(const std::string& attributes, const std::string& attributeName) {
     return static_cast<float>(std::atof(GetRequiredAttribute(attributes, attributeName).c_str()));
+}
+
+float ParseOptionalRatio(const std::string& attributes, const std::string& attributeName, float defaultValue) {
+    const std::string value = GetOptionalAttribute(attributes, attributeName, "");
+    if (value.empty()) {
+        return defaultValue;
+    }
+
+    const float parsed = static_cast<float>(std::atof(value.c_str()));
+    return parsed > 10.0f ? parsed / 100.0f : parsed;
 }
 
 std::uint8_t ParseDirectionName(const std::string& directionText) {
@@ -365,6 +385,7 @@ LotAsset LoadLotAsset(const std::string& filePath, const std::string& fileName) 
     LotAsset lotAsset;
     lotAsset.id = GetOptionalAttribute(rootTag.attributes, "id", StripExtension(fileName));
     lotAsset.zoningType = ParseZoningTypeName(GetOptionalAttribute(rootTag.attributes, "zoningType", GetOptionalAttribute(rootTag.attributes, "rciType", "")));
+    lotAsset.constructionTicks = ParseOptionalInt(rootTag.attributes, "constructionTicks", lotAsset.constructionTicks);
     if (lotAsset.id.empty()) {
         throw std::runtime_error("Lot id cannot be empty: " + filePath);
     }
@@ -420,6 +441,11 @@ LotAsset LoadLotAsset(const std::string& filePath, const std::string& fileName) 
         if (tag.name == "renderOrigin" && tag.isSelfClosing) {
             lotAsset.renderOrigin.x = ParseRequiredInt(tag.attributes, "x");
             lotAsset.renderOrigin.y = ParseRequiredInt(tag.attributes, "y");
+            continue;
+        }
+
+        if (tag.name == "construction" && tag.isSelfClosing) {
+            lotAsset.constructionTicks = ParseRequiredInt(tag.attributes, "ticks");
             continue;
         }
 
@@ -678,6 +704,82 @@ TransportCongestionCurve LoadCongestionCurve(const std::string& filePath) {
     return congestionCurve;
 }
 
+std::vector<float> LoadInitialDemands(const std::string& filePath, const CityParameterRegistry& parameterRegistry) {
+    std::vector<float> demands(parameterRegistry.count(), 0.0f);
+    const std::vector<std::string> tokens = ExtractTagTokens(ReadTextFile(filePath));
+    if (tokens.empty()) {
+        throw std::runtime_error("Empty initial demands XML: " + filePath);
+    }
+
+    const ParsedTag rootTag = ParseTag(tokens[0]);
+    if (rootTag.name != "initialDemands" || rootTag.isClosing) {
+        throw std::runtime_error("Initial demands XML must start with <initialDemands>: " + filePath);
+    }
+
+    std::size_t tokenIndex = 1;
+    for (; tokenIndex < tokens.size(); ++tokenIndex) {
+        const ParsedTag tag = ParseTag(tokens[tokenIndex]);
+        if (tag.isClosing) {
+            if (tag.name == "initialDemands") {
+                break;
+            }
+
+            throw std::runtime_error("Unexpected closing tag in initial demands XML: " + filePath);
+        }
+
+        if (tag.name == "demand" && tag.isSelfClosing) {
+            const std::string parameterId = GetRequiredAttribute(tag.attributes, "id");
+            const int resolvedParameterId = parameterRegistry.parameterId(parameterId);
+            if (resolvedParameterId < 0) {
+                throw std::runtime_error("Initial demand references unknown city parameter '" + parameterId + "' in " + filePath);
+            }
+
+            demands[static_cast<std::size_t>(resolvedParameterId)] = ParseRequiredFloat(tag.attributes, "amount");
+            continue;
+        }
+
+        throw std::runtime_error("Unsupported initial demands tag: <" + tag.name + "> in " + filePath);
+    }
+
+    return demands;
+}
+
+void LoadRciConstructorSettings(const std::string& filePath, int& attemptsPerTick, float& overbuildMultiplier) {
+    const std::vector<std::string> tokens = ExtractTagTokens(ReadTextFile(filePath));
+    if (tokens.empty()) {
+        throw std::runtime_error("Empty RCI XML: " + filePath);
+    }
+
+    const ParsedTag rootTag = ParseTag(tokens[0]);
+    if (rootTag.name != "rciTools" || rootTag.isClosing) {
+        throw std::runtime_error("RCI XML must start with <rciTools>: " + filePath);
+    }
+
+    attemptsPerTick = ParseOptionalInt(rootTag.attributes, "constructorAttemptsPerTick", attemptsPerTick);
+    attemptsPerTick = ParseOptionalInt(rootTag.attributes, "constructorRetries", attemptsPerTick);
+    overbuildMultiplier = ParseOptionalRatio(rootTag.attributes, "constructorOverbuildPercent", overbuildMultiplier);
+    overbuildMultiplier = ParseOptionalRatio(rootTag.attributes, "constructorOverbuildMultiplier", overbuildMultiplier);
+
+    std::size_t tokenIndex = 1;
+    for (; tokenIndex < tokens.size(); ++tokenIndex) {
+        const ParsedTag tag = ParseTag(tokens[tokenIndex]);
+        if (tag.isClosing) {
+            if (tag.name == "rciTools") {
+                break;
+            }
+
+            continue;
+        }
+
+        if (tag.name == "constructor" && tag.isSelfClosing) {
+            attemptsPerTick = ParseOptionalInt(tag.attributes, "attemptsPerTick", attemptsPerTick);
+            attemptsPerTick = ParseOptionalInt(tag.attributes, "retries", attemptsPerTick);
+            overbuildMultiplier = ParseOptionalRatio(tag.attributes, "overbuildPercent", overbuildMultiplier);
+            overbuildMultiplier = ParseOptionalRatio(tag.attributes, "overbuildMultiplier", overbuildMultiplier);
+        }
+    }
+}
+
 // Enumerates XML files in a data directory using the Win32 file API.
 std::vector<std::string> CollectXmlFiles(const std::string& directoryPath) {
     std::vector<std::string> files;
@@ -708,12 +810,17 @@ bool LoadGameAssets(const std::string& dataDirectory, const CityParameterRegistr
     CrashScope crashScope("LoadGameAssets");
     assets.modules.clear();
     assets.lots.clear();
+    assets.initialDemands.assign(parameterRegistry.count(), 0.0f);
     assets.congestionCurve = TransportCongestionCurve();
+    assets.rciConstructorAttemptsPerTick = 5;
+    assets.rciConstructorOverbuildMultiplier = 1.2f;
 
     try {
         const std::string modulesDirectory = dataDirectory + "\\Modules";
         const std::string lotsDirectory = dataDirectory + "\\Lots";
         const std::string congestionPath = dataDirectory + "\\TransportNetwork\\congestion.xml";
+        const std::string initialDemandsPath = dataDirectory + "\\RCI\\initial_demands.xml";
+        const std::string rciToolsPath = dataDirectory + "\\RCI\\rci_tools.xml";
 
         const std::vector<std::string> moduleFiles = CollectXmlFiles(modulesDirectory);
         const std::vector<std::string> lotFiles = CollectXmlFiles(lotsDirectory);
@@ -751,11 +858,21 @@ bool LoadGameAssets(const std::string& dataDirectory, const CityParameterRegistr
         if (FileExists(congestionPath)) {
             assets.congestionCurve = LoadCongestionCurve(congestionPath);
         }
+        if (FileExists(initialDemandsPath)) {
+            assets.initialDemands = LoadInitialDemands(initialDemandsPath, parameterRegistry);
+        }
+        if (FileExists(rciToolsPath)) {
+            LoadRciConstructorSettings(rciToolsPath, assets.rciConstructorAttemptsPerTick, assets.rciConstructorOverbuildMultiplier);
+        }
+
+        assets.rciConstructorAttemptsPerTick = std::max(1, assets.rciConstructorAttemptsPerTick);
+        assets.rciConstructorOverbuildMultiplier = std::max(0.0f, assets.rciConstructorOverbuildMultiplier);
     } catch (const std::exception& error) {
         LogException("LoadGameAssets", error);
         errorMessage = error.what();
         assets.modules.clear();
         assets.lots.clear();
+        assets.initialDemands.clear();
         assets.congestionCurve = TransportCongestionCurve();
         return false;
     }

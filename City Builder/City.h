@@ -27,13 +27,17 @@ struct CitySaveLotState {
     int anchorTileX;
     int anchorTileY;
     int rotationSteps;
+    int constructionTotalTicks;
+    int constructionRemainingTicks;
     std::vector<CitySaveLotModuleState> modules;
 
     CitySaveLotState()
         : lotId(-1),
           anchorTileX(0),
           anchorTileY(0),
-          rotationSteps(0) {
+          rotationSteps(0),
+          constructionTotalTicks(0),
+          constructionRemainingTicks(0) {
     }
 };
 

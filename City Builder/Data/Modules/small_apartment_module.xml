@@ -3,6 +3,6 @@
   <effects airPollution="0" landValue="6200" />
   <render height="1.15" colorR="0.52" colorG="0.64" colorB="0.72" />
   <parameters>
-    <driver id="residents.medium_wealth" amount="14" />
+    <driver id="residents.low_wealth" amount="14" />
   </parameters>
 </module>
