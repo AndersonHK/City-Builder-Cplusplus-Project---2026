@@ -14,8 +14,8 @@ Use this guide when changing `InGameWindow`, `UiWidgets`, UI XML under `Data/UI`
 - The renderer loads the lot query window from `Data/UI/lot_query.xml` through `BuildDataPath("UI\\lot_query.xml")`.
 - The renderer loads the city tool buttons from `Data/UI/city_tools.xml` through `BuildDataPath("UI\\city_tools.xml")`.
 - If the file is missing, malformed, or contains no text fields, `InGameWindow::setFallbackDefinition` creates a built-in `lot_query` layout.
-- `AppController::printQueryResult` fills `ViewState::queryWindowLines` for lot queries. The renderer copies the first line into `title` and later lines into `line0`, `line1`, and so on.
-- Empty text fields are skipped during layout and draw. This lets a query window show only the fields that apply to the queried lot.
+- `AppController::printQueryResult` fills `ViewState::queryWindowLines` for lot, road, and empty RCI-lot queries. The renderer copies the first line into `title` and later lines into `line0`, `line1`, and so on.
+- Empty text fields are skipped during layout and draw. This lets a query window show only the fields that apply to the queried selection.
 - `hugElements="true"` makes the window height shrink to visible content plus margins. Otherwise the declared `height` is used.
 - Missing `x`/`y` on a text field opts it into flow layout. Missing `width` makes it use the window content width.
 - UI drawing is screen-space and renderer-owned. `BuildWindowQuads` and `RendererBuildUiMenuQuads` emit background, border, button, and text quads into a dynamic `UiQuadInstanceData` buffer.
@@ -23,6 +23,8 @@ Use this guide when changing `InGameWindow`, `UiWidgets`, UI XML under `Data/UI`
 - Text is drawn as 5x7 bitmap glyph quads scaled by the renderer. The decoder advances through UTF-8 codepoints; supported lowercase ASCII maps to uppercase, and unsupported codepoints fall back to `?`.
 - Text clips to the field rectangle. There is no wrapping, measuring pass, caret, input editing, or rich text yet.
 - Button hit testing is controller-owned through resolved screen-space rectangles. Button actions are simple strings mapped by `AppController`, keeping UI XML declarative.
+- RCI button actions select XML-backed RCI tools; the tool details live in `Data/RCI/rci_tools.xml` so menus stay concerned only with presentation and intent.
+- Keyboard shortcuts are not stored in UI XML. They live in `Data/config.ini` and are dispatched through `AppController`, so menu button actions and hotkeys can point at the same tool intent without coupling the UI schema to physical keys.
 
 ## XML Schema
 Current window XML is intentionally simple:
@@ -84,17 +86,21 @@ Supported `<button>` attributes:
 - Keep window XML data under `Data/UI` so the existing post-build data copy carries it beside the executable.
 - Keep UI rendering presentation-only. Simulation and save systems should expose text/data through view state or snapshots, not know about windows.
 - Keep button actions as view/controller intent. Gameplay changes still enter `SimulationRuntime` through queued commands.
+- Keep physical key bindings out of menu/window XML; use `AppConfig` for hotkeys and keep UI XML about layout plus action names.
 - Keep the XML parser tolerant for UI layout files, but do not silently change gameplay asset validation in `AssetLoader`.
 - Preserve the fallback query window so debug inspection still works when UI XML is absent during development.
 - Add new text fields by id and set them explicitly from controller/view-state code. Do not depend on field order except for the `lineN` helper convention.
 - Prefer flow layout plus margins for optional query fields; use explicit coordinates only when a window has fixed panels or columns.
 - Draw UI after world geometry, tile overlays, and query route arrows with depth disabled and restored afterward.
 - Menus hidden through `UiLayout::setMenuVisible` or `toggleMenu` should not draw buttons or hit-test button actions.
+- Keep RCI zoning settings out of menu XML. Menus select tools; the RCI catalog defines zoning color and parcel sizing.
 - Avoid adding a full UI framework until there is a second real window or menu pattern that needs shared behavior beyond the current text fields and buttons.
 
 ## Checks
 - Build `x64 Release` so `Data/UI` is copied beside the executable.
-- Query an empty tile and a lot with `A`; the window should hide for empty selections and hug only populated lot fields.
+- Query an unzoned empty tile and a lot with `A`; the window should hide for unzoned empty selections and hug only populated fields.
+- Query a road tile with active commute routes and confirm the window summarizes commuters by mode/layer/direction.
+- Query an empty RCI parcel or constructed no-module RCI lot and confirm the window names the RCI type.
 - Query houses and factories to confirm optional residents, jobs, complaints, parameters, and module lines appear only when present.
 - Temporarily rename `Data/UI/lot_query.xml` in the output folder and confirm the fallback query window still renders.
 - Add a long query line and confirm text clips inside its text field rather than spilling outside the window.

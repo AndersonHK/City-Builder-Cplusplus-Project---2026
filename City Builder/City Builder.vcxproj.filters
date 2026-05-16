@@ -15,6 +15,9 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="AppConfig.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="AssetLoader.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -48,6 +51,9 @@
     <ClCompile Include="RoadRenderState.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="RciTool.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="RendererAlgorithms.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -55,6 +61,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="ShaderProgram.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="SimulationDate.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="SimulationRuntime.cpp">
@@ -83,6 +92,9 @@
     <None Include="Basic.shader">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="Data\config.ini">
+      <Filter>Resource Files</Filter>
+    </None>
     <None Include="Data\Lots\park_lot.xml">
       <Filter>Resource Files</Filter>
     </None>
@@ -95,7 +107,97 @@
     <None Include="Data\Lots\house_lot.xml">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="Data\Lots\rci_industrial_2x2_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x3_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x4_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x5_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x6_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x7_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x8_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x2_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x3_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x4_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x5_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x6_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x7_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x8_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x2_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x3_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x4_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x5_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x6_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x7_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x8_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x2_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x3_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x4_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x5_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x6_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x7_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x8_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\compact_house_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
     <None Include="Data\Modules\driveway_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\duplex_module.xml">
       <Filter>Resource Files</Filter>
     </None>
     <None Include="Data\Modules\garden_module.xml">
@@ -104,13 +206,34 @@
     <None Include="Data\Modules\house_module.xml">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="Data\Modules\large_warehouse_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\larger_house_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\loading_yard_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
     <None Include="Data\Modules\park_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\small_apartment_module.xml">
       <Filter>Resource Files</Filter>
     </None>
     <None Include="Data\Modules\smokestack_module.xml">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="Data\Modules\trailer_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
     <None Include="Data\Modules\warehouse_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\wide_trailer_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\workshop_module.xml">
       <Filter>Resource Files</Filter>
     </None>
     <None Include="Data\TransportNetwork\congestion.xml">
@@ -122,8 +245,14 @@
     <None Include="Data\UI\city_tools.xml">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="Data\RCI\rci_tools.xml">
+      <Filter>Resource Files</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AppConfig.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="AssetLoader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -160,6 +289,9 @@
     <ClInclude Include="RoadRenderState.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="RciTool.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="RendererAlgorithms.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -167,6 +299,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ShaderProgram.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SimulationDate.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="SimulationRuntime.h">

@@ -5,7 +5,9 @@
 #include <string>
 #include <vector>
 
+#include "AppConfig.h"
 #include "GameSession.h"
+#include "RciTool.h"
 #include "Tile.h"
 #include "UiWidgets.h"
 
@@ -28,6 +30,13 @@ enum class ActiveTool {
 enum class OverlayMode {
     None,
     TrafficCapacity
+};
+
+enum class QuerySelectionKind {
+    None,
+    Lot,
+    Road,
+    Rci
 };
 
 struct ViewState {
@@ -58,12 +67,16 @@ struct ViewState {
     int zoneDragCurrentX;
     int zoneDragCurrentY;
     std::uint16_t zoneDragType;
+    std::string zoneDragToolId;
+    bool shiftModifierDown;
+    bool controlModifierDown;
     int roadLaneCount;
     RoadTrafficSide roadTrafficSide;
     RoadDirectionMode roadDirectionMode;
     int lotRotationSteps;
     OverlayMode overlayMode;
     bool roadDebugGraphicsEnabled;
+    QuerySelectionKind querySelectionKind;
     int queriedLotId;
     int queriedTileX;
     int queriedTileY;
@@ -105,12 +118,15 @@ struct ViewState {
           zoneDragCurrentX(0),
           zoneDragCurrentY(0),
           zoneDragType(TileZoningNone),
+          shiftModifierDown(false),
+          controlModifierDown(false),
           roadLaneCount(1),
           roadTrafficSide(RoadTrafficSide::RightHand),
           roadDirectionMode(RoadDirectionMode::TwoWay),
           lotRotationSteps(0),
           overlayMode(OverlayMode::None),
           roadDebugGraphicsEnabled(false),
+          querySelectionKind(QuerySelectionKind::None),
           queriedLotId(-1),
           queriedTileX(0),
           queriedTileY(0),
@@ -125,7 +141,7 @@ struct ViewState {
 
 class AppController {
 public:
-    explicit AppController(GameSession& gameSession);
+    AppController(GameSession& gameSession, const AppConfig& appConfig);
 
     void onCursorMoved(double mouseX, double mouseY);
     void onLeftMouseButtonPressed();
@@ -134,13 +150,16 @@ public:
     void onKeyPressed(int key, int action);
     void onScroll(double yOffset);
     void setFramebufferSize(int framebufferWidth, int framebufferHeight);
+    void setModifierKeys(bool shiftDown, bool controlDown);
     void setHoveredTile(int tileX, int tileY, bool isValid);
     void setHoveredRegionCity(int regionX, int regionY, bool isValid);
     bool roadPreviewStroke(RoadStrokeCommand& roadStrokeCommand) const;
     bool lotPreviewRequest(std::string& lotAssetId, int& tileX, int& tileY, int& rotationSteps) const;
     bool bulldozePreviewRect(int& minTileX, int& minTileY, int& maxTileX, int& maxTileY) const;
     bool zonePreviewRect(int& minTileX, int& minTileY, int& maxTileX, int& maxTileY, std::uint16_t& zoningType) const;
+    bool rciPreviewPlan(RciPlan& plan) const;
     bool loadUiLayoutFromXmlFile(const std::string& filePath);
+    bool loadRciToolsFromXmlFile(const std::string& filePath);
     const UiLayout& uiLayout() const;
     std::string activeUiAction() const;
     void refreshQueryResultIfNeeded();
@@ -159,6 +178,9 @@ private:
     void rotatePlacement(int deltaSteps);
     bool activeToolIsRoad() const;
     bool activeToolIsZoning() const;
+    std::string activeRciToolId() const;
+    RciPlanMode currentRciPlanMode() const;
+    bool buildActiveRciPlan(RciPlan& plan) const;
     bool handleUiClick();
     void invokeUiAction(const std::string& action);
     bool handleRegionClick();
@@ -178,8 +200,10 @@ private:
     static const int kMaximumVisibleTiles = 2048;
 
     GameSession& gameSession_;
+    const AppConfig& appConfig_;
     ViewState viewState_;
     UiLayout uiLayout_;
+    RciToolCatalog rciTools_;
     bool uiPressCaptured_;
     bool regionClickPending_;
     bool hasLastRegionClick_;

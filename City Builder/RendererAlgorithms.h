@@ -27,3 +27,4 @@ void RendererFillZoningOverlayChunkPixels(const std::vector<Tile>& tiles, int ma
 bool RendererNextUtf8Codepoint(const std::string& text, std::size_t& byteIndex, std::uint32_t& codepoint);
 std::vector<UiQuadInstanceData> RendererBuildWindowQuads(const InGameWindow& window);
 std::vector<UiQuadInstanceData> RendererBuildUiMenuQuads(const UiLayout& uiLayout, int framebufferWidth, int framebufferHeight, const std::string& activeAction);
+void RendererAppendTextQuads(const std::string& text, float x, float y, float width, float height, const UiColor& textColor, bool centered, std::vector<UiQuadInstanceData>& quads);

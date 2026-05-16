@@ -105,7 +105,7 @@ void main()
         vRouteColor = vec3(0.0);
         vUiColor = aInstanceData1;
         vSurfaceLift = 0.0;
-    } else if (uRenderMode == 7) {
+    } else if (uRenderMode == 7 || uRenderMode == 8) {
         worldPosition = vec3(
             aLocalPosition.x * aInstanceData0.z + aInstanceData0.x,
             0.075,
@@ -358,6 +358,16 @@ void main()
 
     if (vRenderMode == 7) {
         color = vUiColor;
+        return;
+    }
+
+    if (vRenderMode == 8) {
+        float edge = min(min(vLocalUv.x, 1.0 - vLocalUv.x), min(vLocalUv.y, 1.0 - vLocalUv.y));
+        float border = smoothstep(0.065, 0.025, edge);
+        vec3 lineColor = max(vUiColor.rgb * 0.36, vec3(0.015));
+        vec3 fillColor = vUiColor.rgb;
+        float alpha = max(vUiColor.a * 0.24, border * min(0.82, vUiColor.a + 0.26));
+        color = vec4(mix(fillColor, lineColor, border), alpha);
         return;
     }
 

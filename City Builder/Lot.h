@@ -51,6 +51,7 @@ struct LotAccessDefinition {
 
 struct LotAsset {
     std::string id;
+    std::uint16_t zoningType;
     Int2 anchor;
     Int2 footprintOrigin;
     int footprintWidth;
@@ -63,7 +64,8 @@ struct LotAsset {
 
     // Starts an unloaded lot archetype with a zero anchor.
     LotAsset()
-        : anchor(0, 0),
+        : zoningType(TileZoningNone),
+          anchor(0, 0),
           footprintOrigin(0, 0),
           footprintWidth(0),
           footprintHeight(0),

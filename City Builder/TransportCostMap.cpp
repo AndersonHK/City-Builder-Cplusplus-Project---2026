@@ -7,6 +7,9 @@
 namespace {
 const float kMinimumCongestedSpeedMultiplier = 0.01f;
 const float kRouteJitterScale = 0.0001f;
+const float kTransportCostUnitsPerCommuteTime = 1000.0f;
+const float kCarStartCost = 2.0f * kTransportCostUnitsPerCommuteTime;
+const float kPedestrianStartCost = 0.0f * kTransportCostUnitsPerCommuteTime;
 
 std::uint16_t SaturatingAdd(std::uint16_t left, std::uint16_t right) {
     const unsigned int sum = static_cast<unsigned int>(left) + static_cast<unsigned int>(right);
@@ -50,6 +53,19 @@ float CongestionSpeedMultiplier(const TransportCongestionCurve& congestionCurve,
     }
 
     return std::max(kMinimumCongestedSpeedMultiplier, congestionCurve.points.back().speedMultiplier);
+}
+
+float TransportModeStartCost(TransportMode mode) {
+    switch (mode) {
+        case TransportMode::Car:
+            return kCarStartCost;
+
+        case TransportMode::Pedestrian:
+            return kPedestrianStartCost;
+
+        default:
+            return 0.0f;
+    }
 }
 
 struct HeapCompare {
@@ -471,13 +487,18 @@ bool TransportCostMap::findPath(const TransportPathRequest& request, TransportPa
             continue;
         }
 
+        const float startCost = TransportModeStartCost(nodeMode(startNodeId));
+        if (startCost > request.maximumCost) {
+            continue;
+        }
+
         scratch.stamps[startNodeId] = stamp;
-        scratch.costs[startNodeId] = 0.0f;
+        scratch.costs[startNodeId] = startCost;
         scratch.parentNodes[startNodeId] = std::numeric_limits<std::uint32_t>::max();
         TransportPathScratch::HeapEntry heapEntry;
         heapEntry.nodeId = startNodeId;
-        heapEntry.costSoFar = 0.0f;
-        heapEntry.priority = 0.0f;
+        heapEntry.costSoFar = startCost;
+        heapEntry.priority = startCost;
         scratch.heap.push_back(heapEntry);
     }
 

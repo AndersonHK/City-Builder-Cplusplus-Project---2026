@@ -1,0 +1,8 @@
+<module id="small_apartment_module">
+  <size width="3" height="3" />
+  <effects airPollution="0" landValue="6200" />
+  <render height="1.15" colorR="0.52" colorG="0.64" colorB="0.72" />
+  <parameters>
+    <driver id="residents.medium_wealth" amount="14" />
+  </parameters>
+</module>

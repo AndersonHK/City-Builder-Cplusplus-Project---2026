@@ -43,7 +43,8 @@ enum class PlayerCommandType {
     PlaceRoadStroke,
     BulldozeAtTile,
     BulldozeArea,
-    ZoneArea
+    ZoneArea,
+    ZoneLot
 };
 
 struct PlayerCommand {
@@ -56,6 +57,7 @@ struct PlayerCommand {
     int rotationSteps;
     std::uint16_t zoningType;
     std::string assetId;
+    RciLot zoningLot;
     RoadStrokeCommand roadStroke;
 
     // Starts as a no-op-ish pollution command until a queue helper fills it.
@@ -76,10 +78,16 @@ struct TileQueryResult {
     Tile tile;
     std::uint64_t generation;
     std::uint64_t lotRevision;
+    std::uint64_t roadRevision;
     std::uint64_t commuteRevision;
     bool hasLot;
     int lotId;
     std::string lotAssetId;
+    std::uint16_t lotZoningType;
+    bool lotIsEmpty;
+    bool hasRciLot;
+    std::string rciName;
+    std::uint16_t rciZoningType;
     std::string moduleSummary;
     std::string parameterSummary;
     int commuteDemand;
@@ -90,6 +98,7 @@ struct TileQueryResult {
     int jobsLowWealthTotal;
     std::string complaintSummary;
     std::vector<CommuteRouteSegment> commuteRouteSegments;
+    std::vector<CommuteRouteSegment> roadCommuteSegments;
     std::vector<TransportLayerId> roadLayers;
     std::vector<ResolvedRoadCell> roads;
 
@@ -98,9 +107,14 @@ struct TileQueryResult {
         : isValid(false),
           generation(0),
           lotRevision(0),
+          roadRevision(0),
           commuteRevision(0),
           hasLot(false),
           lotId(-1),
+          lotZoningType(TileZoningNone),
+          lotIsEmpty(false),
+          hasRciLot(false),
+          rciZoningType(TileZoningNone),
           commuteDemand(0),
           commuteSatisfied(0),
           residentsLowWealthCurrent(0),
@@ -113,6 +127,8 @@ struct TileQueryResult {
 struct PublishedLotInfo {
     int lotId;
     std::string assetId;
+    std::uint16_t zoningType;
+    bool isEmpty;
     std::string moduleSummary;
     std::string parameterSummary;
     int commuteDemand;
@@ -127,6 +143,8 @@ struct PublishedLotInfo {
     // Defaults to an invalid published lot metadata record.
     PublishedLotInfo()
         : lotId(-1),
+          zoningType(TileZoningNone),
+          isEmpty(false),
           commuteDemand(0),
           commuteSatisfied(0),
           residentsLowWealthCurrent(0),
@@ -140,6 +158,7 @@ struct PublishedWorldSnapshot {
     int bufferIndex;
     const std::vector<Tile>* tiles;
     const std::vector<LotRenderInstance>* lots;
+    const std::vector<RciLot>* zoningLots;
     const std::vector<std::uint64_t>* chunkRevisions;
     const std::vector<int>* lotOccupancy;
     const std::vector<ResolvedRoadCell>* roads;
@@ -151,15 +170,19 @@ struct PublishedWorldSnapshot {
     int width;
     int height;
     std::uint64_t generation;
+    std::uint64_t simulationTick;
     std::uint64_t lotRevision;
+    std::uint64_t zoningLotRevision;
     std::uint64_t roadRevision;
     std::uint64_t overlayRevision;
+    int population;
 
     // Defaults to an empty snapshot before acquirePublishedSnapshot fills it.
     PublishedWorldSnapshot()
         : bufferIndex(-1),
           tiles(0),
           lots(0),
+          zoningLots(0),
           chunkRevisions(0),
           lotOccupancy(0),
           roads(0),
@@ -171,9 +194,12 @@ struct PublishedWorldSnapshot {
           width(0),
           height(0),
           generation(0),
+          simulationTick(0),
           lotRevision(0),
+          zoningLotRevision(0),
           roadRevision(0),
-          overlayRevision(0) {
+          overlayRevision(0),
+          population(0) {
     }
 };
 
@@ -211,6 +237,7 @@ public:
     void queueBulldozeAtTile(int tileX, int tileY);
     void queueBulldozeArea(int startTileX, int startTileY, int endTileX, int endTileY);
     void queueZoneArea(int startTileX, int startTileY, int endTileX, int endTileY, std::uint16_t zoningType);
+    void queueZoneLot(const RciLot& zoningLot);
     void queuePlaceRoadStroke(const RoadStrokeCommand& roadStrokeCommand);
     void queuePlaceSmokestack(int tileX, int tileY, int rotationSteps = 0);
     void queuePlacePark(int tileX, int tileY, int rotationSteps = 0);
@@ -242,6 +269,8 @@ private:
         std::vector<Tile> tiles;
         std::vector<LotRenderInstance> publishedLots;
         std::vector<PublishedLotInfo> publishedLotInfos;
+        std::vector<RciLot> publishedZoningLots;
+        std::vector<CommuteRouteSegment> publishedCommuteRouteSegments;
         std::vector<std::uint64_t> chunkRevisions;
         std::vector<int> publishedLotOccupancy;
         std::vector<ResolvedRoadCell> publishedRoads;
@@ -251,6 +280,7 @@ private:
         std::vector<std::uint64_t> publishedElevatedRoadChunkRevisions;
         std::vector<std::uint64_t> publishedTileOverlayChunkRevisions;
         std::uint64_t lotRenderRevision;
+        std::uint64_t zoningLotRenderRevision;
         std::uint64_t roadRenderRevision;
         std::uint64_t overlayRenderRevision;
         std::uint64_t commuteRenderRevision;
@@ -258,6 +288,7 @@ private:
         // Starts with no published render payloads for this buffer.
         TileBuffer()
             : lotRenderRevision(0),
+              zoningLotRenderRevision(0),
               roadRenderRevision(0),
               overlayRenderRevision(0),
               commuteRenderRevision(0) {
@@ -287,6 +318,7 @@ private:
     void applyQueuedCommands(TileBuffer& writeBuffer);
     void applyLotEffects(std::vector<Tile>& writeTiles);
     void rebuildCityParameters();
+    void refreshCityPopulation();
     void runCommuteAssignment();
     void queueCommuteRecalculationForLot(int lotId);
     void queueCommuteSourcesForDestination(int destinationLotId);
@@ -297,6 +329,7 @@ private:
     int chooseNextWriteBuffer();
     int findAvailableWriteBuffer() const;
     void refreshPublishedLotSnapshot(TileBuffer& completedBuffer);
+    void refreshPublishedZoningLotSnapshot(TileBuffer& completedBuffer);
     void refreshPublishedRoadSnapshot(TileBuffer& completedBuffer);
     void copyChunkRevisionsForWriteBuffer();
     void markChunkDirtyByTile(std::vector<std::uint64_t>& chunkRevisions, int tileX, int tileY);
@@ -310,11 +343,19 @@ private:
 
     bool buildLotCandidate(const LotAsset& lotAsset, int clickedTileX, int clickedTileY, int rotationSteps, int lotId, Lot& candidateLot) const;
     bool tryPlaceLot(const LotAsset& lotAsset, int clickedTileX, int clickedTileY, int rotationSteps, TileBuffer& writeBuffer);
+    void runRciConstructor(TileBuffer& writeBuffer);
+    bool tryConstructOneRciLot(std::uint16_t zoningType, TileBuffer& writeBuffer);
+    bool tryConstructRciLotAtIndex(std::size_t zoningLotIndex, TileBuffer& writeBuffer);
+    const LotAsset* findRciConstructorLotAsset(std::uint16_t zoningType, int width, int height, int& rotationSteps) const;
     bool tryAddModuleAtTile(const LotModule& moduleAsset, int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
     bool tryRemoveModuleAtTile(int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
     bool tryBulldozeAtTile(int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
     bool tryBulldozeArea(int startTileX, int startTileY, int endTileX, int endTileY, TileBuffer& writeBuffer);
     bool tryZoneArea(int startTileX, int startTileY, int endTileX, int endTileY, std::uint16_t zoningType, TileBuffer& writeBuffer);
+    bool tryZoneLot(const RciLot& zoningLot, TileBuffer& writeBuffer);
+    bool applyZoningRect(const RciRect& rect, std::uint16_t zoningType, TileBuffer& writeBuffer, std::vector<int>& changedTileIndices, bool& hasZoneableTile);
+    bool removeZoningLotsIntersectingRect(const RciRect& rect);
+    void clearZoningForRoadStroke(const RoadStrokeCommand& roadStrokeCommand, TileBuffer& writeBuffer);
     bool canPlaceLot(const Lot& candidateLot) const;
     bool collectAdjacentLotIdsForModule(const LotModule& moduleAsset, int clickedTileX, int clickedTileY, std::vector<int>& adjacentLotIds) const;
     void clearLotOccupancy(const std::vector<int>& tileIndices);
@@ -343,6 +384,8 @@ private:
     mutable std::mutex publishedMutex_;
     int publishedBufferIndex_;
     std::uint64_t publishedGeneration_;
+    std::uint64_t publishedSimulationTick_;
+    int publishedPopulation_;
 
     std::atomic<int> bufferUseCounts_[3];
     std::atomic<std::uint64_t> lastRenderedGeneration_;
@@ -355,8 +398,12 @@ private:
     std::unordered_map<std::string, std::size_t> lotAssetIndexById_;
     std::vector<int> lotOccupancy_;
     std::vector<Lot> lots_;
+    std::vector<RciLot> zoningLots_;
     int nextLotId_;
     std::uint64_t lotsRevision_;
+    std::uint64_t zoningLotsRevision_;
+    std::uint64_t simulationTick_;
+    int cityPopulation_;
     CityParameterRegistry cityParameterRegistry_;
     std::vector<float> oldCityParameters_;
     std::vector<float> nextCityParameters_;

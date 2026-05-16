@@ -8,32 +8,6 @@
 namespace {
 const int kKeyActionPress = 1;
 const int kKeyActionRepeat = 2;
-const int kKeyRight = 262;
-const int kKeyLeft = 263;
-const int kKeyDown = 264;
-const int kKeyUp = 265;
-const int kKeyQ = 81;
-const int kKeyW = 87;
-const int kKeyE = 69;
-const int kKeyF = 70;
-const int kKeyG = 71;
-const int kKeyR = 82;
-const int kKeyO = 79;
-const int kKeyH = 72;
-const int kKeyM = 77;
-const int kKeyT = 84;
-const int kKeyY = 89;
-const int kKeyA = 65;
-const int kKeyB = 66;
-const int kKeyC = 67;
-const int kKeyComma = 44;
-const int kKeyPeriod = 46;
-const int kKeyLeftBracket = 91;
-const int kKeyRightBracket = 93;
-const int kKeyF1 = 290;
-const int kKeyF2 = 291;
-const int kKeyF3 = 292;
-const int kKeyF11 = 300;
 const int kMinimumRoadLaneCount = 1;
 const int kMaximumRoadLaneCount = 4;
 const long long kRegionDoubleClickMillis = 650;
@@ -147,12 +121,56 @@ const char* LotAssetIdForTool(ActiveTool activeTool) {
     }
 }
 
+RoadStrokeCommand BuildRciRoadStrokeCommand(const RciRoadPlan& roadPlan) {
+    RoadStrokeCommand roadStrokeCommand;
+    roadStrokeCommand.startTile = Int2(roadPlan.startTileX, roadPlan.startTileY);
+    roadStrokeCommand.cornerTile = Int2(roadPlan.endTileX, roadPlan.endTileY);
+    roadStrokeCommand.endTile = Int2(roadPlan.endTileX, roadPlan.endTileY);
+    roadStrokeCommand.family = RoadFamily::LocalStreet;
+    roadStrokeCommand.layer = TransportLayerId::Ground;
+    roadStrokeCommand.roadTemplate = TransportNetwork::makeRoadTemplate(
+        roadStrokeCommand.family,
+        roadStrokeCommand.layer,
+        1,
+        RoadTrafficSide::RightHand,
+        RoadDirectionMode::TwoWay);
+    return roadStrokeCommand;
+}
+
+void ClearQuerySelection(ViewState& viewState) {
+    viewState.querySelectionKind = QuerySelectionKind::None;
+    viewState.queriedLotId = -1;
+    viewState.queriedLotRevision = 0;
+    viewState.queriedCommuteRevision = 0;
+    viewState.queriedCommuteRouteSegments.clear();
+    viewState.queryWindowLines.clear();
+}
+
+const char* ZoningTypeName(std::uint16_t zoningType) {
+    if (zoningType == TileZoningResidential) {
+        return "Residence";
+    }
+    if (zoningType == TileZoningIndustrial) {
+        return "Industry";
+    }
+    return "Unzoned";
+}
+
 std::vector<std::string> BuildLotQueryWindowLines(const TileQueryResult& queryResult) {
     std::vector<std::string> lines;
     {
         std::ostringstream title;
-        title << "Lot #" << queryResult.lotId << " " << queryResult.lotAssetId;
+        if (queryResult.lotIsEmpty && queryResult.hasRciLot) {
+            title << "Empty " << queryResult.rciName << " lot";
+        } else {
+            title << "Lot #" << queryResult.lotId << " " << queryResult.lotAssetId;
+        }
         lines.push_back(title.str());
+    }
+    if (queryResult.lotIsEmpty && queryResult.hasRciLot) {
+        std::ostringstream lotLine;
+        lotLine << "Lot #" << queryResult.lotId << " " << queryResult.lotAssetId;
+        lines.push_back(lotLine.str());
     }
     if (!queryResult.moduleSummary.empty()) {
         lines.push_back("Modules: " + queryResult.moduleSummary);
@@ -301,11 +319,131 @@ std::string DirectionMaskToString(std::uint8_t directionMask) {
 
     return builder.str().empty() ? "none" : builder.str();
 }
+
+const char* TransportModeName(TransportMode mode) {
+    switch (mode) {
+        case TransportMode::Car:
+            return "car";
+
+        case TransportMode::Pedestrian:
+            return "walking";
+
+        default:
+            return "unknown";
+    }
+}
+
+std::vector<std::string> BuildRciQueryWindowLines(const TileQueryResult& queryResult) {
+    std::vector<std::string> lines;
+    lines.push_back(queryResult.rciName.empty() ? ZoningTypeName(queryResult.rciZoningType) : queryResult.rciName);
+    lines.push_back("Empty RCI lot");
+    lines.push_back(std::string("Zone: ") + ZoningTypeName(queryResult.rciZoningType));
+    return lines;
+}
+
+struct RoadCommuterSummary {
+    TransportLayerId layer;
+    TransportMode mode;
+    std::uint8_t direction;
+    int demand;
+
+    RoadCommuterSummary()
+        : layer(TransportLayerId::Ground),
+          mode(TransportMode::Car),
+          direction(0u),
+          demand(0) {
+    }
+};
+
+void AddRoadCommuterSummary(std::vector<RoadCommuterSummary>& summaries, const CommuteRouteSegment& segment) {
+    std::size_t summaryIndex = 0;
+    for (; summaryIndex < summaries.size(); ++summaryIndex) {
+        RoadCommuterSummary& summary = summaries[summaryIndex];
+        if (summary.layer == segment.layer &&
+            summary.mode == segment.mode &&
+            summary.direction == segment.direction) {
+            summary.demand += static_cast<int>(segment.demand);
+            return;
+        }
+    }
+
+    RoadCommuterSummary summary;
+    summary.layer = segment.layer;
+    summary.mode = segment.mode;
+    summary.direction = segment.direction;
+    summary.demand = static_cast<int>(segment.demand);
+    summaries.push_back(summary);
+}
+
+std::vector<std::string> BuildRoadQueryWindowLines(const TileQueryResult& queryResult) {
+    std::vector<std::string> lines;
+    lines.push_back("Road tile");
+
+    std::size_t roadIndex = 0;
+    for (; roadIndex < queryResult.roads.size(); ++roadIndex) {
+        const ResolvedRoadCell& roadCell = queryResult.roads[roadIndex];
+        std::ostringstream roadLine;
+        roadLine << TransportLayerName(queryResult.roadLayers[roadIndex])
+            << " " << RoadFamilyName(static_cast<RoadFamily>(roadCell.family))
+            << " lanes=" << static_cast<int>(roadCell.laneCount)
+            << " travel=" << DirectionMaskToString(roadCell.travelMask);
+        lines.push_back(roadLine.str());
+    }
+
+    std::vector<RoadCommuterSummary> commuterSummaries;
+    std::size_t segmentIndex = 0;
+    for (; segmentIndex < queryResult.roadCommuteSegments.size(); ++segmentIndex) {
+        AddRoadCommuterSummary(commuterSummaries, queryResult.roadCommuteSegments[segmentIndex]);
+    }
+
+    if (commuterSummaries.empty()) {
+        lines.push_back("Commuters: none");
+        return lines;
+    }
+
+    std::sort(
+        commuterSummaries.begin(),
+        commuterSummaries.end(),
+        [](const RoadCommuterSummary& left, const RoadCommuterSummary& right) {
+            if (left.layer != right.layer) {
+                return static_cast<int>(left.layer) < static_cast<int>(right.layer);
+            }
+            if (left.mode != right.mode) {
+                return static_cast<int>(left.mode) < static_cast<int>(right.mode);
+            }
+            return left.direction < right.direction;
+        });
+
+    int totalDemand = 0;
+    std::size_t summaryIndex = 0;
+    for (; summaryIndex < commuterSummaries.size(); ++summaryIndex) {
+        totalDemand += commuterSummaries[summaryIndex].demand;
+    }
+
+    {
+        std::ostringstream totalLine;
+        totalLine << "Commuters: " << totalDemand;
+        lines.push_back(totalLine.str());
+    }
+
+    for (summaryIndex = 0; summaryIndex < commuterSummaries.size(); ++summaryIndex) {
+        const RoadCommuterSummary& summary = commuterSummaries[summaryIndex];
+        std::ostringstream summaryLine;
+        summaryLine << TransportModeName(summary.mode)
+            << " " << TransportLayerName(summary.layer)
+            << " " << DirectionMaskToString(summary.direction)
+            << ": " << summary.demand;
+        lines.push_back(summaryLine.str());
+    }
+
+    return lines;
+}
 }
 
 // Connects input intent to the active game session.
-AppController::AppController(GameSession& gameSession)
+AppController::AppController(GameSession& gameSession, const AppConfig& appConfig)
     : gameSession_(gameSession),
+      appConfig_(appConfig),
       uiPressCaptured_(false),
       regionClickPending_(false),
       hasLastRegionClick_(false),
@@ -442,19 +580,21 @@ void AppController::onLeftMouseButtonHeld() {
     }
 }
 
-// Maps keyboard input to camera movement, tool selection, and queries.
+// Called from RendererCallbacks with GLFW key codes. Save/load/exit remain
+// available in region mode; city tool hotkeys are ignored until a city is active.
 void AppController::onKeyPressed(int key, int action) {
     if (action != kKeyActionPress && action != kKeyActionRepeat) {
         return;
     }
 
-    if (action == kKeyActionPress && key == kKeyF1) {
+    const HotkeyConfig& hotkeys = appConfig_.hotkeys;
+    if (action == kKeyActionPress && key == hotkeys.save) {
         syncActiveCityCameraToSession();
         gameSession_.saveAutoslot();
         return;
     }
 
-    if (action == kKeyActionPress && key == kKeyF2) {
+    if (action == kKeyActionPress && key == hotkeys.load) {
         gameSession_.loadAutoslot();
         applyCameraFromActiveCity();
         viewState_.roadDragActive = false;
@@ -463,7 +603,7 @@ void AppController::onKeyPressed(int key, int action) {
         return;
     }
 
-    if (action == kKeyActionPress && key == kKeyF3) {
+    if (action == kKeyActionPress && key == hotkeys.exitToRegion) {
         syncActiveCityCameraToSession();
         gameSession_.exitToRegion();
         viewState_.roadDragActive = false;
@@ -472,7 +612,7 @@ void AppController::onKeyPressed(int key, int action) {
         return;
     }
 
-    if (action == kKeyActionPress && key == kKeyF11) {
+    if (action == kKeyActionPress && key == hotkeys.toggleRoadDebug) {
         toggleRoadDebugGraphics();
         return;
     }
@@ -483,109 +623,108 @@ void AppController::onKeyPressed(int key, int action) {
 
     const int cameraStep = std::max(1, viewState_.visibleTiles / kMinimumVisibleTiles);
 
-    switch (key) {
-        case kKeyRight:
-            panCamera(-cameraStep, -cameraStep);
-            return;
-
-        case kKeyLeft:
-            panCamera(cameraStep, cameraStep);
-            return;
-
-        case kKeyDown:
-            panCamera(cameraStep, -cameraStep);
-            return;
-
-        case kKeyUp:
-            panCamera(-cameraStep, cameraStep);
-            return;
-
-        case kKeyQ:
-            setActiveTool(ActiveTool::PollutionBrush);
-            return;
-
-        case kKeyW:
-            setActiveTool(ActiveTool::SmokestackLot);
-            return;
-
-        case kKeyE:
-            setActiveTool(ActiveTool::ParkLot);
-            return;
-
-        case kKeyF:
-            setActiveTool(ActiveTool::FactoryLot);
-            return;
-
-        case kKeyG:
-            setActiveTool(ActiveTool::HouseLot);
-            return;
-
-        case kKeyR:
-            setActiveTool(ActiveTool::RoadStreet);
-            printRoadTemplate();
-            return;
-
-        case kKeyH:
-            setActiveTool(ActiveTool::RoadHighway);
-            printRoadTemplate();
-            return;
-
-        case kKeyT:
-            toggleTrafficOverlay();
-            return;
-
-        case kKeyM:
-            setActiveTool(ActiveTool::AddParkModule);
-            return;
-
-        case kKeyY:
-            setActiveTool(ActiveTool::RemoveModule);
-            return;
-
-        case kKeyB:
-            setActiveTool(ActiveTool::Bulldozer);
-            return;
-
-        case kKeyA:
-            setActiveTool(ActiveTool::Query);
-            return;
-
-        case kKeyComma:
-            rotatePlacement(-1);
-            return;
-
-        case kKeyPeriod:
-            rotatePlacement(1);
-            return;
-
-        case kKeyLeftBracket:
-            viewState_.roadLaneCount = std::max(kMinimumRoadLaneCount, viewState_.roadLaneCount - 1);
-            NormalizeRoadTemplateSelection(viewState_);
-            printRoadTemplate();
-            return;
-
-        case kKeyRightBracket:
-            viewState_.roadLaneCount = std::min(kMaximumRoadLaneCount, viewState_.roadLaneCount + 1);
-            NormalizeRoadTemplateSelection(viewState_);
-            printRoadTemplate();
-            return;
-
-        case kKeyC:
-            viewState_.roadTrafficSide = viewState_.roadTrafficSide == RoadTrafficSide::RightHand ? RoadTrafficSide::LeftHand : RoadTrafficSide::RightHand;
-            printRoadTemplate();
-            return;
-
-        case kKeyO:
-            if (viewState_.roadDirectionMode == RoadDirectionMode::TwoWay) {
-                viewState_.roadDirectionMode = RoadDirectionMode::OneWayForward;
-            } else if (viewState_.roadDirectionMode == RoadDirectionMode::OneWayForward) {
-                viewState_.roadDirectionMode = RoadDirectionMode::OneWayReverse;
-            } else {
-                viewState_.roadDirectionMode = RoadDirectionMode::TwoWay;
-            }
-            NormalizeRoadTemplateSelection(viewState_);
-            printRoadTemplate();
-            return;
+    if (key == hotkeys.panRight) {
+        panCamera(-cameraStep, -cameraStep);
+        return;
+    }
+    if (key == hotkeys.panLeft) {
+        panCamera(cameraStep, cameraStep);
+        return;
+    }
+    if (key == hotkeys.panDown) {
+        panCamera(cameraStep, -cameraStep);
+        return;
+    }
+    if (key == hotkeys.panUp) {
+        panCamera(-cameraStep, cameraStep);
+        return;
+    }
+    if (key == hotkeys.pollutionBrush) {
+        setActiveTool(ActiveTool::PollutionBrush);
+        return;
+    }
+    if (key == hotkeys.placeSmokestack) {
+        setActiveTool(ActiveTool::SmokestackLot);
+        return;
+    }
+    if (key == hotkeys.placePark) {
+        setActiveTool(ActiveTool::ParkLot);
+        return;
+    }
+    if (key == hotkeys.placeFactory) {
+        setActiveTool(ActiveTool::FactoryLot);
+        return;
+    }
+    if (key == hotkeys.placeHouse) {
+        setActiveTool(ActiveTool::HouseLot);
+        return;
+    }
+    if (key == hotkeys.roadStreet) {
+        setActiveTool(ActiveTool::RoadStreet);
+        printRoadTemplate();
+        return;
+    }
+    if (key == hotkeys.roadHighway) {
+        setActiveTool(ActiveTool::RoadHighway);
+        printRoadTemplate();
+        return;
+    }
+    if (key == hotkeys.toggleTrafficOverlay) {
+        toggleTrafficOverlay();
+        return;
+    }
+    if (key == hotkeys.addParkModule) {
+        setActiveTool(ActiveTool::AddParkModule);
+        return;
+    }
+    if (key == hotkeys.removeModule) {
+        setActiveTool(ActiveTool::RemoveModule);
+        return;
+    }
+    if (key == hotkeys.bulldozer) {
+        setActiveTool(ActiveTool::Bulldozer);
+        return;
+    }
+    if (key == hotkeys.query) {
+        setActiveTool(ActiveTool::Query);
+        return;
+    }
+    if (key == hotkeys.rotateCounterClockwise) {
+        rotatePlacement(-1);
+        return;
+    }
+    if (key == hotkeys.rotateClockwise) {
+        rotatePlacement(1);
+        return;
+    }
+    if (key == hotkeys.decreaseRoadLanes) {
+        viewState_.roadLaneCount = std::max(kMinimumRoadLaneCount, viewState_.roadLaneCount - 1);
+        NormalizeRoadTemplateSelection(viewState_);
+        printRoadTemplate();
+        return;
+    }
+    if (key == hotkeys.increaseRoadLanes) {
+        viewState_.roadLaneCount = std::min(kMaximumRoadLaneCount, viewState_.roadLaneCount + 1);
+        NormalizeRoadTemplateSelection(viewState_);
+        printRoadTemplate();
+        return;
+    }
+    if (key == hotkeys.toggleRoadTrafficSide) {
+        viewState_.roadTrafficSide = viewState_.roadTrafficSide == RoadTrafficSide::RightHand ? RoadTrafficSide::LeftHand : RoadTrafficSide::RightHand;
+        printRoadTemplate();
+        return;
+    }
+    if (key == hotkeys.cycleRoadDirection) {
+        if (viewState_.roadDirectionMode == RoadDirectionMode::TwoWay) {
+            viewState_.roadDirectionMode = RoadDirectionMode::OneWayForward;
+        } else if (viewState_.roadDirectionMode == RoadDirectionMode::OneWayForward) {
+            viewState_.roadDirectionMode = RoadDirectionMode::OneWayReverse;
+        } else {
+            viewState_.roadDirectionMode = RoadDirectionMode::TwoWay;
+        }
+        NormalizeRoadTemplateSelection(viewState_);
+        printRoadTemplate();
+        return;
     }
 }
 
@@ -623,6 +762,11 @@ void AppController::onScroll(double yOffset) {
 void AppController::setFramebufferSize(int framebufferWidth, int framebufferHeight) {
     viewState_.framebufferWidth = std::max(1, framebufferWidth);
     viewState_.framebufferHeight = std::max(1, framebufferHeight);
+}
+
+void AppController::setModifierKeys(bool shiftDown, bool controlDown) {
+    viewState_.shiftModifierDown = shiftDown;
+    viewState_.controlModifierDown = controlDown;
 }
 
 // Updates the renderer-provided tile under the cursor.
@@ -720,8 +864,16 @@ bool AppController::zonePreviewRect(int& minTileX, int& minTileY, int& maxTileX,
     return zoningType != TileZoningNone;
 }
 
+bool AppController::rciPreviewPlan(RciPlan& plan) const {
+    return buildActiveRciPlan(plan);
+}
+
 bool AppController::loadUiLayoutFromXmlFile(const std::string& filePath) {
     return uiLayout_.loadFromXmlFile(filePath);
+}
+
+bool AppController::loadRciToolsFromXmlFile(const std::string& filePath) {
+    return rciTools_.loadFromXmlFile(filePath);
 }
 
 const UiLayout& AppController::uiLayout() const {
@@ -775,6 +927,7 @@ void AppController::setActiveTool(ActiveTool activeTool) {
     viewState_.roadDragActive = false;
     viewState_.bulldozeDragActive = false;
     viewState_.zoneDragActive = false;
+    viewState_.zoneDragToolId.clear();
     if (activeToolIsRoad()) {
         NormalizeRoadTemplateSelection(viewState_);
     }
@@ -803,6 +956,52 @@ bool AppController::activeToolIsRoad() const {
 
 bool AppController::activeToolIsZoning() const {
     return viewState_.activeTool == ActiveTool::ZoneResidential || viewState_.activeTool == ActiveTool::ZoneIndustrial;
+}
+
+std::string AppController::activeRciToolId() const {
+    if (viewState_.activeTool == ActiveTool::ZoneResidential) {
+        return "residential";
+    }
+
+    if (viewState_.activeTool == ActiveTool::ZoneIndustrial) {
+        return "industrial";
+    }
+
+    return std::string();
+}
+
+RciPlanMode AppController::currentRciPlanMode() const {
+    if (viewState_.controlModifierDown) {
+        return RciPlanMode::Area;
+    }
+
+    if (viewState_.shiftModifierDown) {
+        return RciPlanMode::Lots;
+    }
+
+    return RciPlanMode::LotsAndRoads;
+}
+
+bool AppController::buildActiveRciPlan(RciPlan& plan) const {
+    if (gameSession_.isRegionMode() || !activeToolIsZoning() || !viewState_.zoneDragActive) {
+        return false;
+    }
+
+    const std::string toolId = viewState_.zoneDragToolId.empty() ? activeRciToolId() : viewState_.zoneDragToolId;
+    const RciTool* tool = rciTools_.findTool(toolId);
+    if (tool == 0) {
+        return false;
+    }
+
+    return tool->buildPlan(
+        viewState_.zoneDragStartX,
+        viewState_.zoneDragStartY,
+        viewState_.zoneDragCurrentX,
+        viewState_.zoneDragCurrentY,
+        currentRciPlanMode(),
+        gameSession_.runtime().mapWidth(),
+        gameSession_.runtime().mapHeight(),
+        plan);
 }
 
 bool AppController::handleUiClick() {
@@ -964,19 +1163,49 @@ void AppController::beginZoneDrag(int tileX, int tileY) {
     viewState_.zoneDragStartY = tileY;
     viewState_.zoneDragCurrentX = tileX;
     viewState_.zoneDragCurrentY = tileY;
-    viewState_.zoneDragType = viewState_.activeTool == ActiveTool::ZoneResidential ? TileZoningResidential : TileZoningIndustrial;
+    viewState_.zoneDragToolId = activeRciToolId();
+    const RciTool* tool = rciTools_.findTool(viewState_.zoneDragToolId);
+    viewState_.zoneDragType = tool == 0 ? TileZoningNone : tool->zoningType();
 }
 
 void AppController::commitZoneDrag(int tileX, int tileY) {
     viewState_.zoneDragCurrentX = tileX;
     viewState_.zoneDragCurrentY = tileY;
-    gameSession_.runtime().queueZoneArea(
-        viewState_.zoneDragStartX,
-        viewState_.zoneDragStartY,
-        viewState_.zoneDragCurrentX,
-        viewState_.zoneDragCurrentY,
-        viewState_.zoneDragType);
+
+    RciPlan plan;
+    if (buildActiveRciPlan(plan)) {
+        std::size_t roadIndex = 0;
+        for (; roadIndex < plan.roadPlans.size(); ++roadIndex) {
+            gameSession_.runtime().queuePlaceRoadStroke(BuildRciRoadStrokeCommand(plan.roadPlans[roadIndex]));
+        }
+
+        if (plan.mode == RciPlanMode::Area || plan.lots.empty()) {
+            std::size_t zoneRectIndex = 0;
+            for (; zoneRectIndex < plan.zoneRects.size(); ++zoneRectIndex) {
+                gameSession_.runtime().queueZoneArea(
+                    plan.zoneRects[zoneRectIndex].minTileX,
+                    plan.zoneRects[zoneRectIndex].minTileY,
+                    plan.zoneRects[zoneRectIndex].maxTileX,
+                    plan.zoneRects[zoneRectIndex].maxTileY,
+                    plan.zoningType);
+            }
+        } else {
+            std::size_t lotIndex = 0;
+            for (; lotIndex < plan.lots.size(); ++lotIndex) {
+                gameSession_.runtime().queueZoneLot(plan.lots[lotIndex]);
+            }
+        }
+    } else {
+        gameSession_.runtime().queueZoneArea(
+            viewState_.zoneDragStartX,
+            viewState_.zoneDragStartY,
+            viewState_.zoneDragCurrentX,
+            viewState_.zoneDragCurrentY,
+            viewState_.zoneDragType);
+    }
+
     viewState_.zoneDragActive = false;
+    viewState_.zoneDragToolId.clear();
 }
 
 // Builds the currently selected modular road template for a placement command.
@@ -997,30 +1226,84 @@ void AppController::printRoadTemplate() const {
 }
 
 void AppController::refreshQueryResultIfNeeded() {
-    if (gameSession_.isRegionMode() || viewState_.queriedLotId < 0) {
+    if (gameSession_.isRegionMode() || viewState_.querySelectionKind == QuerySelectionKind::None) {
         return;
     }
 
     const TileQueryResult queryResult = gameSession_.runtime().queryTile(viewState_.queriedTileX, viewState_.queriedTileY);
-    if (!queryResult.isValid || !queryResult.hasLot || queryResult.lotId != viewState_.queriedLotId) {
-        viewState_.queriedLotId = -1;
-        viewState_.queriedLotRevision = 0;
-        viewState_.queriedCommuteRevision = 0;
-        viewState_.queriedCommuteRouteSegments.clear();
-        viewState_.queryWindowLines.clear();
+    if (!queryResult.isValid) {
+        ClearQuerySelection(viewState_);
         ++viewState_.queryRouteRevision;
         return;
     }
 
-    if (queryResult.lotRevision == viewState_.queriedLotRevision &&
-        queryResult.commuteRevision == viewState_.queriedCommuteRevision) {
+    if (viewState_.querySelectionKind == QuerySelectionKind::Lot) {
+        if (!queryResult.hasLot || queryResult.lotId != viewState_.queriedLotId) {
+            ClearQuerySelection(viewState_);
+            ++viewState_.queryRouteRevision;
+            return;
+        }
+
+        if (queryResult.lotRevision == viewState_.queriedLotRevision &&
+            queryResult.commuteRevision == viewState_.queriedCommuteRevision) {
+            return;
+        }
+
+        viewState_.queriedLotRevision = queryResult.lotRevision;
+        viewState_.queriedCommuteRevision = queryResult.commuteRevision;
+        viewState_.queriedCommuteRouteSegments = queryResult.commuteRouteSegments;
+        viewState_.queryWindowLines = BuildLotQueryWindowLines(queryResult);
+        ++viewState_.queryRouteRevision;
         return;
     }
 
-    viewState_.queriedLotRevision = queryResult.lotRevision;
-    viewState_.queriedCommuteRevision = queryResult.commuteRevision;
-    viewState_.queriedCommuteRouteSegments = queryResult.commuteRouteSegments;
-    viewState_.queryWindowLines = BuildLotQueryWindowLines(queryResult);
+    if (viewState_.querySelectionKind == QuerySelectionKind::Road) {
+        if (queryResult.roads.empty()) {
+            ClearQuerySelection(viewState_);
+            ++viewState_.queryRouteRevision;
+            return;
+        }
+
+        if (queryResult.roadRevision == viewState_.queriedLotRevision &&
+            queryResult.commuteRevision == viewState_.queriedCommuteRevision) {
+            return;
+        }
+
+        viewState_.queriedLotRevision = queryResult.roadRevision;
+        viewState_.queriedCommuteRevision = queryResult.commuteRevision;
+        viewState_.queriedCommuteRouteSegments = queryResult.roadCommuteSegments;
+        viewState_.queryWindowLines = BuildRoadQueryWindowLines(queryResult);
+        ++viewState_.queryRouteRevision;
+        return;
+    }
+
+    if (viewState_.querySelectionKind == QuerySelectionKind::Rci) {
+        if (queryResult.hasLot) {
+            viewState_.querySelectionKind = QuerySelectionKind::Lot;
+            viewState_.queriedLotId = queryResult.lotId;
+            viewState_.queriedLotRevision = queryResult.lotRevision;
+            viewState_.queriedCommuteRevision = queryResult.commuteRevision;
+            viewState_.queriedCommuteRouteSegments = queryResult.commuteRouteSegments;
+            viewState_.queryWindowLines = BuildLotQueryWindowLines(queryResult);
+            ++viewState_.queryRouteRevision;
+            return;
+        }
+
+        if (!queryResult.hasRciLot) {
+            ClearQuerySelection(viewState_);
+            ++viewState_.queryRouteRevision;
+            return;
+        }
+
+        viewState_.queriedLotRevision = queryResult.roadRevision;
+        viewState_.queriedCommuteRevision = queryResult.commuteRevision;
+        viewState_.queriedCommuteRouteSegments.clear();
+        viewState_.queryWindowLines = BuildRciQueryWindowLines(queryResult);
+        ++viewState_.queryRouteRevision;
+        return;
+    }
+
+    ClearQuerySelection(viewState_);
     ++viewState_.queryRouteRevision;
 }
 
@@ -1051,26 +1334,30 @@ int AppController::hoveredTileY() const {
     return std::max(0, std::min(tileY, gameSession_.runtime().mapHeight() - 1));
 }
 
-// Prints a compact debug readout for the hovered tile.
+// Updates query UI state and selected route overlays for the hovered tile. The
+// console readout is optional because this function is part of normal query-tool
+// gameplay, not just a debug command.
 void AppController::printQueryResult() {
     const int tileX = hoveredTileX();
     const int tileY = hoveredTileY();
     const TileQueryResult queryResult = gameSession_.runtime().queryTile(tileX, tileY);
+    const bool printQueryDebug = appConfig_.debug.printQueryValuesToConsole;
     if (!queryResult.isValid) {
-        viewState_.queriedLotId = -1;
-        viewState_.queriedLotRevision = 0;
-        viewState_.queriedCommuteRevision = 0;
-        viewState_.queriedCommuteRouteSegments.clear();
-        viewState_.queryWindowLines.clear();
+        ClearQuerySelection(viewState_);
         ++viewState_.queryRouteRevision;
-        std::cout << "Query tool result: invalid tile selection." << std::endl;
+        if (printQueryDebug) {
+            std::cout << "Query tool result: invalid tile selection." << std::endl;
+        }
         return;
     }
 
-    std::cout << "Query tool result: tile " << tileX << "x " << tileY << "y has land value " << queryResult.tile.landValue
-              << " and air pollution " << queryResult.tile.airPollution << " at generation " << queryResult.generation;
+    if (printQueryDebug) {
+        std::cout << "Query tool result: tile " << tileX << "x " << tileY << "y has land value " << queryResult.tile.landValue
+                  << " and air pollution " << queryResult.tile.airPollution << " at generation " << queryResult.generation;
+    }
 
     if (queryResult.hasLot) {
+        viewState_.querySelectionKind = QuerySelectionKind::Lot;
         viewState_.queriedLotId = queryResult.lotId;
         viewState_.queriedTileX = tileX;
         viewState_.queriedTileY = tileY;
@@ -1079,20 +1366,47 @@ void AppController::printQueryResult() {
         viewState_.queriedCommuteRouteSegments = queryResult.commuteRouteSegments;
         viewState_.queryWindowLines = BuildLotQueryWindowLines(queryResult);
         ++viewState_.queryRouteRevision;
-        std::cout << " and belongs to lot #" << queryResult.lotId
-            << " (" << queryResult.lotAssetId << ") with modules: " << queryResult.moduleSummary
-            << " parameters: " << queryResult.parameterSummary
-            << " commute=" << queryResult.commuteSatisfied << "/" << queryResult.commuteDemand;
-    } else {
+        if (printQueryDebug) {
+            std::cout << " and belongs to lot #" << queryResult.lotId
+                << " (" << queryResult.lotAssetId << ") with modules: " << queryResult.moduleSummary
+                << " parameters: " << queryResult.parameterSummary
+                << " commute=" << queryResult.commuteSatisfied << "/" << queryResult.commuteDemand;
+            if (queryResult.lotIsEmpty && queryResult.hasRciLot) {
+                std::cout << " rci=" << queryResult.rciName;
+            }
+        }
+    } else if (!queryResult.roads.empty()) {
+        viewState_.querySelectionKind = QuerySelectionKind::Road;
         viewState_.queriedLotId = -1;
-        viewState_.queriedLotRevision = 0;
-        viewState_.queriedCommuteRevision = 0;
+        viewState_.queriedTileX = tileX;
+        viewState_.queriedTileY = tileY;
+        viewState_.queriedLotRevision = queryResult.lotRevision;
+        viewState_.queriedCommuteRevision = queryResult.commuteRevision;
+        viewState_.queriedCommuteRouteSegments = queryResult.roadCommuteSegments;
+        viewState_.queryWindowLines = BuildRoadQueryWindowLines(queryResult);
+        ++viewState_.queryRouteRevision;
+        if (printQueryDebug) {
+            std::cout << " with " << queryResult.roadCommuteSegments.size() << " commuter route segment(s) through its lanes";
+        }
+    } else if (queryResult.hasRciLot) {
+        viewState_.querySelectionKind = QuerySelectionKind::Rci;
+        viewState_.queriedLotId = -1;
+        viewState_.queriedTileX = tileX;
+        viewState_.queriedTileY = tileY;
+        viewState_.queriedLotRevision = queryResult.lotRevision;
+        viewState_.queriedCommuteRevision = queryResult.commuteRevision;
         viewState_.queriedCommuteRouteSegments.clear();
-        viewState_.queryWindowLines.clear();
+        viewState_.queryWindowLines = BuildRciQueryWindowLines(queryResult);
+        ++viewState_.queryRouteRevision;
+        if (printQueryDebug) {
+            std::cout << " and belongs to empty RCI lot " << queryResult.rciName;
+        }
+    } else {
+        ClearQuerySelection(viewState_);
         ++viewState_.queryRouteRevision;
     }
 
-    if (!queryResult.roads.empty()) {
+    if (printQueryDebug && !queryResult.roads.empty()) {
         std::size_t roadIndex = 0;
         for (; roadIndex < queryResult.roads.size(); ++roadIndex) {
             const ResolvedRoadCell& roadCell = queryResult.roads[roadIndex];
@@ -1114,5 +1428,7 @@ void AppController::printQueryResult() {
         }
     }
 
-    std::cout << std::endl;
+    if (printQueryDebug) {
+        std::cout << std::endl;
+    }
 }

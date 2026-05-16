@@ -14,6 +14,7 @@ This repository is a modern C++ city-builder prototype inspired by SC2000 and SC
 - See `../../docs/design/lots.md` before changing lot/module placement, occupancy, or effects.
 - See `../../docs/design/xml-assets.md` before changing XML archetype loading or schema behavior.
 - See `../../docs/design/transport-network.md` before changing road topology, layers, or render-state packing.
+- See `../../docs/design/app-config.md` before changing config loading, hotkeys, startup window mode, date display settings, or debug console gates.
 - See `../../docs/design/region-save.md` before changing region/city ownership, saves, loads, or previews.
 - See `../../docs/design/window-system.md` before changing in-game windows, UI XML, query text, or UI draw behavior.
 

@@ -5,6 +5,8 @@
 #include <sstream>
 #include <utility>
 
+#include "CityParameters.h"
+
 City::City()
     : regionX_(0),
       regionY_(0),
@@ -62,6 +64,11 @@ int City::cameraY() const {
 
 int City::visibleTiles() const {
     return visibleTiles_;
+}
+
+int City::population() const {
+    CityParameterRegistry registry;
+    return CalculatePopulationFromCityParameters(cityParameters_, registry);
 }
 
 const std::vector<float>& City::cityParameters() const {
@@ -169,6 +176,7 @@ CitySaveState City::createDefaultSaveState(std::uint32_t seed, int width, int he
     saveState.height = height;
     saveState.nextLotId = 1;
     saveState.visibleTiles = kDefaultVisibleTiles;
+    saveState.simulationTick = 0;
     saveState.cameraX = centeredCameraCoordinate(width, saveState.visibleTiles);
     saveState.cameraY = centeredCameraCoordinate(height, saveState.visibleTiles);
 
@@ -186,6 +194,7 @@ CitySaveState City::createDefaultSaveState(std::uint32_t seed, int width, int he
     }
 
     saveState.lots.clear();
+    saveState.zoningLots.clear();
     saveState.previewLots.clear();
     saveState.cityParameters.clear();
     saveState.transport = TransportNetworkSaveState();
@@ -268,6 +277,11 @@ const std::vector<std::unique_ptr<City> >& Region::cities() const {
 
 const std::vector<float>& Region::regionParameters() const {
     return regionParameters_;
+}
+
+int Region::population() const {
+    CityParameterRegistry registry;
+    return CalculatePopulationFromCityParameters(regionParameters_, registry);
 }
 
 std::uint64_t Region::revision() const {

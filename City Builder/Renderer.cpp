@@ -23,6 +23,7 @@
 #include "RendererAlgorithms.h"
 #include "RoadRenderState.h"
 #include "ShaderProgram.h"
+#include "SimulationDate.h"
 
 namespace {
 const float kPi = 3.14159265358979323846f;
@@ -405,13 +406,13 @@ struct RendererFrameMetrics {
 class RendererCallbacks {
 public:
     // Bridges GLFW callbacks back into the app controller.
-    explicit RendererCallbacks(AppController& appController)
+    RendererCallbacks(AppController& appController, bool isFullscreen, int windowedWidth, int windowedHeight)
         : appController_(appController),
-          isFullscreen_(false),
+          isFullscreen_(isFullscreen),
           windowedX_(0),
           windowedY_(0),
-          windowedWidth_(2048),
-          windowedHeight_(2048) {
+          windowedWidth_(windowedWidth),
+          windowedHeight_(windowedHeight) {
     }
 
     // Forwards GLFW cursor movement into view state.
@@ -1287,6 +1288,41 @@ void AddUiQuad(std::vector<UiQuadInstanceData>& quads, float x, float y, float w
     quads.push_back(quad);
 }
 
+std::string FormatIntegerWithCommas(int value) {
+    if (value <= 0) {
+        return "0";
+    }
+
+    std::string reversedDigits;
+    int digitCount = 0;
+    while (value > 0) {
+        if (digitCount == 3) {
+            reversedDigits.push_back(',');
+            digitCount = 0;
+        }
+
+        reversedDigits.push_back(static_cast<char>('0' + (value % 10)));
+        value /= 10;
+        ++digitCount;
+    }
+
+    std::reverse(reversedDigits.begin(), reversedDigits.end());
+    return reversedDigits;
+}
+
+std::string BuildPopulationLabel(const std::string& prefix, int population) {
+    std::ostringstream stream;
+    stream << prefix << FormatIntegerWithCommas(population);
+    return stream.str();
+}
+
+void AppendHudTextPanel(std::vector<UiQuadInstanceData>& quads, const std::string& text, float x, float y, float width) {
+    const float height = 28.0f;
+    AddUiQuad(quads, x, y, width, height, Vec4(0.025f, 0.032f, 0.038f, 0.70f));
+    AddUiQuad(quads, x, y + height - 2.0f, width, 2.0f, Vec4(0.20f, 0.28f, 0.27f, 0.78f));
+    RendererAppendTextQuads(text, x + 10.0f, y + 7.0f, width - 20.0f, height - 8.0f, UiColor(0.92f, 0.96f, 0.92f, 1.0f), false, quads);
+}
+
 void BuildTextQuads(const TextFieldElement& field, float windowX, float windowY, std::vector<UiQuadInstanceData>& quads) {
     const float scale = 2.0f;
     const float characterAdvance = 6.0f * scale;
@@ -1325,6 +1361,38 @@ void BuildTextQuads(const TextFieldElement& field, float windowX, float windowY,
 
 std::vector<UiQuadInstanceData> BuildWindowQuads(const InGameWindow& window) {
     return RendererBuildWindowQuads(window);
+}
+
+void DrawUiQuadInstances(
+    ShaderProgram& shaderProgram,
+    GLint viewProjectionLocation,
+    GLint renderModeLocation,
+    GLuint uiInstanceBufferId,
+    GLuint uiVertexArrayId,
+    int framebufferWidth,
+    int framebufferHeight,
+    const std::vector<UiQuadInstanceData>& uiQuadInstances) {
+    glBindBuffer(GL_ARRAY_BUFFER, uiInstanceBufferId);
+    glBufferData(
+        GL_ARRAY_BUFFER,
+        static_cast<GLsizeiptr>(uiQuadInstances.size() * sizeof(UiQuadInstanceData)),
+        uiQuadInstances.empty() ? 0 : &uiQuadInstances[0],
+        GL_DYNAMIC_DRAW);
+
+    if (uiQuadInstances.empty()) {
+        return;
+    }
+
+    const Mat4 uiProjection = Orthographic(0.0f, static_cast<float>(framebufferWidth), static_cast<float>(framebufferHeight), 0.0f, -1.0f, 1.0f);
+    shaderProgram.bind();
+    glUniformMatrix4fv(viewProjectionLocation, 1, GL_FALSE, uiProjection.data);
+    glUniform1i(renderModeLocation, 6);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_DEPTH_TEST);
+    glBindVertexArray(uiVertexArrayId);
+    glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(uiQuadInstances.size()));
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_TRUE);
 }
 
 // Wires static tile vertices and per-tile instance data for a chunk VAO.
@@ -1528,6 +1596,22 @@ AreaOverlayInstanceData BuildAreaOverlayInstance(int minTileX, int minTileY, int
 
 AreaOverlayInstanceData BuildAreaOverlayInstance(int minTileX, int minTileY, int maxTileX, int maxTileY) {
     return BuildAreaOverlayInstance(minTileX, minTileY, maxTileX, maxTileY, 1.0f, 0.05f, 0.03f, 0.28f);
+}
+
+RoadStrokeCommand BuildRciRoadStrokeCommand(const RciRoadPlan& roadPlan) {
+    RoadStrokeCommand roadStrokeCommand;
+    roadStrokeCommand.startTile = Int2(roadPlan.startTileX, roadPlan.startTileY);
+    roadStrokeCommand.cornerTile = Int2(roadPlan.endTileX, roadPlan.endTileY);
+    roadStrokeCommand.endTile = Int2(roadPlan.endTileX, roadPlan.endTileY);
+    roadStrokeCommand.family = RoadFamily::LocalStreet;
+    roadStrokeCommand.layer = TransportLayerId::Ground;
+    roadStrokeCommand.roadTemplate = TransportNetwork::makeRoadTemplate(
+        roadStrokeCommand.family,
+        roadStrokeCommand.layer,
+        1,
+        RoadTrafficSide::RightHand,
+        RoadDirectionMode::TwoWay);
+    return roadStrokeCommand;
 }
 
 // Returns the world-space vertical offset for a road layer.
@@ -2236,9 +2320,10 @@ void UploadRegionPreviewTexture(RegionPreviewTextureCache& cache, const City& ci
 }
 
 // Connects the renderer to immutable snapshots and user input state.
-Renderer::Renderer(GameSession& gameSession, AppController& appController)
+Renderer::Renderer(GameSession& gameSession, AppController& appController, const AppConfig& appConfig)
     : gameSession_(gameSession),
-      appController_(appController) {
+      appController_(appController),
+      appConfig_(appConfig) {
 }
 
 // Owns the GLFW/OpenGL frame loop, uploads, culling, drawing, and status metrics.
@@ -2254,7 +2339,26 @@ int Renderer::run() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow* window = glfwCreateWindow(2048, 2048, "Project Prime", 0, 0);
+    // GLFW fullscreen is chosen at window creation by passing a monitor. The
+    // callback also needs the configured windowed size so Alt+Enter can restore
+    // something intentional instead of the monitor-sized fullscreen dimensions.
+    const int configuredWindowedWidth = std::max(640, appConfig_.window.windowedWidth);
+    const int configuredWindowedHeight = std::max(480, appConfig_.window.windowedHeight);
+    GLFWmonitor* startupMonitor = 0;
+    const GLFWvidmode* startupVideoMode = 0;
+    if (appConfig_.window.fullscreen) {
+        startupMonitor = glfwGetPrimaryMonitor();
+        startupVideoMode = startupMonitor == 0 ? 0 : glfwGetVideoMode(startupMonitor);
+        if (startupMonitor == 0 || startupVideoMode == 0) {
+            startupMonitor = 0;
+            startupVideoMode = 0;
+            LogError("Renderer::run", "Fullscreen startup requested, but no primary monitor video mode was available. Falling back to windowed mode.");
+        }
+    }
+
+    const int initialWindowWidth = startupVideoMode == 0 ? configuredWindowedWidth : startupVideoMode->width;
+    const int initialWindowHeight = startupVideoMode == 0 ? configuredWindowedHeight : startupVideoMode->height;
+    GLFWwindow* window = glfwCreateWindow(initialWindowWidth, initialWindowHeight, "Project Prime", startupMonitor, 0);
     if (window == 0) {
         glfwTerminate();
         LogError("Renderer::run", "Window creation failed.");
@@ -2274,7 +2378,7 @@ int Renderer::run() {
 
     SimulationRuntime& simulationRuntime = gameSession_.runtime();
 
-    RendererCallbacks callbacks(appController_);
+    RendererCallbacks callbacks(appController_, startupMonitor != 0, configuredWindowedWidth, configuredWindowedHeight);
     glfwSetWindowUserPointer(window, &callbacks);
     glfwSetCursorPosCallback(window, &RendererCallbacks::CursorPositionCallback);
     glfwSetMouseButtonCallback(window, &RendererCallbacks::MouseButtonCallback);
@@ -2471,6 +2575,12 @@ int Renderer::run() {
     glGenBuffers(1, &areaOverlayInstanceBufferId);
     ConfigureAreaOverlayVertexArray(areaOverlayVertexArrayId, tileVertexBufferId, areaOverlayInstanceBufferId);
 
+    GLuint zoningLotOverlayVertexArrayId = 0;
+    GLuint zoningLotOverlayInstanceBufferId = 0;
+    glGenVertexArrays(1, &zoningLotOverlayVertexArrayId);
+    glGenBuffers(1, &zoningLotOverlayInstanceBufferId);
+    ConfigureAreaOverlayVertexArray(zoningLotOverlayVertexArrayId, tileVertexBufferId, zoningLotOverlayInstanceBufferId);
+
     GLuint regionPreviewVertexArrayId = 0;
     GLuint regionPreviewInstanceBufferId = 0;
     glGenVertexArrays(1, &regionPreviewVertexArrayId);
@@ -2523,6 +2633,8 @@ int Renderer::run() {
         glDeleteVertexArrays(1, &routeArrowVertexArrayId);
         glDeleteBuffers(1, &areaOverlayInstanceBufferId);
         glDeleteVertexArrays(1, &areaOverlayVertexArrayId);
+        glDeleteBuffers(1, &zoningLotOverlayInstanceBufferId);
+        glDeleteVertexArrays(1, &zoningLotOverlayVertexArrayId);
         glDeleteBuffers(1, &lotGhostInstanceBufferId);
         glDeleteVertexArrays(1, &lotGhostVertexArrayId);
         glDeleteBuffers(1, &lotInstanceBufferId);
@@ -2584,6 +2696,7 @@ int Renderer::run() {
     std::vector<LotInstanceData> lotGhostInstances;
     std::vector<LotInstanceData> bulldozeLotInstances;
     std::vector<AreaOverlayInstanceData> areaOverlayInstances;
+    std::vector<AreaOverlayInstanceData> zoningLotOverlayInstances;
     std::vector<RoadInstanceData> roadGhostInstances;
     std::vector<RouteArrowInstanceData> routeArrowInstances;
     std::vector<RegionPreviewTextureCache> regionPreviewTextureCaches;
@@ -2591,7 +2704,9 @@ int Renderer::run() {
     InGameWindow queryWindow;
     queryWindow.loadFromXmlFile(BuildDataPath("UI\\lot_query.xml"));
     appController_.loadUiLayoutFromXmlFile(BuildDataPath("UI\\city_tools.xml"));
+    appController_.loadRciToolsFromXmlFile(BuildDataPath("RCI\\rci_tools.xml"));
     std::uint64_t lastUploadedLotRevision = std::numeric_limits<std::uint64_t>::max();
+    std::uint64_t lastUploadedZoningLotRevision = std::numeric_limits<std::uint64_t>::max();
     std::uint64_t lastUploadedQueryRouteRevision = std::numeric_limits<std::uint64_t>::max();
     std::vector<std::uint64_t> lastUploadedGroundRoadChunkRevisions(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
     std::vector<std::uint64_t> lastUploadedTileOverlayChunkRevisions(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
@@ -2601,6 +2716,7 @@ int Renderer::run() {
     std::uint64_t lastRegionPreviewCacheRevision = std::numeric_limits<std::uint64_t>::max();
     std::vector<std::uint8_t> cityPreviewReadPixels(static_cast<std::size_t>(City::kPreviewWidth) * static_cast<std::size_t>(City::kPreviewHeight) * 4u, 0u);
     bool roadGhostPlacementValid = true;
+    float roadGhostAlphaScale = kRoadGhostAlpha;
     bool lotGhostPlacementValid = true;
 
     auto invalidateCityRenderCaches = [&] () {
@@ -2620,11 +2736,13 @@ int Renderer::run() {
         lastUploadedTileOverlayChunkRevisions.assign(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
         lastUploadedZoningOverlayChunkRevisions.assign(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
         lastUploadedLotRevision = std::numeric_limits<std::uint64_t>::max();
+        lastUploadedZoningLotRevision = std::numeric_limits<std::uint64_t>::max();
         lastUploadedQueryRouteRevision = std::numeric_limits<std::uint64_t>::max();
         lotInstances.clear();
         lotGhostInstances.clear();
         bulldozeLotInstances.clear();
         areaOverlayInstances.clear();
+        zoningLotOverlayInstances.clear();
         roadGhostInstances.clear();
         routeArrowInstances.clear();
     };
@@ -2805,12 +2923,20 @@ int Renderer::run() {
     int renderedFrames = 0;
     RendererFrameMetrics lastFrameMetrics;
     std::chrono::steady_clock::time_point counterStart = std::chrono::steady_clock::now();
+    SimulationDateSettings dateSettings = appConfig_.dateSettings;
 
     while (!glfwWindowShouldClose(window)) {
         int framebufferWidth = 0;
         int framebufferHeight = 0;
         glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
         appController_.setFramebufferSize(framebufferWidth, framebufferHeight);
+        const bool shiftDown =
+            glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+            glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
+        const bool controlDown =
+            glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
+            glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
+        appController_.setModifierKeys(shiftDown, controlDown);
 
         if (gameSession_.isLoading()) {
             glfwPollEvents();
@@ -2865,6 +2991,22 @@ int Renderer::run() {
             }
 
             glBindVertexArray(0);
+            uiQuadInstances.clear();
+            AppendHudTextPanel(
+                uiQuadInstances,
+                BuildPopulationLabel("Region Population: ", gameSession_.region().population()),
+                std::max(16.0f, static_cast<float>(framebufferWidth) - 406.0f),
+                16.0f,
+                390.0f);
+            DrawUiQuadInstances(
+                shaderProgram,
+                viewProjectionLocation,
+                renderModeLocation,
+                uiInstanceBufferId,
+                uiVertexArrayId,
+                framebufferWidth,
+                framebufferHeight,
+                uiQuadInstances);
             appController_.processPendingRegionClick();
             glfwSwapBuffers(window);
             glfwPollEvents();
@@ -2902,11 +3044,30 @@ int Renderer::run() {
         RendererFrameMetrics frameMetrics;
         frameMetrics.totalChunkCount = static_cast<int>(chunkCaches.size());
 
+        RciPlan rciGhostPlan;
+        const bool hasRciGhostPlan = appController_.rciPreviewPlan(rciGhostPlan);
+
         RoadStrokeCommand roadGhostCommand;
-        if (appController_.roadPreviewStroke(roadGhostCommand)) {
+        const bool hasRoadGhostCommand = appController_.roadPreviewStroke(roadGhostCommand);
+        if (hasRoadGhostCommand || (hasRciGhostPlan && !rciGhostPlan.roadPlans.empty())) {
             const std::chrono::steady_clock::time_point roadGhostUploadStart = std::chrono::steady_clock::now();
-            roadGhostInstances = BuildRoadPreviewInstances(roadGhostCommand, simulationRuntime.mapWidth(), simulationRuntime.mapHeight());
-            roadGhostPlacementValid = simulationRuntime.canPlaceRoadStroke(roadGhostCommand);
+            roadGhostInstances.clear();
+            roadGhostPlacementValid = true;
+            roadGhostAlphaScale = hasRoadGhostCommand ? kRoadGhostAlpha : 0.50f;
+            if (hasRoadGhostCommand) {
+                roadGhostInstances = BuildRoadPreviewInstances(roadGhostCommand, simulationRuntime.mapWidth(), simulationRuntime.mapHeight());
+                roadGhostPlacementValid = simulationRuntime.canPlaceRoadStroke(roadGhostCommand);
+            }
+
+            if (hasRciGhostPlan) {
+                std::size_t roadPlanIndex = 0;
+                for (; roadPlanIndex < rciGhostPlan.roadPlans.size(); ++roadPlanIndex) {
+                    const RoadStrokeCommand rciRoadStroke = BuildRciRoadStrokeCommand(rciGhostPlan.roadPlans[roadPlanIndex]);
+                    std::vector<RoadInstanceData> rciRoadInstances = BuildRoadPreviewInstances(rciRoadStroke, simulationRuntime.mapWidth(), simulationRuntime.mapHeight());
+                    roadGhostInstances.insert(roadGhostInstances.end(), rciRoadInstances.begin(), rciRoadInstances.end());
+                    roadGhostPlacementValid = simulationRuntime.canPlaceRoadStroke(rciRoadStroke) && roadGhostPlacementValid;
+                }
+            }
             glBindBuffer(GL_ARRAY_BUFFER, roadGhostInstanceBufferId);
             glBufferData(
                 GL_ARRAY_BUFFER,
@@ -2918,6 +3079,7 @@ int Renderer::run() {
         } else {
             roadGhostInstances.clear();
             roadGhostPlacementValid = true;
+            roadGhostAlphaScale = kRoadGhostAlpha;
         }
 
         std::string lotGhostAssetId;
@@ -2964,6 +3126,7 @@ int Renderer::run() {
         int bulldozeMinTileY = 0;
         int bulldozeMaxTileX = 0;
         int bulldozeMaxTileY = 0;
+        bool areaOverlayUsesParcelStyle = false;
         if (appController_.bulldozePreviewRect(bulldozeMinTileX, bulldozeMinTileY, bulldozeMaxTileX, bulldozeMaxTileY)) {
             areaOverlayInstances.clear();
             areaOverlayInstances.push_back(BuildAreaOverlayInstance(bulldozeMinTileX, bulldozeMinTileY, bulldozeMaxTileX, bulldozeMaxTileY));
@@ -2986,28 +3149,43 @@ int Renderer::run() {
                 GL_DYNAMIC_DRAW);
         } else {
             bulldozeLotInstances.clear();
-            int zoneMinTileX = 0;
-            int zoneMinTileY = 0;
-            int zoneMaxTileX = 0;
-            int zoneMaxTileY = 0;
-            std::uint16_t previewZoningType = TileZoningNone;
-            if (appController_.zonePreviewRect(zoneMinTileX, zoneMinTileY, zoneMaxTileX, zoneMaxTileY, previewZoningType)) {
-                const bool residentialPreview = previewZoningType == TileZoningResidential;
+            if (hasRciGhostPlan) {
                 areaOverlayInstances.clear();
-                areaOverlayInstances.push_back(BuildAreaOverlayInstance(
-                    zoneMinTileX,
-                    zoneMinTileY,
-                    zoneMaxTileX,
-                    zoneMaxTileY,
-                    residentialPreview ? 0.18f : 0.92f,
-                    residentialPreview ? 0.86f : 0.76f,
-                    residentialPreview ? 0.32f : 0.15f,
-                    residentialPreview ? 0.26f : 0.30f));
+                areaOverlayUsesParcelStyle = rciGhostPlan.mode != RciPlanMode::Area;
+                if (!rciGhostPlan.lots.empty()) {
+                    std::size_t lotIndex = 0;
+                    for (; lotIndex < rciGhostPlan.lots.size(); ++lotIndex) {
+                        const RciLot& lot = rciGhostPlan.lots[lotIndex];
+                        areaOverlayInstances.push_back(BuildAreaOverlayInstance(
+                            lot.rect.minTileX,
+                            lot.rect.minTileY,
+                            lot.rect.maxTileX,
+                            lot.rect.maxTileY,
+                            lot.color.r,
+                            lot.color.g,
+                            lot.color.b,
+                            0.50f));
+                    }
+                } else {
+                    std::size_t zoneRectIndex = 0;
+                    for (; zoneRectIndex < rciGhostPlan.zoneRects.size(); ++zoneRectIndex) {
+                        const RciRect& rect = rciGhostPlan.zoneRects[zoneRectIndex];
+                        areaOverlayInstances.push_back(BuildAreaOverlayInstance(
+                            rect.minTileX,
+                            rect.minTileY,
+                            rect.maxTileX,
+                            rect.maxTileY,
+                            rciGhostPlan.color.r,
+                            rciGhostPlan.color.g,
+                            rciGhostPlan.color.b,
+                            0.50f));
+                    }
+                }
                 glBindBuffer(GL_ARRAY_BUFFER, areaOverlayInstanceBufferId);
                 glBufferData(
                     GL_ARRAY_BUFFER,
                     static_cast<GLsizeiptr>(areaOverlayInstances.size() * sizeof(AreaOverlayInstanceData)),
-                    &areaOverlayInstances[0],
+                    areaOverlayInstances.empty() ? 0 : &areaOverlayInstances[0],
                     GL_DYNAMIC_DRAW);
             } else {
                 areaOverlayInstances.clear();
@@ -3187,6 +3365,31 @@ int Renderer::run() {
                 frameMetrics.lotUploadMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - lotUploadStart).count();
             }
 
+            if (snapshot.zoningLots != 0 && snapshot.zoningLotRevision != lastUploadedZoningLotRevision) {
+                zoningLotOverlayInstances.clear();
+                zoningLotOverlayInstances.reserve(snapshot.zoningLots->size());
+                std::size_t zoningLotIndex = 0;
+                for (; zoningLotIndex < snapshot.zoningLots->size(); ++zoningLotIndex) {
+                    const RciLot& lot = (*snapshot.zoningLots)[zoningLotIndex];
+                    zoningLotOverlayInstances.push_back(BuildAreaOverlayInstance(
+                        lot.rect.minTileX,
+                        lot.rect.minTileY,
+                        lot.rect.maxTileX,
+                        lot.rect.maxTileY,
+                        lot.color.r,
+                        lot.color.g,
+                        lot.color.b,
+                        0.38f));
+                }
+                glBindBuffer(GL_ARRAY_BUFFER, zoningLotOverlayInstanceBufferId);
+                glBufferData(
+                    GL_ARRAY_BUFFER,
+                    static_cast<GLsizeiptr>(zoningLotOverlayInstances.size() * sizeof(AreaOverlayInstanceData)),
+                    zoningLotOverlayInstances.empty() ? 0 : &zoningLotOverlayInstances[0],
+                    GL_DYNAMIC_DRAW);
+                lastUploadedZoningLotRevision = snapshot.zoningLotRevision;
+            }
+
             shaderProgram.bind();
             glUniformMatrix4fv(viewProjectionLocation, 1, GL_FALSE, cameraState.viewProjection.data);
             glActiveTexture(GL_TEXTURE0);
@@ -3231,7 +3434,7 @@ int Renderer::run() {
             frameMetrics.elevatedRoadDrawMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - elevatedRoadDrawStart).count();
 
             if (!areaOverlayInstances.empty()) {
-                glUniform1i(renderModeLocation, 7);
+                glUniform1i(renderModeLocation, areaOverlayUsesParcelStyle ? 8 : 7);
                 glDepthMask(GL_FALSE);
                 glDisable(GL_DEPTH_TEST);
                 glBindVertexArray(areaOverlayVertexArrayId);
@@ -3241,7 +3444,7 @@ int Renderer::run() {
             }
 
             if (!roadGhostInstances.empty()) {
-                glUniform1f(roadAlphaScaleLocation, roadGhostPlacementValid ? kRoadGhostAlpha : 0.55f);
+                glUniform1f(roadAlphaScaleLocation, roadGhostPlacementValid ? roadGhostAlphaScale : 0.55f);
                 if (roadGhostPlacementValid) {
                     glUniform3f(roadTintColorLocation, 0.55f, 0.82f, 1.0f);
                     glUniform1f(roadTintStrengthLocation, 0.38f);
@@ -3334,6 +3537,16 @@ int Renderer::run() {
             glEnable(GL_DEPTH_TEST);
             glDepthMask(GL_TRUE);
 
+            if (!zoningLotOverlayInstances.empty()) {
+                glUniform1i(renderModeLocation, 8);
+                glDepthMask(GL_FALSE);
+                glDisable(GL_DEPTH_TEST);
+                glBindVertexArray(zoningLotOverlayVertexArrayId);
+                glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(zoningLotOverlayInstances.size()));
+                glEnable(GL_DEPTH_TEST);
+                glDepthMask(GL_TRUE);
+            }
+
             if (!routeArrowInstances.empty()) {
                 glUniform1i(renderModeLocation, 4);
                 glDepthMask(GL_FALSE);
@@ -3356,30 +3569,32 @@ int Renderer::run() {
             }
 
             uiQuadInstances = BuildWindowQuads(queryWindow);
+            AppendHudTextPanel(
+                uiQuadInstances,
+                FormatSimulationDateForTick(snapshot.simulationTick, dateSettings),
+                16.0f,
+                16.0f,
+                236.0f);
+            AppendHudTextPanel(
+                uiQuadInstances,
+                BuildPopulationLabel("Population: ", snapshot.population),
+                std::max(16.0f, static_cast<float>(framebufferWidth) - 356.0f),
+                16.0f,
+                340.0f);
             {
                 std::vector<UiQuadInstanceData> menuQuadInstances = RendererBuildUiMenuQuads(appController_.uiLayout(), framebufferWidth, framebufferHeight, appController_.activeUiAction());
                 uiQuadInstances.insert(uiQuadInstances.end(), menuQuadInstances.begin(), menuQuadInstances.end());
             }
 
-            glBindBuffer(GL_ARRAY_BUFFER, uiInstanceBufferId);
-            glBufferData(
-                GL_ARRAY_BUFFER,
-                static_cast<GLsizeiptr>(uiQuadInstances.size() * sizeof(UiQuadInstanceData)),
-                uiQuadInstances.empty() ? 0 : &uiQuadInstances[0],
-                GL_DYNAMIC_DRAW);
-
-            if (!uiQuadInstances.empty()) {
-                const Mat4 uiProjection = Orthographic(0.0f, static_cast<float>(framebufferWidth), static_cast<float>(framebufferHeight), 0.0f, -1.0f, 1.0f);
-                shaderProgram.bind();
-                glUniformMatrix4fv(viewProjectionLocation, 1, GL_FALSE, uiProjection.data);
-                glUniform1i(renderModeLocation, 6);
-                glDepthMask(GL_FALSE);
-                glDisable(GL_DEPTH_TEST);
-                glBindVertexArray(uiVertexArrayId);
-                glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(uiQuadInstances.size()));
-                glEnable(GL_DEPTH_TEST);
-                glDepthMask(GL_TRUE);
-            }
+            DrawUiQuadInstances(
+                shaderProgram,
+                viewProjectionLocation,
+                renderModeLocation,
+                uiInstanceBufferId,
+                uiVertexArrayId,
+                framebufferWidth,
+                framebufferHeight,
+                uiQuadInstances);
 
             glBindVertexArray(0);
         } else {
@@ -3454,6 +3669,8 @@ int Renderer::run() {
     glDeleteVertexArrays(1, &routeArrowVertexArrayId);
     glDeleteBuffers(1, &areaOverlayInstanceBufferId);
     glDeleteVertexArrays(1, &areaOverlayVertexArrayId);
+    glDeleteBuffers(1, &zoningLotOverlayInstanceBufferId);
+    glDeleteVertexArrays(1, &zoningLotOverlayVertexArrayId);
     glDeleteBuffers(1, &lotGhostInstanceBufferId);
     glDeleteVertexArrays(1, &lotGhostVertexArrayId);
     glDeleteBuffers(1, &lotInstanceBufferId);

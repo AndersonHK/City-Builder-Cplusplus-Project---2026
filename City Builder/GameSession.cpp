@@ -18,9 +18,9 @@
 
 namespace {
 const std::uint32_t kRegionSaveMagic = 0x52424743u; // CBGR
-const std::uint32_t kRegionSaveVersion = 2u;
+const std::uint32_t kRegionSaveVersion = 3u;
 const std::uint32_t kCitySaveMagic = 0x59544243u; // CBTY
-const std::uint32_t kCitySaveVersion = 4u;
+const std::uint32_t kCitySaveVersion = 6u;
 const int kMaximumPreviewBuildsInFlight = 2;
 
 std::string GetExecutableDirectory() {
@@ -86,6 +86,36 @@ Int2 ReadInt2(std::istream& stream) {
     ReadValue(stream, value.x);
     ReadValue(stream, value.y);
     return value;
+}
+
+void WriteRciLot(std::ostream& stream, const RciLot& lot) {
+    WriteString(stream, lot.toolId);
+    WriteString(stream, lot.name);
+    WriteValue(stream, lot.zoningType);
+    WriteValue(stream, lot.color.r);
+    WriteValue(stream, lot.color.g);
+    WriteValue(stream, lot.color.b);
+    WriteValue(stream, lot.color.a);
+    WriteValue(stream, lot.rect.minTileX);
+    WriteValue(stream, lot.rect.minTileY);
+    WriteValue(stream, lot.rect.maxTileX);
+    WriteValue(stream, lot.rect.maxTileY);
+}
+
+RciLot ReadRciLot(std::istream& stream) {
+    RciLot lot;
+    lot.toolId = ReadString(stream);
+    lot.name = ReadString(stream);
+    ReadValue(stream, lot.zoningType);
+    ReadValue(stream, lot.color.r);
+    ReadValue(stream, lot.color.g);
+    ReadValue(stream, lot.color.b);
+    ReadValue(stream, lot.color.a);
+    ReadValue(stream, lot.rect.minTileX);
+    ReadValue(stream, lot.rect.minTileY);
+    ReadValue(stream, lot.rect.maxTileX);
+    ReadValue(stream, lot.rect.maxTileY);
+    return lot;
 }
 
 void WriteTile(std::ostream& stream, const Tile& tile) {
@@ -251,12 +281,20 @@ void WriteCityState(std::ostream& stream, const CitySaveState& state) {
     WriteValue(stream, state.cameraX);
     WriteValue(stream, state.cameraY);
     WriteValue(stream, state.visibleTiles);
+    WriteValue(stream, state.simulationTick);
 
     std::uint32_t count = static_cast<std::uint32_t>(state.tiles.size());
     WriteValue(stream, count);
     std::size_t tileIndex = 0;
     for (; tileIndex < state.tiles.size(); ++tileIndex) {
         WriteTile(stream, state.tiles[tileIndex]);
+    }
+
+    count = static_cast<std::uint32_t>(state.zoningLots.size());
+    WriteValue(stream, count);
+    std::size_t zoningLotIndex = 0;
+    for (; zoningLotIndex < state.zoningLots.size(); ++zoningLotIndex) {
+        WriteRciLot(stream, state.zoningLots[zoningLotIndex]);
     }
 
     count = static_cast<std::uint32_t>(state.lots.size());
@@ -315,6 +353,7 @@ CitySaveState ReadCityState(std::istream& stream) {
     ReadValue(stream, state.cameraX);
     ReadValue(stream, state.cameraY);
     ReadValue(stream, state.visibleTiles);
+    ReadValue(stream, state.simulationTick);
 
     std::uint32_t count = 0u;
     ReadValue(stream, count);
@@ -322,6 +361,13 @@ CitySaveState ReadCityState(std::istream& stream) {
     std::size_t tileIndex = 0;
     for (; tileIndex < state.tiles.size(); ++tileIndex) {
         state.tiles[tileIndex] = ReadTile(stream);
+    }
+
+    ReadValue(stream, count);
+    state.zoningLots.resize(count);
+    std::size_t zoningLotIndex = 0;
+    for (; zoningLotIndex < state.zoningLots.size(); ++zoningLotIndex) {
+        state.zoningLots[zoningLotIndex] = ReadRciLot(stream);
     }
 
     ReadValue(stream, count);

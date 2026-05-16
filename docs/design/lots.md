@@ -7,7 +7,7 @@ Use this guide when changing `Lot`, lot placement, module expansion/removal, lot
 - Modules let lots grow while preserving tile-based occupancy and effects.
 - XML archetypes define reusable lot/module data; runtime lots hold placement state.
 - Lot footprints can now be explicit and larger than their modules, so a lot can reserve yard/parcel tiles while only some tiles contain active modules.
-- Lots can declare a front plus explicit per-tile commuter access by mode; placement rotation rotates both geometry and those access declarations.
+- Lots can declare a front plus per-tile commuter access by mode; placement rotation rotates both geometry and those access declarations.
 
 ## Current Shape
 - `Lot` owns module placements, occupied offsets, occupied tile indices, aggregate effects, render height, and render color.
@@ -20,14 +20,17 @@ Use this guide when changing `Lot`, lot placement, module expansion/removal, lot
 - Lot placement ghost previews reuse the XML-backed candidate geometry but stay renderer-only until the placement command commits.
 - Factory lots use a 3x2 footprint containing a 2x2 warehouse plus an adjacent smokestack module; their access XML defines eight exterior connection points that accept cars and pedestrians. House lots use a garden on the front-left pedestrian access tile, a driveway on the front-right car access tile, and a centered 2x2 house module behind them.
 - Lots still draw through a global placeholder-prism instance path.
+- RCI zoning lots start as separate empty parcel records. They have no modules, do not reserve building occupancy, and exist only to mark zoning boundaries over tiles until the constructor pass finds a matching RCI lot archetype and instantiates a real `Lot`.
+- RCI constructor lot archetypes are tagged with `zoningType` and currently cover residential and industrial 2- and 3-tile widths for depths 2 through 8.
 
 ## Rules
 - Update occupancy and chunk revisions whenever a lot footprint changes.
 - Preserve the invariant that a module add must attach to exactly one adjacent lot.
 - Rebuild cached lot state after any module add/remove/rebase.
 - Recompute city parameters when lots or modules change, but do not force a global commute rebuild for every building edit. Queue only the affected source/destination lots immediately and let the deterministic rolling commute queue rebalance the rest over time.
-- Keep commute access explicit in lot XML. Do not fall back to whole-footprint perimeter guessing for new commuter-producing lots.
+- Keep commute access declared in lot XML, either as specific `<connection>` rows or as an intentional `<perimeter>` shortcut.
 - Keep lot previews presentation-only; they can share candidate footprint/render construction, but occupancy rejection and mutation belong to committed placement.
+- Keep RCI parcel creation separate from building `Lot` placement. Only the constructor pass should consume a zoning parcel and instantiate a building lot inside it.
 - When rotating lots, rotate both module origin and placed module footprint dimensions. Do not render a rotated non-square module with its original width/height.
 - Keep lot effects simple and tile-statistical until profiling proves a different model is needed.
 - Do not make lots the source of tile truth; they apply effects into simulation passes.

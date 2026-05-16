@@ -23,6 +23,9 @@ Use this guide when changing tile update passes, buffer ownership, chunk schedul
 - Transport route recalculation should preserve valid existing routes and force recalculation only when a route, source, or destination becomes invalid. Routine congestion rebalancing should use a deterministic rolling queue, currently about 1 percent of source lots per tick, so all source lots are visited over roughly 100 ticks without random repeats.
 - A future parallel route assignment pass should read old loads and write new loads through worker-local deltas, then reduce after the batch. Path searches must not mutate shared load arrays directly.
 - City parameters use dense old/new vectors and per-worker-shaped delta buffers so future lot batches can aggregate drivers and satisfactions without hot shared writes.
+- The RCI constructor runs after queued player commands and before lot effects each tick. It consumes at most one residential and one industrial parcel, creating XML-defined lots before the parameter reducer and commute pass observe them.
+- City population is a reducer over the resident wealth city parameters (`$`, `$$`, and `$$$`), then copied into the published snapshot with the simulation tick. Buildings update population by changing their parameter contributions, not through a separate population counter path.
+- The simulation tick is one in-game day. `SimulationDate` converts tick offsets from the configured start date defines, which default to January 1, 1900, and formats them through `SimulationDateSettings`.
 - Sample subsets of commuter/building routes over time by queue/cursor, not random choice, so stale buildings are revisited predictably while congestion feedback still distributes statistically.
 - Preserve `fastForward` behavior: simulation may outrun presentation unless disabled.
 

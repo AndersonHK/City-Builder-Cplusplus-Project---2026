@@ -16,20 +16,23 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Lot occupancy lift comes from a persistent full-map `GL_R8` mask texture updated only for visible stale chunks.
 - Ground roads render in the tile pass from packed road-state bytes and generated road atlases. The ground-road upload path is `UpdateGroundRoadChunkTexture`.
 - Reusable tile overlays render from published RGBA tile textures. Zoning and traffic capacity both use visible-dirty chunk uploads.
-- Queried lot commutes render as coalesced route arrows above roads, lots, and tile overlays; car arrows are green and pedestrian arrows are pink.
+- Queried lot and road commutes render as coalesced route arrows above roads, lots, and tile overlays; car arrows are green and pedestrian arrows are pink.
 - Elevated roads use separate per-chunk instance buffers and rebuild lazily for visible stale chunks. They consume the same resolved road glyph, lane graphic, and divider masks through `BuildRoadChunkInstances`.
 - Road placement ghost previews are transient renderer instances built from the active drag stroke and drawn with a blue alpha tint when valid or a red tint when invalid. They do not enter published road snapshots.
 - Lot placement ghost previews are transient renderer instances built from XML-backed, rotation-aware lot candidate geometry and drawn with a green alpha tint when valid or a red tint when invalid. They do not enter published lot snapshots.
 - Bulldoze area previews are transient renderer instances built from the active drag rectangle. The selected tiles draw a red world-space overlay and intersecting buildings draw through a red-tinted lot pass; the preview does not enter published snapshots.
-- Residential and industrial zoning previews reuse the transient area overlay path with green/yellow tinting. Committed zoning draws from the published `Tile::zoningType` texture overlay.
+- Residential and industrial zoning previews are produced by the XML-backed RCI tool planner. Plain area mode reuses the transient tint overlay; lot modes draw parcel-style ghost overlays with boundary lines, and lots+roads also feeds alpha-tinted road ghost instances.
+- Committed zoning draws from the published `Tile::zoningType` texture overlay. Empty RCI zoning lots publish separately as parcel rectangles so the renderer can draw persistent lot-boundary overlays without using the building `Lot` path.
 - Lots still render through one global placeholder-prism instance buffer keyed by lot revision.
 - In-game windows and tool menus render as screen-space UI quads after world rendering. `InGameWindow` supplies window/text layout, `UiLayout` supplies menu/button layout, and `BuildWindowQuads` / `RendererBuildUiMenuQuads` turn them into dynamic `UiQuadInstanceData`.
+- The HUD is also screen-space UI quads: city mode draws the configured numeric simulation date at top left and active-city population at top right, while region mode draws the summed region population at top right.
 - The current text renderer decodes UTF-8 and emits clipped 5x7 bitmap glyph quads. Unsupported glyphs draw as `?`.
 - Region mode draws city preview textures with the same angled camera settings as city mode.
 - City previews are rendered through the normal city draw passes with a top-down orthographic camera, then uploaded to renderer-owned region preview textures.
 - Preview state loading/generation may happen on background futures, but GL preview rendering and texture upload stay on the render thread.
 - Region preview textures are destroyed when entering city mode so city rendering does not keep the region preview set resident.
 - `GameSession::renderStateRevision` fences city load/enter transitions; when it changes, all city tile, road, lot, overlay, and route upload caches must be treated as stale before the next draw.
+- Startup fullscreen/windowed size comes from `AppConfig`, but the actual fullscreen toggle stays in `RendererCallbacks` because it owns GLFW monitor/window mutation before input reaches `AppController`.
 
 ## Road Render Data
 - The road simulation owns lane topology, lane type masks, graphic masks, and path masks; rendering only consumes published road snapshots.
@@ -51,16 +54,19 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Keep road ghost previews presentation-only. They may reuse road templates and glyph helpers, but committed topology and validation must stay in the simulation/transport command path.
 - Keep lot ghost previews presentation-only. They may reuse XML-backed lot candidate geometry, but committed placement validation must stay in the simulation command path.
 - Keep bulldoze previews presentation-only. They may reuse published lot render instances for tinting, but committed deletion must stay in queued simulation commands.
-- Keep zoning previews presentation-only. Committed zoning must stay in queued simulation commands and published tile snapshots.
+- Keep zoning previews presentation-only. Committed zoning must stay in queued simulation commands, published tile snapshots, and published RCI parcel snapshots.
 - Draw overlays after roads and lots with depth disabled/restored so the tint remains presentation, not terrain truth.
 - Draw query route arrows after tile overlays with depth disabled/restored so selected commute paths remain inspectable.
 - Draw in-game windows last with a screen-space orthographic projection, depth disabled, and no simulation ownership.
+- Keep HUD values read-only from published snapshots or region metadata; do not query mutable simulation state directly from the renderer.
+- Keep date formatting presentation-only. The city simulation tick comes from snapshots; `AppConfig` only selects how the renderer formats that tick.
 - Future overlays should publish the same RGBA tile payload and chunk revisions instead of adding one-off shader paths.
 - Keep city preview capture top-down orthographic so preview orientation remains stable before the region camera projects it.
 
 ## Checks
 - Build `x64 Release`.
 - Build and run `RendererTests.vcxproj` after touching renderer CPU packing, UTF-8 text, or UI quad generation.
+- Toggle `fullscreen` and the preferred windowed dimensions in `Data/config.ini` before launch to verify startup and `Alt+Enter` restore behavior.
 - Compare the status line at `32`, `64`, `128`, `256`, `512`, `1024`, and `2048` visible-tile zoom.
 - Verify `tileStateChunks`, `tileStateTiles`, and `tileStateBytes` scale with visible chunks.
 - Pan after road or lot edits to confirm deferred chunks update before drawing.
@@ -68,11 +74,11 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Drag local streets and elevated highways before release to confirm the alpha-tinted ghost follows the intended L-shaped stroke and disappears after commit.
 - Hover each lot placement tool over valid terrain to confirm the alpha-tinted lot ghost matches the committed footprint and disappears after placement.
 - Drag `B` across lots and empty/road tiles to confirm selected tiles overlay red, selected buildings tint red, and the preview disappears after release.
-- Drag residential and industrial zoning from the side menu across vacant empty tiles to confirm the preview tint follows the selection and the committed green/yellow overlay persists after release.
+- Drag residential and industrial zoning from the side menu across vacant empty tiles to confirm default lots+roads shows parcel and road ghosts, `Shift` shows lots only, `Ctrl` shows a plain area tint, and committed green/yellow overlays plus parcel boundaries persist after release.
 - Toggle the bottom-left tool menu and confirm hidden menu buttons no longer draw or capture clicks.
 - Rotate lot placement with `,` and `.` while hovering to confirm the ghost footprint rotates before commit.
 - Toggle `T` to verify the traffic capacity overlay appears above roads/lots and starts green at zero load.
-- Query lots with `A` to verify the in-game window draws above world content, hugs populated fields, and disappears when the query selection has no lot.
+- Query lots and roads with `A` to verify the in-game window draws above world content, hugs populated fields, summarizes road commuters, and disappears when the query selection has no lot, road, or RCI zoning.
 - Temporarily remove `Data/UI/lot_query.xml` from the output folder and verify the fallback query window still appears.
 
 ## Related Guides

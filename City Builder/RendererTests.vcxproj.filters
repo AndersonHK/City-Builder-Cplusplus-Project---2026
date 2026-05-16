@@ -14,10 +14,16 @@
     <ClCompile Include="InGameWindow.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="RciTool.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="RendererAlgorithms.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="RendererTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="SimulationDate.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="UiWidgets.cpp">
@@ -31,7 +37,13 @@
     <ClInclude Include="InGameWindow.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="RciTool.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="RendererAlgorithms.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SimulationDate.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Tile.h">

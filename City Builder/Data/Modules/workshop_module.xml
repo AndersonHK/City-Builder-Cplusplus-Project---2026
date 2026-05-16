@@ -1,0 +1,8 @@
+<module id="workshop_module">
+  <size width="2" height="2" />
+  <effects airPollution="3500" landValue="-700" />
+  <render height="0.75" colorR="0.48" colorG="0.45" colorB="0.40" />
+  <parameters>
+    <driver id="jobs.dirty_industry" amount="4" />
+  </parameters>
+</module>

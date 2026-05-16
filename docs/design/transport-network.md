@@ -36,10 +36,11 @@ Use this guide when changing road placement, lane topology, road render data, or
 - Cost-map nodes use `tile + totalTiles * (mode + modeCount * layer)` so A* can use compact scratch arrays.
 - The cost map stores eight outgoing direction slots. Current road lanes populate cardinal directions; diagonal slots are reserved for future connectors.
 - A* expands movement edges within one layer/mode and sparse transfer edges for mode/layer changes. There is no implicit connection between overlapping layers.
+- A* seeds each candidate start node with a mode start cost before movement: car starts currently add 2 commute-time units, while pedestrian starts add 0. This lets multi-mode access compare the up-front cost of choosing a car against walking.
 - Congestion reads immutable old load, converts `oldLoad / capacity` through the XML speed table, and writes reassigned traffic into a separate new-load buffer so future per-building path recalculation can run in parallel and reduce deltas afterward.
 - Route tie-breaking uses tiny deterministic jitter from the route seed so equivalent alternatives can distribute statistically over repeated sampled updates.
 - The first commute pass routes low-wealth residential demand to compatible low-wealth job destinations, then commits accepted aggregate demand back into road loads and the traffic capacity overlay.
-- Querying a lot can publish coalesced commute route segments; rendering turns those tile/layer/mode/direction segments into mode-colored arrows above roads, buildings, and overlays.
+- Querying a lot can publish coalesced commute route segments; rendering turns those tile/layer/mode/direction segments into mode-colored arrows above roads, buildings, and overlays. Querying a road tile summarizes all published commute segments that pass through that tile's lanes and draws those selected segments as route arrows.
 - Runtime commute assignment preserves valid accepted routes instead of clearing every lot after ordinary building edits. Removed or invalid source/destination routes are forced back through assignment, and otherwise a deterministic rolling queue rebalances about 1 percent of source lots per tick so all source lots are visited over roughly 100 ticks without random repeats.
 
 ## Crosswalk Rule
@@ -114,7 +115,7 @@ A car intersection node is a resolved car junction with at least three cardinal 
 - Build `x64 Release`.
 - Build and run `TransportNetworkTests.vcxproj`.
 - Verify straight one-way and two-way local streets, elevated highways, corners, tees, crosses, same-axis overlap rejection, exact replay revision stability, and lot-road occupancy rejection.
-- Verify directional one-way costs, lower-cost merge behavior, capacity accumulation, no implicit layer connection, explicit transfer edges, load add/subtract, congestion rerouting, and traffic-overlay colors.
+- Verify directional one-way costs, lower-cost merge behavior, mode start costs, capacity accumulation, no implicit layer connection, explicit transfer edges, load add/subtract, congestion rerouting, and traffic-overlay colors.
 - Verify congestion XML keeps car cost at 10 tiles/time and pedestrian cost at 1 tile/time at 100 percent capacity before applying over-capacity slowdowns.
 - In game, pan away and back after road edits to confirm deferred chunk uploads still catch up when visible.
 

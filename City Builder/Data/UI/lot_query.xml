@@ -1,4 +1,4 @@
-<window id="lot_query" x="24" y="24" width="460" height="232" margin="16" spacing="6" hugElements="true">
+<window id="lot_query" x="24" y="56" width="520" height="232" margin="16" spacing="6" hugElements="true">
   <textField id="title" height="18" />
   <textField id="line0" height="18" />
   <textField id="line1" height="18" />
@@ -8,4 +8,8 @@
   <textField id="line5" height="18" />
   <textField id="line6" height="18" />
   <textField id="line7" height="18" />
+  <textField id="line8" height="18" />
+  <textField id="line9" height="18" />
+  <textField id="line10" height="18" />
+  <textField id="line11" height="18" />
 </window>

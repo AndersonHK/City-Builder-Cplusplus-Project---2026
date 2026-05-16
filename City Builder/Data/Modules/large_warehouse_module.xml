@@ -1,0 +1,8 @@
+<module id="large_warehouse_module">
+  <size width="3" height="3" />
+  <effects airPollution="9000" landValue="-2100" />
+  <render height="1.05" colorR="0.42" colorG="0.40" colorB="0.36" />
+  <parameters>
+    <driver id="jobs.dirty_industry" amount="12" />
+  </parameters>
+</module>

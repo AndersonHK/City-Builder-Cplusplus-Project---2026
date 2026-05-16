@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "Lot.h"
+#include "RciTool.h"
 #include "RoadLane.h"
 #include "Tile.h"
 
@@ -99,7 +100,9 @@ struct CitySaveState {
     int cameraX;
     int cameraY;
     int visibleTiles;
+    std::uint64_t simulationTick;
     std::vector<Tile> tiles;
+    std::vector<RciLot> zoningLots;
     std::vector<CitySaveLotState> lots;
     std::vector<LotRenderInstance> previewLots;
     std::vector<float> cityParameters;
@@ -111,7 +114,8 @@ struct CitySaveState {
           nextLotId(1),
           cameraX(384),
           cameraY(384),
-          visibleTiles(256) {
+          visibleTiles(256),
+          simulationTick(0) {
     }
 };
 
@@ -128,6 +132,7 @@ public:
     int cameraX() const;
     int cameraY() const;
     int visibleTiles() const;
+    int population() const;
     const std::vector<float>& cityParameters() const;
     bool hasSaveState() const;
     bool isSaveStateDirty() const;
@@ -189,6 +194,7 @@ public:
     std::vector<std::unique_ptr<City> >& cities();
     const std::vector<std::unique_ptr<City> >& cities() const;
     const std::vector<float>& regionParameters() const;
+    int population() const;
     std::uint64_t revision() const;
 
     void addCity(std::unique_ptr<City> city);

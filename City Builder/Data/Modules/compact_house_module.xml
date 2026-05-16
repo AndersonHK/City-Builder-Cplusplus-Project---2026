@@ -1,0 +1,8 @@
+<module id="compact_house_module">
+  <size width="2" height="2" />
+  <effects airPollution="0" landValue="1800" />
+  <render height="0.6" colorR="0.58" colorG="0.70" colorB="0.66" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="4" />
+  </parameters>
+</module>

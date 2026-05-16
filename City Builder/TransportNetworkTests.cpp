@@ -1700,7 +1700,34 @@ void TestCongestionCurveReducesSpeedFromTable(TestRunner& runner) {
     TransportPathScratch scratch;
     TransportPathResult result;
     runner.expect(costMap.findPath(MakePathRequest(costMap.nodeId(TransportLayerId::Ground, TransportMode::Car, 0), costMap.nodeId(TransportLayerId::Ground, TransportMode::Car, 1)), scratch, result), "congestion curve path succeeds");
-    runner.expect(result.totalCost > 199.0f && result.totalCost < 201.0f, "congestion speed multiplier doubles cost at 200 percent use");
+    runner.expect(result.totalCost > 2199.0f && result.totalCost < 2201.0f, "congestion speed multiplier doubles cost after car start cost");
+}
+
+void TestTransportModeStartCosts(TestRunner& runner) {
+    TransportCostMap costMap;
+    costMap.initialize(2, 1);
+    costMap.addDirectionalCost(TransportLayerId::Ground, TransportMode::Car, 0, kRoadDirectionEast, 100u, 100u);
+    costMap.addDirectionalCost(TransportLayerId::Ground, TransportMode::Pedestrian, 0, kRoadDirectionEast, 100u, 100u);
+
+    TransportPathScratch scratch;
+    TransportPathResult result;
+
+    TransportPathRequest carRequest = MakePathRequest(
+        costMap.nodeId(TransportLayerId::Ground, TransportMode::Car, 0),
+        costMap.nodeId(TransportLayerId::Ground, TransportMode::Car, 1));
+    carRequest.useCongestion = false;
+    runner.expect(costMap.findPath(carRequest, scratch, result), "car start cost path succeeds");
+    runner.expect(result.totalCost > 2099.0f && result.totalCost < 2101.0f, "car start cost adds two commute-time units");
+
+    TransportPathRequest pedestrianRequest = MakePathRequest(
+        costMap.nodeId(TransportLayerId::Ground, TransportMode::Pedestrian, 0),
+        costMap.nodeId(TransportLayerId::Ground, TransportMode::Pedestrian, 1));
+    pedestrianRequest.useCongestion = false;
+    runner.expect(costMap.findPath(pedestrianRequest, scratch, result), "walking start cost path succeeds");
+    runner.expect(result.totalCost > 99.0f && result.totalCost < 101.0f, "walking start cost adds no commute-time units");
+
+    carRequest.maximumCost = 2000.0f;
+    runner.expect(!costMap.findPath(carRequest, scratch, result), "car start cost counts against maximum path cost");
 }
 
 void TestHighwayDoesNotExposeBuildingAccess(TestRunner& runner) {
@@ -1871,6 +1898,11 @@ void TestFactoryHouseAssetsAndParameters(TestRunner& runner) {
     const LotModule* houseModule = FindModule(assets, "house_module");
     const LotModule* drivewayModule = FindModule(assets, "driveway_module");
     const LotModule* gardenModule = FindModule(assets, "garden_module");
+    const LotModule* trailerModule = FindModule(assets, "trailer_module");
+    const LotModule* largerHouseModule = FindModule(assets, "larger_house_module");
+    const LotModule* smallApartmentModule = FindModule(assets, "small_apartment_module");
+    const LotModule* workshopModule = FindModule(assets, "workshop_module");
+    const LotModule* largeWarehouseModule = FindModule(assets, "large_warehouse_module");
     const LotAsset* factoryLot = FindLotAsset(assets, "factory_lot");
     const LotAsset* houseLot = FindLotAsset(assets, "house_lot");
 
@@ -1879,6 +1911,11 @@ void TestFactoryHouseAssetsAndParameters(TestRunner& runner) {
     runner.expect(houseModule != 0, "house module exists");
     runner.expect(drivewayModule != 0, "driveway module exists");
     runner.expect(gardenModule != 0, "garden module exists");
+    runner.expect(trailerModule != 0, "trailer module exists");
+    runner.expect(largerHouseModule != 0, "larger house module exists");
+    runner.expect(smallApartmentModule != 0, "small apartment module exists");
+    runner.expect(workshopModule != 0, "workshop module exists");
+    runner.expect(largeWarehouseModule != 0, "large warehouse module exists");
     runner.expect(factoryLot != 0, "factory lot exists");
     runner.expect(houseLot != 0, "house lot exists");
     if (warehouseModule == 0 || smokestackModule == 0 || houseModule == 0 || drivewayModule == 0 || gardenModule == 0 || factoryLot == 0 || houseLot == 0) {
@@ -1887,6 +1924,21 @@ void TestFactoryHouseAssetsAndParameters(TestRunner& runner) {
 
     runner.expect(ModuleParameterAmount(*warehouseModule, registry.jobsDirtyIndustryId()) == 6.0f, "warehouse contributes six dirty industry jobs");
     runner.expect(ModuleParameterAmount(*houseModule, registry.residentsLowWealthId()) == 5.0f, "house contributes five low wealth residents");
+    if (trailerModule != 0) {
+        runner.expect(ModuleParameterAmount(*trailerModule, registry.residentsLowWealthId()) == 2.0f, "trailer contributes two low wealth residents");
+    }
+    if (largerHouseModule != 0) {
+        runner.expect(ModuleParameterAmount(*largerHouseModule, registry.residentsLowWealthId()) == 7.0f, "larger house contributes seven low wealth residents");
+    }
+    if (smallApartmentModule != 0) {
+        runner.expect(ModuleParameterAmount(*smallApartmentModule, registry.residentsMediumWealthId()) == 14.0f, "small apartment contributes medium wealth residents");
+    }
+    if (workshopModule != 0) {
+        runner.expect(ModuleParameterAmount(*workshopModule, registry.jobsDirtyIndustryId()) == 4.0f, "workshop contributes four dirty industry jobs");
+    }
+    if (largeWarehouseModule != 0) {
+        runner.expect(ModuleParameterAmount(*largeWarehouseModule, registry.jobsDirtyIndustryId()) == 12.0f, "large warehouse contributes twelve dirty industry jobs");
+    }
     runner.expect(factoryLot->footprintWidth == 3 && factoryLot->footprintHeight == 2, "factory footprint fits warehouse and adjacent smokestack");
     runner.expect(houseLot->footprintWidth == 2 && houseLot->footprintHeight == 4, "house footprint is 2x4");
     runner.expect(factoryLot->accessDefinitions.size() == 8u, "factory declares car and pedestrian access around all warehouse edges");
@@ -2005,6 +2057,43 @@ void TestFactoryHouseAssetsAndParameters(TestRunner& runner) {
     houseInstance.addModule(*houseModule, houseLot->initialModules[0].localOrigin, 64);
     runner.expect(houseInstance.occupiedTileIndices().size() == 8u, "house lot occupies full 2x4 footprint");
     runner.expect(houseInstance.parameterContributions().size() == 1u && houseInstance.parameterContributions()[0].amount == 5.0f, "house lot aggregates resident driver");
+
+    int constructorWidth = 2;
+    for (; constructorWidth <= 3; ++constructorWidth) {
+        int constructorDepth = 2;
+        for (; constructorDepth <= 8; ++constructorDepth) {
+            std::ostringstream residentialId;
+            residentialId << "rci_residential_" << constructorWidth << "x" << constructorDepth << "_lot";
+            const LotAsset* residentialLot = FindLotAsset(assets, residentialId.str());
+            runner.expect(residentialLot != 0, residentialId.str() + " exists");
+            if (residentialLot != 0) {
+                runner.expect(residentialLot->zoningType == TileZoningResidential, residentialId.str() + " is residential");
+                runner.expect(residentialLot->footprintWidth == constructorWidth && residentialLot->footprintHeight == constructorDepth, residentialId.str() + " matches constructor footprint");
+                runner.expect(residentialLot->accessDefinitions.size() == static_cast<std::size_t>((constructorWidth + constructorDepth) * 2), residentialId.str() + " expands perimeter access");
+            }
+
+            std::ostringstream industrialId;
+            industrialId << "rci_industrial_" << constructorWidth << "x" << constructorDepth << "_lot";
+            const LotAsset* industrialLot = FindLotAsset(assets, industrialId.str());
+            runner.expect(industrialLot != 0, industrialId.str() + " exists");
+            if (industrialLot != 0) {
+                runner.expect(industrialLot->zoningType == TileZoningIndustrial, industrialId.str() + " is industrial");
+                runner.expect(industrialLot->footprintWidth == constructorWidth && industrialLot->footprintHeight == constructorDepth, industrialId.str() + " matches constructor footprint");
+                runner.expect(industrialLot->accessDefinitions.size() == static_cast<std::size_t>((constructorWidth + constructorDepth) * 2), industrialId.str() + " expands perimeter access");
+            }
+        }
+    }
+}
+
+void TestPopulationParameterAggregation(TestRunner& runner) {
+    CityParameterRegistry registry;
+    std::vector<float> cityParameters(registry.count(), 0.0f);
+    cityParameters[registry.residentsLowWealthId()] = 5.0f;
+    cityParameters[registry.residentsMediumWealthId()] = 7.0f;
+    cityParameters[registry.residentsHighWealthId()] = 11.0f;
+    cityParameters[registry.jobsLowWealthId()] = 99.0f;
+
+    runner.expect(CalculatePopulationFromCityParameters(cityParameters, registry) == 23, "population sums only resident wealth parameters");
 }
 
 void TestInvalidAssetValidation(TestRunner& runner) {
@@ -2061,6 +2150,14 @@ void TestInvalidAssetValidation(TestRunner& runner) {
         "<access><connection x=\"0\" y=\"0\" direction=\"east\" modes=\"car\" /></access>"
         "</lot>";
     runner.expect(InvalidAssetsRejected(validModule, inwardAccessLot, registry), "access direction pointing inside footprint rejects at load");
+
+    const std::string badZoningLot =
+        "<lot id=\"test_lot\" zoningType=\"retail\">"
+        "<anchor x=\"0\" y=\"0\" />"
+        "<footprint x=\"0\" y=\"0\" width=\"1\" height=\"1\" />"
+        "<modules><moduleRef id=\"test_module\" x=\"0\" y=\"0\" /></modules>"
+        "</lot>";
+    runner.expect(InvalidAssetsRejected(validModule, badZoningLot, registry), "unknown lot zoning type rejects at load");
 }
 }
 
@@ -2100,6 +2197,7 @@ int main() {
     TestLocalLaneSpeedCosts(runner);
     TestCostMapLowerCostAndCapacityAccumulation(runner);
     TestCongestionCurveReducesSpeedFromTable(runner);
+    TestTransportModeStartCosts(runner);
     TestHighwayDoesNotExposeBuildingAccess(runner);
     TestBuildingAccessCandidatesFromLocalStreet(runner);
     TestLayerIsolationWithoutTransfer(runner);
@@ -2109,6 +2207,7 @@ int main() {
     TestEqualRouteJitterSpreadsChoices(runner);
     TestTrafficOverlayStartsGreenOnRoadCapacity(runner);
     TestFactoryHouseAssetsAndParameters(runner);
+    TestPopulationParameterAggregation(runner);
     TestInvalidAssetValidation(runner);
 
     std::cout << "TransportNetworkTests: " << runner.passed << " passed, " << runner.failed << " failed." << std::endl;

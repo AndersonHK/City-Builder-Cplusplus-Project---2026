@@ -1,0 +1,10 @@
+<lot id="rci_industrial_3x2_lot" zoningType="industrial">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="3" height="2" />
+  <modules>
+    <moduleRef id="loading_yard_module" x="0" y="0" />
+  </modules>
+  <access>
+    <perimeter modes="pedestrian,car" />
+  </access>
+</lot>

@@ -112,9 +112,6 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <PreBuildEvent>
-      <Command>if exist "$(OutDir)Data\Saves" rmdir /S /Q "$(OutDir)Data\Saves"</Command>
-    </PreBuildEvent>
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>MaxSpeed</Optimization>
@@ -134,11 +131,11 @@
       <Command>copy /Y "$(ProjectDir)Basic.shader" "$(OutDir)Basic.shader"
 "$(SystemRoot)\System32\xcopy.exe" /Y /I /E "$(ProjectDir)Data" "$(OutDir)Data"
 copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\glew32.dll" "$(OutDir)glew32.dll"
-copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"
-if exist "$(OutDir)Data\Saves" rmdir /S /Q "$(OutDir)Data\Saves"</Command>
+copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="AppConfig.cpp" />
     <ClCompile Include="AssetLoader.cpp" />
     <ClCompile Include="AppController.cpp" />
     <ClCompile Include="City.cpp" />
@@ -151,9 +148,11 @@ if exist "$(OutDir)Data\Saves" rmdir /S /Q "$(OutDir)Data\Saves"</Command>
     <ClCompile Include="Road.cpp" />
     <ClCompile Include="RoadLane.cpp" />
     <ClCompile Include="RoadRenderState.cpp" />
+    <ClCompile Include="RciTool.cpp" />
     <ClCompile Include="RendererAlgorithms.cpp" />
     <ClCompile Include="Renderer.cpp" />
     <ClCompile Include="ShaderProgram.cpp" />
+    <ClCompile Include="SimulationDate.cpp" />
     <ClCompile Include="SimulationRuntime.cpp" />
     <ClCompile Include="Source.cpp" />
     <ClCompile Include="TransportCostMap.cpp" />
@@ -164,21 +163,61 @@ if exist "$(OutDir)Data\Saves" rmdir /S /Q "$(OutDir)Data\Saves"</Command>
   </ItemGroup>
   <ItemGroup>
     <None Include="Basic.shader" />
+    <None Include="Data\config.ini" />
     <None Include="Data\Lots\factory_lot.xml" />
     <None Include="Data\Lots\house_lot.xml" />
     <None Include="Data\Lots\park_lot.xml" />
+    <None Include="Data\Lots\rci_industrial_2x2_lot.xml" />
+    <None Include="Data\Lots\rci_industrial_2x3_lot.xml" />
+    <None Include="Data\Lots\rci_industrial_2x4_lot.xml" />
+    <None Include="Data\Lots\rci_industrial_2x5_lot.xml" />
+    <None Include="Data\Lots\rci_industrial_2x6_lot.xml" />
+    <None Include="Data\Lots\rci_industrial_2x7_lot.xml" />
+    <None Include="Data\Lots\rci_industrial_2x8_lot.xml" />
+    <None Include="Data\Lots\rci_industrial_3x2_lot.xml" />
+    <None Include="Data\Lots\rci_industrial_3x3_lot.xml" />
+    <None Include="Data\Lots\rci_industrial_3x4_lot.xml" />
+    <None Include="Data\Lots\rci_industrial_3x5_lot.xml" />
+    <None Include="Data\Lots\rci_industrial_3x6_lot.xml" />
+    <None Include="Data\Lots\rci_industrial_3x7_lot.xml" />
+    <None Include="Data\Lots\rci_industrial_3x8_lot.xml" />
+    <None Include="Data\Lots\rci_residential_2x2_lot.xml" />
+    <None Include="Data\Lots\rci_residential_2x3_lot.xml" />
+    <None Include="Data\Lots\rci_residential_2x4_lot.xml" />
+    <None Include="Data\Lots\rci_residential_2x5_lot.xml" />
+    <None Include="Data\Lots\rci_residential_2x6_lot.xml" />
+    <None Include="Data\Lots\rci_residential_2x7_lot.xml" />
+    <None Include="Data\Lots\rci_residential_2x8_lot.xml" />
+    <None Include="Data\Lots\rci_residential_3x2_lot.xml" />
+    <None Include="Data\Lots\rci_residential_3x3_lot.xml" />
+    <None Include="Data\Lots\rci_residential_3x4_lot.xml" />
+    <None Include="Data\Lots\rci_residential_3x5_lot.xml" />
+    <None Include="Data\Lots\rci_residential_3x6_lot.xml" />
+    <None Include="Data\Lots\rci_residential_3x7_lot.xml" />
+    <None Include="Data\Lots\rci_residential_3x8_lot.xml" />
     <None Include="Data\Lots\smokestack_lot.xml" />
+    <None Include="Data\Modules\compact_house_module.xml" />
     <None Include="Data\Modules\driveway_module.xml" />
+    <None Include="Data\Modules\duplex_module.xml" />
     <None Include="Data\Modules\garden_module.xml" />
     <None Include="Data\Modules\house_module.xml" />
+    <None Include="Data\Modules\large_warehouse_module.xml" />
+    <None Include="Data\Modules\larger_house_module.xml" />
+    <None Include="Data\Modules\loading_yard_module.xml" />
     <None Include="Data\Modules\park_module.xml" />
+    <None Include="Data\Modules\small_apartment_module.xml" />
     <None Include="Data\Modules\smokestack_module.xml" />
+    <None Include="Data\Modules\trailer_module.xml" />
     <None Include="Data\Modules\warehouse_module.xml" />
+    <None Include="Data\Modules\wide_trailer_module.xml" />
+    <None Include="Data\Modules\workshop_module.xml" />
+    <None Include="Data\RCI\rci_tools.xml" />
     <None Include="Data\TransportNetwork\congestion.xml" />
     <None Include="Data\UI\city_tools.xml" />
     <None Include="Data\UI\lot_query.xml" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AppConfig.h" />
     <ClInclude Include="AssetLoader.h" />
     <ClInclude Include="AppController.h" />
     <ClInclude Include="City.h" />
@@ -193,9 +232,11 @@ if exist "$(OutDir)Data\Saves" rmdir /S /Q "$(OutDir)Data\Saves"</Command>
     <ClInclude Include="Road.h" />
     <ClInclude Include="RoadLane.h" />
     <ClInclude Include="RoadRenderState.h" />
+    <ClInclude Include="RciTool.h" />
     <ClInclude Include="RendererAlgorithms.h" />
     <ClInclude Include="Renderer.h" />
     <ClInclude Include="ShaderProgram.h" />
+    <ClInclude Include="SimulationDate.h" />
     <ClInclude Include="SimulationRuntime.h" />
     <ClInclude Include="Tile.h" />
     <ClInclude Include="TransportCostMap.h" />

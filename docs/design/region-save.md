@@ -10,11 +10,11 @@ Use this guide when changing `GameSession`, `City`, `Region`, city save export/i
 
 ## Current Shape
 - `GameSession` owns the current `GameMode`, the `Region`, one reusable `SimulationRuntime`, F1/F2/F3 behavior, and the executable-local autoslot under `Data\Saves`.
-- `Region` owns `std::vector<std::unique_ptr<City>>`, looks cities up by `{regionX, regionY}`, and recomputes region parameter totals from each city's latest saved city parameters.
+- `Region` owns `std::vector<std::unique_ptr<City>>`, looks cities up by `{regionX, regionY}`, and recomputes region parameter totals from each city's latest saved city parameters. Region population is derived from those summed resident wealth parameters.
 - `region.bin` stores region/city metadata only; individual `city_X_Y.bin` files store full `CitySaveState` payloads.
-- `City` stores name, unique region coordinates, map dimensions, camera metadata, parameter summaries, dirty state, and optionally one loaded `CitySaveState`.
+- `City` stores name, unique region coordinates, map dimensions, camera metadata, parameter summaries, dirty state, and optionally one loaded `CitySaveState`. The simulation date belongs to the city through its saved simulation tick; regions do not own date state.
 - Region preview data is loaded/generated on background futures and rendered through the normal city draw passes with a top-down orthographic camera; CPU preview pixels are not kept on `City` after upload.
-- `SimulationRuntime::exportCitySaveState` writes tiles, reconstructable lot/module placement state, city parameters, and authored transport lanes.
+- `SimulationRuntime::exportCitySaveState` writes the current simulation tick, tiles, RCI zoning parcel rectangles, reconstructable lot/module placement state, city parameters, and authored transport lanes.
 - `SimulationRuntime::importCitySaveState` rebuilds live lots, lot occupancy, transport derived state, and published renderer snapshots from saved authored state.
 - `TransportNetwork` exports/imports authored `RoadLanePlacement` records, then resolves road render/cost data after load.
 
@@ -27,7 +27,7 @@ Use this guide when changing `GameSession`, `City`, `Region`, city save export/i
 - Keep region previews disposable and regenerable from city save state through renderer-owned top-down offscreen rendering.
 - Push the active camera into the active city before F1/F3 exports, and restore the city camera after enter-city/F2 reload.
 - Bump or invalidate renderer upload freshness when moving from region mode into city mode.
-- It is acceptable for Release x64 rebuilds to delete `Data\Saves`; save compatibility is intentionally disposable during this alpha stage.
+- Do not delete existing `Data\Saves` during build, launch, save, or load flows. Saves are still alpha-only and may be rejected when incompatible, but convenient one-time salvage is now preferred over wiping them.
 
 ## Checks
 - Build `x64 Release`.
@@ -35,4 +35,4 @@ Use this guide when changing `GameSession`, `City`, `Region`, city save export/i
 - Double-click a region preview and confirm city mode starts.
 - Place lots/roads, press `F1`, press `F3`, and confirm the region preview updates.
 - Press `F2` from city mode and confirm the autoslot reloads the same city without returning to region mode.
-- Rebuild Release x64 and confirm output saves are removed by the pre-build step.
+- Rebuild Release x64 and confirm existing output saves remain in place.

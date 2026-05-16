@@ -1,0 +1,8 @@
+<module id="duplex_module">
+  <size width="3" height="2" />
+  <effects airPollution="0" landValue="4300" />
+  <render height="0.8" colorR="0.70" colorG="0.62" colorB="0.58" />
+  <parameters>
+    <driver id="residents.medium_wealth" amount="8" />
+  </parameters>
+</module>

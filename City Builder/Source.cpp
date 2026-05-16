@@ -3,6 +3,7 @@
 #include <iostream>
 
 #include "AppController.h"
+#include "AppConfig.h"
 #include "CrashLogger.h"
 #include "GameSession.h"
 #include "Renderer.h"
@@ -19,11 +20,16 @@ int main() {
         runtimeOptions.manualL2BytesPerLogicalThread = 0;
         runtimeOptions.usableL2Fraction = 0.75;
 
+        // Load app preferences before constructing controller/renderer. Both
+        // systems keep references to this read-only startup object.
+        AppConfig appConfig;
+        appConfig.loadFromFile(DefaultAppConfigPath());
+
         GameSession gameSession(runtimeOptions);
         gameSession.loadOrCreateRegion();
 
-        AppController appController(gameSession);
-        Renderer renderer(gameSession, appController);
+        AppController appController(gameSession, appConfig);
+        Renderer renderer(gameSession, appController, appConfig);
         const int rendererExitCode = renderer.run();
 
         gameSession.shutdown();

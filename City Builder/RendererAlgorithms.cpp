@@ -379,3 +379,7 @@ std::vector<UiQuadInstanceData> RendererBuildUiMenuQuads(const UiLayout& uiLayou
 
     return quads;
 }
+
+void RendererAppendTextQuads(const std::string& text, float x, float y, float width, float height, const UiColor& textColor, bool centered, std::vector<UiQuadInstanceData>& quads) {
+    RendererBuildTextQuadsInRect(text, x, y, width, height, ToRendererColor(textColor), centered, quads);
+}

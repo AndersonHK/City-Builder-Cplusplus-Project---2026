@@ -183,6 +183,21 @@ std::uint8_t ParseDirectionName(const std::string& directionText) {
     throw std::runtime_error("Unknown direction: " + directionText);
 }
 
+std::uint16_t ParseZoningTypeName(const std::string& zoningTypeText) {
+    const std::string zoningType = ToLowerAscii(Trim(zoningTypeText));
+    if (zoningType.empty() || zoningType == "none" || zoningType == "empty" || zoningType == "0") {
+        return TileZoningNone;
+    }
+    if (zoningType == "residential" || zoningType == "residence" || zoningType == "r" || zoningType == "1" || zoningType == "tilezoningresidential") {
+        return TileZoningResidential;
+    }
+    if (zoningType == "industrial" || zoningType == "industry" || zoningType == "i" || zoningType == "2" || zoningType == "tilezoningindustrial") {
+        return TileZoningIndustrial;
+    }
+
+    throw std::runtime_error("Unknown lot zoning type: " + zoningTypeText);
+}
+
 std::uint8_t ParseTransportModeMask(const std::string& modesText) {
     std::uint8_t modeMask = 0;
     std::string token;
@@ -349,6 +364,7 @@ LotAsset LoadLotAsset(const std::string& filePath, const std::string& fileName) 
 
     LotAsset lotAsset;
     lotAsset.id = GetOptionalAttribute(rootTag.attributes, "id", StripExtension(fileName));
+    lotAsset.zoningType = ParseZoningTypeName(GetOptionalAttribute(rootTag.attributes, "zoningType", GetOptionalAttribute(rootTag.attributes, "rciType", "")));
     if (lotAsset.id.empty()) {
         throw std::runtime_error("Lot id cannot be empty: " + filePath);
     }
@@ -432,6 +448,44 @@ LotAsset LoadLotAsset(const std::string& filePath, const std::string& fileName) 
             }
             accessDefinition.modeMask = ParseTransportModeMask(GetRequiredAttribute(tag.attributes, "modes"));
             lotAsset.accessDefinitions.push_back(accessDefinition);
+            continue;
+        }
+
+        if (tag.name == "perimeter" && tag.isSelfClosing && isInsideAccessBlock) {
+            if (!hasFootprint) {
+                throw std::runtime_error("Lot perimeter access requires an explicit <footprint> before <access> in " + filePath);
+            }
+
+            const std::uint8_t modeMask = ParseTransportModeMask(GetRequiredAttribute(tag.attributes, "modes"));
+            int tileX = lotAsset.footprintOrigin.x;
+            for (; tileX < lotAsset.footprintOrigin.x + lotAsset.footprintWidth; ++tileX) {
+                LotAccessDefinition northAccess;
+                northAccess.localTile = Int2(tileX, lotAsset.footprintOrigin.y);
+                northAccess.direction = kRoadDirectionNorth;
+                northAccess.modeMask = modeMask;
+                lotAsset.accessDefinitions.push_back(northAccess);
+
+                LotAccessDefinition southAccess;
+                southAccess.localTile = Int2(tileX, lotAsset.footprintOrigin.y + lotAsset.footprintHeight - 1);
+                southAccess.direction = kRoadDirectionSouth;
+                southAccess.modeMask = modeMask;
+                lotAsset.accessDefinitions.push_back(southAccess);
+            }
+
+            int tileY = lotAsset.footprintOrigin.y;
+            for (; tileY < lotAsset.footprintOrigin.y + lotAsset.footprintHeight; ++tileY) {
+                LotAccessDefinition westAccess;
+                westAccess.localTile = Int2(lotAsset.footprintOrigin.x, tileY);
+                westAccess.direction = kRoadDirectionWest;
+                westAccess.modeMask = modeMask;
+                lotAsset.accessDefinitions.push_back(westAccess);
+
+                LotAccessDefinition eastAccess;
+                eastAccess.localTile = Int2(lotAsset.footprintOrigin.x + lotAsset.footprintWidth - 1, tileY);
+                eastAccess.direction = kRoadDirectionEast;
+                eastAccess.modeMask = modeMask;
+                lotAsset.accessDefinitions.push_back(eastAccess);
+            }
             continue;
         }
 

@@ -1,0 +1,4 @@
+<rciTools>
+  <tool id="residential" name="Residence" zoningType="residential" colorR="0.18" colorG="0.86" colorB="0.32" colorA="0.50" minDepth="2" preferredDepth="4" maxDepth="8" minWidth="2" preferredWidth="16" maxWidth="24" />
+  <tool id="industrial" name="Industry" zoningType="industrial" colorR="0.92" colorG="0.76" colorB="0.15" colorA="0.50" minDepth="2" preferredDepth="8" maxDepth="8" minWidth="2" preferredWidth="16" maxWidth="24" />
+</rciTools>
