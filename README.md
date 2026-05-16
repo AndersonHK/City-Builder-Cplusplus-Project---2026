@@ -50,11 +50,11 @@ Default keyboard bindings, startup fullscreen mode, preferred windowed resolutio
 - `F11`: toggle road debug graphics; off by default
 - `M`: add park module to an adjacent lot footprint
 - `Y`: remove the module under the hovered tile
-- `B`: drag a rectangular bulldoze area; selected tiles overlay red and selected buildings tint red before release
+- `B`: drag a rectangular bulldoze area; selected tiles overlay red and selected buildings tint red before release. Bulldozing destroys buildings only; zoning, parcels, and roads remain for dedicated tools.
 - `A`: query hovered tile; queried lots show an in-game detail window plus accepted commute routes as green car arrows and pink pedestrian arrows, road tiles summarize commuters passing through their lanes, and empty RCI lots show their zoning name
 - Bottom-left `Tools` button: show or hide the left-side tool menu
 - Left-side menu: select bulldoze, road, query, residential zoning, or industrial zoning
-- Residential / Industrial zoning buttons: drag a rectangle to zone vacant, unoccupied tiles. By default the RCI tool previews and commits lots plus surrounding local roads; hold `Shift` for lots only, or hold `Ctrl` for a plain area fill.
+- Residential / Industrial zoning buttons: drag a rectangle to zone vacant tiles or existing RCI lots. By default the RCI tool previews and commits lots plus surrounding local roads; hold `Shift` for lots only, or hold `Ctrl` for a plain area fill. New parcel lots require an unoccupied footprint.
 - Region mode starts first; double-click a city preview to enter that city
 - City mode shows the current simulation date at top left and the active city's population at top right
 - Region mode shows total region population at top right
@@ -99,8 +99,8 @@ msbuild 'City Builder/RendererTests.vcxproj' /p:Configuration=Release /p:Platfor
 - Road debug graphics start disabled and can be toggled with `F11`; disabling them hides ordinary direction arrows and car-lane connection markers while preserving turn-lane arrows, lane dividers, crosswalks, and road surfaces.
 - Road drag previews are renderer-only transient instances tinted with alpha; committed road topology still arrives through published snapshots.
 - Lot placement previews are renderer-only transient instances built from the same XML-backed lot candidate geometry used by committed placement.
-- Bulldoze previews are renderer-only transient area overlays; committed deletion still arrives through queued simulation commands.
-- Residential and industrial zoning are XML-backed RCI tools. They queue simulation commands that mark vacant, unoccupied tiles, optionally create empty zoning-lot parcels with boundary overlays, and can lay planned local streets before zoning. A simple constructor pass runs each tick and attempts to turn one residential parcel and one industrial parcel into matching XML-defined lots.
+- Bulldoze previews are renderer-only transient area overlays; committed building destruction still arrives through queued simulation commands and does not clear zoning, parcels, or roads.
+- Residential and industrial zoning are XML-backed RCI tools. They queue simulation commands that mark zoneable tiles, optionally create empty zoning-lot parcels with boundary overlays, and can lay planned two-tile local streets before zoning. A simple constructor pass runs each tick and attempts to turn one residential parcel and one industrial parcel into matching XML-defined lots.
 - In-game windows load from XML under `City Builder/Data/UI`; the current query window uses optional text fields, margins, and content hugging.
 - Tool menus and buttons also load from XML under `City Builder/Data/UI`; the current city tool menu lives in `city_tools.xml`.
 - The renderer timing print breaks out tile-state packing/upload bytes, lift uploads, ground-road uploads, elevated-road uploads, and draw costs.

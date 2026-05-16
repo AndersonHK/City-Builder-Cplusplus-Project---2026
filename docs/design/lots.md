@@ -21,6 +21,7 @@ Use this guide when changing `Lot`, lot placement, module expansion/removal, lot
 - Factory lots use a 3x2 footprint containing a 2x2 warehouse plus an adjacent smokestack module; their access XML defines eight exterior connection points that accept cars and pedestrians. House lots use a garden on the front-left pedestrian access tile, a driveway on the front-right car access tile, and a centered 2x2 house module behind them.
 - Lots still draw through a global placeholder-prism instance path.
 - RCI zoning lots start as separate empty parcel records. They have no modules, do not reserve building occupancy, and exist only to mark zoning boundaries over tiles until the constructor pass finds a matching RCI lot archetype and instantiates a real `Lot`.
+- Constructed RCI lots keep their explicit footprint even after `SimulationRuntime::tryBulldozeAtTile` clears their modules, so bulldozing removes buildings without erasing the parcel or tile zoning.
 - RCI constructor lot archetypes are tagged with `zoningType` and currently cover residential and industrial 2- and 3-tile widths for depths 2 through 8.
 
 ## Rules
@@ -31,6 +32,8 @@ Use this guide when changing `Lot`, lot placement, module expansion/removal, lot
 - Keep commute access declared in lot XML, either as specific `<connection>` rows or as an intentional `<perimeter>` shortcut.
 - Keep lot previews presentation-only; they can share candidate footprint/render construction, but occupancy rejection and mutation belong to committed placement.
 - Keep RCI parcel creation separate from building `Lot` placement. Only the constructor pass should consume a zoning parcel and instantiate a building lot inside it.
+- Keep new empty RCI parcel records on unoccupied footprints. Plain area zoning may update existing RCI-lot tiles, but parcel creation over a live lot would create overlapping ownership for the constructor.
+- Keep bulldoze focused on building/module destruction. Removing zoning or parcels belongs to the future dezoning tool, not the bulldozer command path.
 - When rotating lots, rotate both module origin and placed module footprint dimensions. Do not render a rotated non-square module with its original width/height.
 - Keep lot effects simple and tile-statistical until profiling proves a different model is needed.
 - Do not make lots the source of tile truth; they apply effects into simulation passes.

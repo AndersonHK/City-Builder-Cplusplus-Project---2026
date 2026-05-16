@@ -23,6 +23,8 @@ struct Segment {
     }
 };
 
+const int kPlannedLocalRoadFootprint = 2;
+
 std::string ReadFileToString(const std::string& filePath) {
     std::ifstream file(filePath.c_str(), std::ios::in | std::ios::binary);
     if (!file) {
@@ -166,17 +168,17 @@ bool PartitionSegments(int length, int minimum, int preferred, int maximum, std:
 bool PartitionBlocksWithRoads(int totalLength, int minimum, int preferred, int maximum, std::vector<Segment>& blocks, std::vector<int>& roadOffsets) {
     blocks.clear();
     roadOffsets.clear();
-    if (totalLength < minimum + 2 || minimum <= 0 || maximum < minimum) {
+    if (totalLength < minimum + (kPlannedLocalRoadFootprint * 2) || minimum <= 0 || maximum < minimum) {
         return false;
     }
 
-    const int interiorLength = totalLength - 2;
-    const int maxCount = std::max(1, (interiorLength + 1) / (minimum + 1));
+    const int interiorLength = totalLength - (kPlannedLocalRoadFootprint * 2);
+    const int maxCount = std::max(1, (interiorLength + kPlannedLocalRoadFootprint) / (minimum + kPlannedLocalRoadFootprint));
     int bestCount = 0;
     int bestScore = 0;
     int count = 1;
     for (; count <= maxCount; ++count) {
-        const int blockOnlyLength = interiorLength - (count - 1);
+        const int blockOnlyLength = interiorLength - ((count - 1) * kPlannedLocalRoadFootprint);
         if (blockOnlyLength < count * minimum) {
             continue;
         }
@@ -200,20 +202,20 @@ bool PartitionBlocksWithRoads(int totalLength, int minimum, int preferred, int m
     }
 
     roadOffsets.push_back(0);
-    const int blockOnlyLength = interiorLength - (bestCount - 1);
+    const int blockOnlyLength = interiorLength - ((bestCount - 1) * kPlannedLocalRoadFootprint);
     const int base = blockOnlyLength / bestCount;
     const int extra = blockOnlyLength % bestCount;
-    int cursor = 1;
+    int cursor = kPlannedLocalRoadFootprint;
     for (count = 0; count < bestCount; ++count) {
         const int segmentLength = base + (count < extra ? 1 : 0);
         blocks.push_back(Segment(cursor, segmentLength));
         cursor += segmentLength;
         if (count + 1 < bestCount) {
             roadOffsets.push_back(cursor);
-            ++cursor;
+            cursor += kPlannedLocalRoadFootprint;
         }
     }
-    roadOffsets.push_back(totalLength - 1);
+    roadOffsets.push_back(totalLength - kPlannedLocalRoadFootprint);
     return true;
 }
 

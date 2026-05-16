@@ -246,6 +246,13 @@ bool Lot::removeModule(int moduleInstanceId, int mapWidth) {
     return false;
 }
 
+// Removes all building modules while preserving an explicit RCI parcel footprint.
+void Lot::clearModules(int mapWidth) {
+    modules_.clear();
+    clearCommutes();
+    rebuildCachedState(mapWidth);
+}
+
 // Finds the module occupying a tile inside the lot-local footprint.
 int Lot::moduleInstanceIdAtLocalTile(const Int2& localTile) const {
     std::size_t moduleIndex = 0;

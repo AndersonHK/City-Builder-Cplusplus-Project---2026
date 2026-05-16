@@ -20,8 +20,8 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Elevated roads use separate per-chunk instance buffers and rebuild lazily for visible stale chunks. They consume the same resolved road glyph, lane graphic, and divider masks through `BuildRoadChunkInstances`.
 - Road placement ghost previews are transient renderer instances built from the active drag stroke and drawn with a blue alpha tint when valid or a red tint when invalid. They do not enter published road snapshots.
 - Lot placement ghost previews are transient renderer instances built from XML-backed, rotation-aware lot candidate geometry and drawn with a green alpha tint when valid or a red tint when invalid. They do not enter published lot snapshots.
-- Bulldoze area previews are transient renderer instances built from the active drag rectangle. The selected tiles draw a red world-space overlay and intersecting buildings draw through a red-tinted lot pass; the preview does not enter published snapshots.
-- Residential and industrial zoning previews are produced by the XML-backed RCI tool planner. Plain area mode reuses the transient tint overlay; lot modes draw parcel-style ghost overlays with boundary lines, and lots+roads also feeds alpha-tinted road ghost instances.
+- Bulldoze area previews are transient renderer instances built from the active drag rectangle. The selected tiles draw a red world-space overlay and intersecting buildings draw through a red-tinted lot pass; the preview does not enter published snapshots, and the committed command only destroys buildings.
+- Residential and industrial zoning previews are produced by the XML-backed RCI tool planner. Plain area mode reuses the transient tint overlay; lot modes draw parcel-style ghost overlays with boundary lines, and lots+roads also feeds alpha-tinted two-tile local road ghost instances.
 - Committed zoning draws from the published `Tile::zoningType` texture overlay. Empty RCI zoning lots publish separately as parcel rectangles so the renderer can draw persistent lot-boundary overlays without using the building `Lot` path.
 - Lots still render through one global placeholder-prism instance buffer keyed by lot revision.
 - In-game windows and tool menus render as screen-space UI quads after world rendering. `InGameWindow` supplies window/text layout, `UiLayout` supplies menu/button layout, and `BuildWindowQuads` / `RendererBuildUiMenuQuads` turn them into dynamic `UiQuadInstanceData`.
@@ -53,7 +53,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Keep ground and elevated road rendering fed by the same resolved road cell contract; do not fork road-template semantics in the renderer.
 - Keep road ghost previews presentation-only. They may reuse road templates and glyph helpers, but committed topology and validation must stay in the simulation/transport command path.
 - Keep lot ghost previews presentation-only. They may reuse XML-backed lot candidate geometry, but committed placement validation must stay in the simulation command path.
-- Keep bulldoze previews presentation-only. They may reuse published lot render instances for tinting, but committed deletion must stay in queued simulation commands.
+- Keep bulldoze previews presentation-only. They may reuse published lot render instances for tinting, but committed building destruction must stay in queued simulation commands and must not clear zoning, parcels, or roads.
 - Keep zoning previews presentation-only. Committed zoning must stay in queued simulation commands, published tile snapshots, and published RCI parcel snapshots.
 - Draw overlays after roads and lots with depth disabled/restored so the tint remains presentation, not terrain truth.
 - Draw query route arrows after tile overlays with depth disabled/restored so selected commute paths remain inspectable.
@@ -73,8 +73,8 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Verify local-street crosswalk graphics appear only where pedestrian and car lanes both continue through the crossing, and elevated highways render without pedestrian lane graphics by default.
 - Drag local streets and elevated highways before release to confirm the alpha-tinted ghost follows the intended L-shaped stroke and disappears after commit.
 - Hover each lot placement tool over valid terrain to confirm the alpha-tinted lot ghost matches the committed footprint and disappears after placement.
-- Drag `B` across lots and empty/road tiles to confirm selected tiles overlay red, selected buildings tint red, and the preview disappears after release.
-- Drag residential and industrial zoning from the side menu across vacant empty tiles to confirm default lots+roads shows parcel and road ghosts, `Shift` shows lots only, `Ctrl` shows a plain area tint, and committed green/yellow overlays plus parcel boundaries persist after release.
+- Drag `B` across lots and empty/road tiles to confirm selected tiles overlay red, selected buildings tint red, the preview disappears after release, and zoning/parcels/roads remain.
+- Drag residential and industrial zoning from the side menu across vacant empty tiles to confirm default lots+roads shows parcel and two-tile road ghosts, `Shift` shows lots only, `Ctrl` shows a plain area tint, and committed green/yellow overlays plus parcel boundaries persist after release.
 - Toggle the bottom-left tool menu and confirm hidden menu buttons no longer draw or capture clicks.
 - Rotate lot placement with `,` and `.` while hovering to confirm the ghost footprint rotates before commit.
 - Toggle `T` to verify the traffic capacity overlay appears above roads/lots and starts green at zero load.

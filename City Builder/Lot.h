@@ -106,6 +106,7 @@ public:
     void setExplicitFootprint(const Int2& localOrigin, int width, int height, int mapWidth);
     int addModule(const LotModule& module, const Int2& localOrigin, int mapWidth, int footprintWidth = 0, int footprintHeight = 0);
     bool removeModule(int moduleInstanceId, int mapWidth);
+    void clearModules(int mapWidth);
     int moduleInstanceIdAtLocalTile(const Int2& localTile) const;
     void rebaseAnchorToMinimumTile(int mapWidth);
     void applyEffects(std::vector<Tile>& tiles) const;

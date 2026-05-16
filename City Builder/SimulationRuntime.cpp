@@ -334,7 +334,7 @@ void SimulationRuntime::queueRemoveModuleAtTile(int tileX, int tileY) {
     enqueueCommand(playerCommand);
 }
 
-// Queues removal of a lot or road at the clicked tile.
+// Queues building destruction at the clicked tile; zoning and roads use separate commands.
 void SimulationRuntime::queueBulldozeAtTile(int tileX, int tileY) {
     if (!isTileInsideMap(tileX, tileY)) {
         return;
@@ -2200,21 +2200,30 @@ bool SimulationRuntime::tryRemoveModuleAtTile(int clickedTileX, int clickedTileY
         return false;
     }
 
+    const LotAsset* targetLotAsset = findLotAssetById(targetLot->assetId());
+    const bool preserveEmptyRciLot = targetLotAsset != 0 && targetLotAsset->zoningType != TileZoningNone;
     queueCommuteSourcesForDestination(lotId);
 
     clearLotOccupancy(oldOccupiedTiles);
 
     std::vector<int> dirtyTiles = oldOccupiedTiles;
     if (targetLot->modules().empty()) {
-        std::size_t lotIndex = 0;
-        for (; lotIndex < lots_.size(); ++lotIndex) {
-            if (lots_[lotIndex].id() != lotId) {
-                continue;
-            }
+        if (preserveEmptyRciLot) {
+            removeCommuteLoadsForLot(*targetLot);
+            targetLot->clearCommutes();
+            setLotOccupancy(lotId, targetLot->occupiedTileIndices());
+            dirtyTiles.insert(dirtyTiles.end(), targetLot->occupiedTileIndices().begin(), targetLot->occupiedTileIndices().end());
+        } else {
+            std::size_t lotIndex = 0;
+            for (; lotIndex < lots_.size(); ++lotIndex) {
+                if (lots_[lotIndex].id() != lotId) {
+                    continue;
+                }
 
-            removeCommuteLoadsForLot(lots_[lotIndex]);
-            lots_.erase(lots_.begin() + static_cast<std::ptrdiff_t>(lotIndex));
-            break;
+                removeCommuteLoadsForLot(lots_[lotIndex]);
+                lots_.erase(lots_.begin() + static_cast<std::ptrdiff_t>(lotIndex));
+                break;
+            }
         }
     } else {
         targetLot->rebaseAnchorToMinimumTile(kMapWidth);
@@ -2228,7 +2237,8 @@ bool SimulationRuntime::tryRemoveModuleAtTile(int clickedTileX, int clickedTileY
     return true;
 }
 
-// Removes the whole lot under a tile, otherwise removes any road authored on that tile.
+// Destroys buildings under a tile. RCI lots keep their parcel footprint and zoning;
+// dezoning/road removal are intentionally separate tool responsibilities.
 bool SimulationRuntime::tryBulldozeAtTile(int clickedTileX, int clickedTileY, TileBuffer& writeBuffer) {
     const int tileLinearIndex = tileIndex(clickedTileX, clickedTileY);
     const int lotId = lotOccupancy_[tileLinearIndex];
@@ -2240,6 +2250,26 @@ bool SimulationRuntime::tryBulldozeAtTile(int clickedTileX, int clickedTileY, Ti
             }
 
             const std::vector<int> oldOccupiedTiles = lots_[lotIndex].occupiedTileIndices();
+            const LotAsset* lotAsset = findLotAssetById(lots_[lotIndex].assetId());
+            if (lotAsset != 0 && lotAsset->zoningType != TileZoningNone) {
+                if (lots_[lotIndex].modules().empty()) {
+                    return false;
+                }
+
+                queueCommuteSourcesForDestination(lotId);
+                removeCommuteLoadsForLot(lots_[lotIndex]);
+                clearLotOccupancy(oldOccupiedTiles);
+                lots_[lotIndex].clearModules(kMapWidth);
+                setLotOccupancy(lotId, lots_[lotIndex].occupiedTileIndices());
+
+                std::vector<int> dirtyTiles = oldOccupiedTiles;
+                dirtyTiles.insert(dirtyTiles.end(), lots_[lotIndex].occupiedTileIndices().begin(), lots_[lotIndex].occupiedTileIndices().end());
+                markChunksDirtyByTileIndices(writeBuffer.chunkRevisions, dirtyTiles);
+                ++lotsRevision_;
+                queueCommuteRecalculationForLot(lotId);
+                return true;
+            }
+
             queueCommuteSourcesForDestination(lotId);
             removeCommuteLoadsForLot(lots_[lotIndex]);
             clearLotOccupancy(oldOccupiedTiles);
@@ -2252,21 +2282,7 @@ bool SimulationRuntime::tryBulldozeAtTile(int clickedTileX, int clickedTileY, Ti
         return false;
     }
 
-    if (transportNetwork_.removeRoadAtTile(clickedTileX, clickedTileY)) {
-        commutesDirty_ = true;
-        forcedCommuteLotIds_.clear();
-        commuteRebalanceCursor_ = 0u;
-        return true;
-    }
-
-    const bool removedZoningLot = removeZoningLotsIntersectingRect(RciRect(clickedTileX, clickedTileY, clickedTileX, clickedTileY));
-    if (writeBuffer.tiles[tileLinearIndex].zoningType != TileZoningNone) {
-        writeBuffer.tiles[tileLinearIndex].zoningType = TileZoningNone;
-        markChunkDirtyByTile(writeBuffer.chunkRevisions, clickedTileX, clickedTileY);
-        return true;
-    }
-
-    return removedZoningLot;
+    return false;
 }
 
 bool SimulationRuntime::tryBulldozeArea(int startTileX, int startTileY, int endTileX, int endTileY, TileBuffer& writeBuffer) {
@@ -2301,8 +2317,7 @@ bool SimulationRuntime::tryZoneArea(int startTileX, int startTileY, int endTileX
     std::vector<int> changedTileIndices;
     bool hasZoneableTile = false;
     const bool changedTiles = applyZoningRect(rect, zoningType, writeBuffer, changedTileIndices, hasZoneableTile);
-    const bool removedLots = removeZoningLotsIntersectingRect(rect);
-    if (!changedTiles && !removedLots) {
+    if (!changedTiles) {
         return false;
     }
 
@@ -2323,6 +2338,10 @@ bool SimulationRuntime::tryZoneLot(const RciLot& zoningLot, TileBuffer& writeBuf
         std::min(kMapWidth - 1, zoningLot.rect.maxTileX),
         std::min(kMapHeight - 1, zoningLot.rect.maxTileY));
     if (!rect.isValid()) {
+        return false;
+    }
+
+    if (!isZoningRectFullyZoneable(rect, writeBuffer, true)) {
         return false;
     }
 
@@ -2358,12 +2377,8 @@ bool SimulationRuntime::applyZoningRect(const RciRect& rect, std::uint16_t zonin
         int tileX = rect.minTileX;
         for (; tileX <= rect.maxTileX; ++tileX) {
             const int tileLinearIndex = tileIndex(tileX, tileY);
-            if (lotOccupancy_[tileLinearIndex] != kInvalidLotId || transportNetwork_.hasGroundOccupancy(tileLinearIndex)) {
-                continue;
-            }
-
             Tile& tile = writeBuffer.tiles[tileLinearIndex];
-            if (!tile.isVacant) {
+            if (!isTileZoneableForRci(tileLinearIndex, tile)) {
                 continue;
             }
 
@@ -2378,6 +2393,70 @@ bool SimulationRuntime::applyZoningRect(const RciRect& rect, std::uint16_t zonin
     }
 
     return !changedTileIndices.empty();
+}
+
+// Used by lot-mode zoning before it creates a persistent parcel record. Area
+// zoning may tint existing RCI lots, but new empty parcels must not overlap any
+// live lot or the constructor would later fight lot occupancy.
+bool SimulationRuntime::isZoningRectFullyZoneable(const RciRect& rect, const TileBuffer& writeBuffer, bool requireUnoccupied) const {
+    if (!rect.isValid()) {
+        return false;
+    }
+
+    int tileY = rect.minTileY;
+    for (; tileY <= rect.maxTileY; ++tileY) {
+        int tileX = rect.minTileX;
+        for (; tileX <= rect.maxTileX; ++tileX) {
+            const int tileLinearIndex = tileIndex(tileX, tileY);
+            if (!isTileZoneableForRci(tileLinearIndex, writeBuffer.tiles[tileLinearIndex])) {
+                return false;
+            }
+            if (requireUnoccupied && lotOccupancy_[tileLinearIndex] != kInvalidLotId) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+bool SimulationRuntime::isTileZoneableForRci(int tileLinearIndex, const Tile& tile) const {
+    if (tileLinearIndex < 0 || tileLinearIndex >= static_cast<int>(lotOccupancy_.size())) {
+        return false;
+    }
+
+    if (transportNetwork_.hasGroundOccupancy(tileLinearIndex)) {
+        return false;
+    }
+
+    if (lotOccupancy_[tileLinearIndex] != kInvalidLotId) {
+        return !tileHasBlockingNonRciLot(tileLinearIndex);
+    }
+
+    return tile.isVacant;
+}
+
+bool SimulationRuntime::tileHasBlockingNonRciLot(int tileLinearIndex) const {
+    if (tileLinearIndex < 0 || tileLinearIndex >= static_cast<int>(lotOccupancy_.size())) {
+        return true;
+    }
+
+    const int lotId = lotOccupancy_[tileLinearIndex];
+    if (lotId == kInvalidLotId) {
+        return false;
+    }
+
+    std::size_t lotIndex = 0;
+    for (; lotIndex < lots_.size(); ++lotIndex) {
+        if (lots_[lotIndex].id() != lotId) {
+            continue;
+        }
+
+        const LotAsset* lotAsset = findLotAssetById(lots_[lotIndex].assetId());
+        return lotAsset == 0 || lotAsset->zoningType == TileZoningNone;
+    }
+
+    return true;
 }
 
 bool SimulationRuntime::removeZoningLotsIntersectingRect(const RciRect& rect) {

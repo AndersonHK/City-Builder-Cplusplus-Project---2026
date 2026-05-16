@@ -2,6 +2,7 @@
 #include "RciTool.h"
 #include "SimulationDate.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdint>
@@ -46,6 +47,36 @@ private:
 
 bool AlmostEqual(float left, float right) {
     return std::fabs(left - right) < 0.001f;
+}
+
+bool RectsIntersect(int leftMinX, int leftMinY, int leftMaxX, int leftMaxY, int rightMinX, int rightMinY, int rightMaxX, int rightMaxY) {
+    return leftMinX <= rightMaxX &&
+        leftMaxX >= rightMinX &&
+        leftMinY <= rightMaxY &&
+        leftMaxY >= rightMinY;
+}
+
+bool RciRoadFootprintIntersectsLot(const RciRoadPlan& roadPlan, const RciLot& lot, int roadFootprint) {
+    int roadMinX = std::min(roadPlan.startTileX, roadPlan.endTileX);
+    int roadMaxX = std::max(roadPlan.startTileX, roadPlan.endTileX);
+    int roadMinY = std::min(roadPlan.startTileY, roadPlan.endTileY);
+    int roadMaxY = std::max(roadPlan.startTileY, roadPlan.endTileY);
+
+    if (roadPlan.startTileX == roadPlan.endTileX) {
+        roadMaxX = roadMinX + roadFootprint - 1;
+    } else if (roadPlan.startTileY == roadPlan.endTileY) {
+        roadMaxY = roadMinY + roadFootprint - 1;
+    }
+
+    return RectsIntersect(
+        roadMinX,
+        roadMinY,
+        roadMaxX,
+        roadMaxY,
+        lot.rect.minTileX,
+        lot.rect.minTileY,
+        lot.rect.maxTileX,
+        lot.rect.maxTileY);
 }
 
 void TestTileStatePacking(TestRunner& runner) {
@@ -242,9 +273,25 @@ void TestRciToolFallbacksAndPlanning(TestRunner& runner) {
     runner.expect(residential->buildPlan(0, 0, 17, 9, RciPlanMode::LotsAndRoads, 1024, 1024, residentialRoadPlan), "RCI lots-and-roads mode builds a plan");
     runner.expect(!residentialRoadPlan.roadPlans.empty(), "RCI lots-and-roads mode includes planned roads");
     runner.expect(!residentialRoadPlan.lots.empty(), "RCI lots-and-roads mode includes planned lots");
+    const int plannedRoadFootprint = 2;
+    std::size_t roadIndex = 0;
+    for (; roadIndex < residentialRoadPlan.roadPlans.size(); ++roadIndex) {
+        const RciRoadPlan& roadPlan = residentialRoadPlan.roadPlans[roadIndex];
+        if (roadPlan.startTileX == roadPlan.endTileX) {
+            runner.expect(roadPlan.startTileX + plannedRoadFootprint - 1 <= residentialRoadPlan.bounds.maxTileX, "RCI vertical road footprint stays inside east edge");
+        }
+        if (roadPlan.startTileY == roadPlan.endTileY) {
+            runner.expect(roadPlan.startTileY + plannedRoadFootprint - 1 <= residentialRoadPlan.bounds.maxTileY, "RCI horizontal road footprint stays inside south edge");
+        }
+
+        std::size_t lotIndex = 0;
+        for (; lotIndex < residentialRoadPlan.lots.size(); ++lotIndex) {
+            runner.expect(!RciRoadFootprintIntersectsLot(roadPlan, residentialRoadPlan.lots[lotIndex], plannedRoadFootprint), "RCI planned lots do not overlap two-tile road footprints");
+        }
+    }
 
     RciPlan industrialRoadPlan;
-    runner.expect(industrial->buildPlan(0, 0, 17, 17, RciPlanMode::LotsAndRoads, 1024, 1024, industrialRoadPlan), "industrial RCI lots-and-roads mode builds a plan");
+    runner.expect(industrial->buildPlan(0, 0, 19, 19, RciPlanMode::LotsAndRoads, 1024, 1024, industrialRoadPlan), "industrial RCI lots-and-roads mode builds a plan");
     if (!industrialRoadPlan.lots.empty()) {
         runner.expect(industrialRoadPlan.lots[0].rect.height() == 8, "industrial RCI lots prefer eight-tile depth");
     }

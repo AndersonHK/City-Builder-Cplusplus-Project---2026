@@ -354,6 +354,9 @@ private:
     bool tryZoneArea(int startTileX, int startTileY, int endTileX, int endTileY, std::uint16_t zoningType, TileBuffer& writeBuffer);
     bool tryZoneLot(const RciLot& zoningLot, TileBuffer& writeBuffer);
     bool applyZoningRect(const RciRect& rect, std::uint16_t zoningType, TileBuffer& writeBuffer, std::vector<int>& changedTileIndices, bool& hasZoneableTile);
+    bool isZoningRectFullyZoneable(const RciRect& rect, const TileBuffer& writeBuffer, bool requireUnoccupied) const;
+    bool isTileZoneableForRci(int tileLinearIndex, const Tile& tile) const;
+    bool tileHasBlockingNonRciLot(int tileLinearIndex) const;
     bool removeZoningLotsIntersectingRect(const RciRect& rect);
     void clearZoningForRoadStroke(const RoadStrokeCommand& roadStrokeCommand, TileBuffer& writeBuffer);
     bool canPlaceLot(const Lot& candidateLot) const;
