@@ -79,6 +79,17 @@ RoadStrokeCommand MakeToolDragStroke(const Int2& startTile, const Int2& endTile,
     return command;
 }
 
+RoadStrokeCommand MakeCornerStroke(const Int2& startTile, const Int2& cornerTile, const Int2& endTile, RoadFamily family, TransportLayerId layer, RoadDirectionMode directionMode = RoadDirectionMode::TwoWay, int laneCount = 1) {
+    RoadStrokeCommand command;
+    command.startTile = startTile;
+    command.cornerTile = cornerTile;
+    command.endTile = endTile;
+    command.family = family;
+    command.layer = layer;
+    command.roadTemplate = TransportNetwork::makeRoadTemplate(family, layer, laneCount, RoadTrafficSide::RightHand, directionMode);
+    return command;
+}
+
 bool Place(TransportNetwork& network, const RoadStrokeCommand& command, std::vector<int>& lotOccupancy) {
     return network.placeRoadStroke(command, lotOccupancy, kInvalidLotId);
 }
@@ -538,6 +549,10 @@ std::string SandboxSnapshot(const std::string& action, const TransportNetwork& n
     return snapshot;
 }
 
+std::string NetworkTopologySignature(const TransportNetwork& network) {
+    return SandboxSnapshot("network topology signature", network);
+}
+
 struct RoadToolSandbox {
     TransportNetwork network;
     std::vector<int> lotOccupancy;
@@ -973,11 +988,15 @@ bool SameResolvedCell(const ResolvedRoadCell& first, const ResolvedRoadCell& sec
 
 std::string ResolvedCellSummary(const ResolvedRoadCell& cell) {
     return "variant=" + std::to_string(static_cast<int>(cell.renderVariant)) +
+        " base=" + std::to_string(static_cast<int>(cell.baseGlyph)) +
+        " arrow=" + std::to_string(static_cast<int>(cell.arrowGlyph)) +
         " junction=" + std::to_string(static_cast<int>(cell.junctionMask)) +
         " exit=" + std::to_string(static_cast<int>(cell.exitMask)) +
+        " surface=" + std::to_string(static_cast<int>(cell.surfaceMask)) +
         " surfaceEdges=" + std::to_string(static_cast<int>(cell.surfaceEdgeMask)) +
         " divider=" + std::to_string(static_cast<int>(cell.dividerMask)) +
         " laneTypes=" + std::to_string(static_cast<int>(cell.laneTypeMask)) +
+        " laneCount=" + std::to_string(static_cast<int>(cell.laneCount)) +
         " travel=" + std::to_string(static_cast<int>(cell.travelMask));
 }
 
@@ -1483,9 +1502,60 @@ void TestOneSidedExtensionCarriesPedestrianLaneAcrossRoad(TestRunner& runner) {
         const int tileY = testTiles[testTileIndex][1];
         const ResolvedRoadCell& directCell = CellAt(directNetwork, TransportLayerId::Ground, tileX, tileY);
         const ResolvedRoadCell& extendedCell = CellAt(extendedNetwork, TransportLayerId::Ground, tileX, tileY);
-        runner.expect(SameResolvedCell(directCell, extendedCell), "one-sided extension resolved tile matches direct crossing");
+        runner.expect(
+            SameResolvedCell(directCell, extendedCell),
+            "one-sided extension resolved tile matches direct crossing at " + std::to_string(tileX) + "," + std::to_string(tileY) +
+                "\ndirect: " + ResolvedCellSummary(directCell) +
+                "\nextended: " + ResolvedCellSummary(extendedCell));
         runner.expect(CrosswalkEdges(extendedCell) == CrosswalkEdges(directCell), "one-sided extension crosswalk graphics match direct crossing");
     }
+}
+
+void TestTwoWayStraightDirectionInvariant(TestRunner& runner) {
+    TransportNetwork forwardNetwork = MakeNetwork(12, 12);
+    TransportNetwork reverseNetwork = MakeNetwork(12, 12);
+    std::vector<int> forwardLotOccupancy(forwardNetwork.totalTileCount(), kInvalidLotId);
+    std::vector<int> reverseLotOccupancy(reverseNetwork.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(forwardNetwork, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), forwardLotOccupancy), "two-way forward straight placement succeeds");
+    runner.expect(Place(reverseNetwork, MakeStroke(Int2(8, 5), Int2(2, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), reverseLotOccupancy), "two-way reverse straight placement succeeds");
+    runner.expect(NetworkTopologySignature(forwardNetwork) == NetworkTopologySignature(reverseNetwork), "two-way straight road is direction invariant");
+}
+
+void TestTwoWayCornerDirectionInvariant(TestRunner& runner) {
+    TransportNetwork forwardNetwork = MakeNetwork(12, 12);
+    TransportNetwork reverseNetwork = MakeNetwork(12, 12);
+    std::vector<int> forwardLotOccupancy(forwardNetwork.totalTileCount(), kInvalidLotId);
+    std::vector<int> reverseLotOccupancy(reverseNetwork.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(forwardNetwork, MakeCornerStroke(Int2(2, 5), Int2(5, 5), Int2(5, 8), RoadFamily::LocalStreet, TransportLayerId::Ground), forwardLotOccupancy), "two-way forward corner placement succeeds");
+    runner.expect(Place(reverseNetwork, MakeCornerStroke(Int2(5, 8), Int2(5, 5), Int2(2, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), reverseLotOccupancy), "two-way reverse corner placement succeeds");
+    runner.expect(NetworkTopologySignature(forwardNetwork) == NetworkTopologySignature(reverseNetwork), "two-way corner road is direction invariant for identical owned tiles");
+}
+
+void TestCrossingRepaintOrderInvariant(TestRunner& runner) {
+    TransportNetwork horizontalFirstNetwork = MakeNetwork(12, 12);
+    TransportNetwork verticalFirstNetwork = MakeNetwork(12, 12);
+    std::vector<int> horizontalFirstLotOccupancy(horizontalFirstNetwork.totalTileCount(), kInvalidLotId);
+    std::vector<int> verticalFirstLotOccupancy(verticalFirstNetwork.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(horizontalFirstNetwork, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), horizontalFirstLotOccupancy), "crossing horizontal-first horizontal stroke succeeds");
+    runner.expect(Place(horizontalFirstNetwork, MakeStroke(Int2(5, 2), Int2(5, 8), RoadFamily::LocalStreet, TransportLayerId::Ground), horizontalFirstLotOccupancy), "crossing horizontal-first vertical stroke succeeds");
+    runner.expect(Place(verticalFirstNetwork, MakeStroke(Int2(5, 2), Int2(5, 8), RoadFamily::LocalStreet, TransportLayerId::Ground), verticalFirstLotOccupancy), "crossing vertical-first vertical stroke succeeds");
+    runner.expect(Place(verticalFirstNetwork, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), verticalFirstLotOccupancy), "crossing vertical-first horizontal stroke succeeds");
+    runner.expect(NetworkTopologySignature(horizontalFirstNetwork) == NetworkTopologySignature(verticalFirstNetwork), "overlap repaint crossing is order invariant");
+}
+
+void TestOneWayReverseDirectionDiffers(TestRunner& runner) {
+    TransportNetwork forwardNetwork = MakeNetwork(12, 12);
+    TransportNetwork reverseNetwork = MakeNetwork(12, 12);
+    std::vector<int> forwardLotOccupancy(forwardNetwork.totalTileCount(), kInvalidLotId);
+    std::vector<int> reverseLotOccupancy(reverseNetwork.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(forwardNetwork, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground, RoadDirectionMode::OneWayForward), forwardLotOccupancy), "one-way forward stroke succeeds");
+    runner.expect(Place(reverseNetwork, MakeStroke(Int2(8, 5), Int2(2, 5), RoadFamily::LocalStreet, TransportLayerId::Ground, RoadDirectionMode::OneWayForward), reverseLotOccupancy), "one-way reversed stroke succeeds");
+    runner.expect(DirectionGridForMode(forwardNetwork, TransportMode::Car, 0, 0, forwardNetwork.width() - 1, forwardNetwork.height() - 1) !=
+        DirectionGridForMode(reverseNetwork, TransportMode::Car, 0, 0, reverseNetwork.width() - 1, reverseNetwork.height() - 1), "one-way reversed strokes intentionally differ");
 }
 
 void TestSameAxisOffsetRejects(TestRunner& runner) {
@@ -1967,6 +2037,10 @@ int main() {
     TestCornerUpgradeWithOnlyMissingArmsMatchesDirectFourWay(runner);
     TestOpposingStubsDoNotConnectAcrossTwoLaneRoad(runner);
     TestOneSidedExtensionCarriesPedestrianLaneAcrossRoad(runner);
+    TestTwoWayStraightDirectionInvariant(runner);
+    TestTwoWayCornerDirectionInvariant(runner);
+    TestCrossingRepaintOrderInvariant(runner);
+    TestOneWayReverseDirectionDiffers(runner);
     TestSameAxisOffsetRejects(runner);
     TestExactReplayDoesNotAdvanceRevision(runner);
     TestElevatedHighwayHasNoPedestrianGraphics(runner);

@@ -53,6 +53,16 @@ bool CrossSectionLeftSideIsHigh(std::uint8_t direction) {
     return direction == kRoadDirectionWest || direction == kRoadDirectionSouth;
 }
 
+std::uint8_t CanonicalTwoWayForwardDirection(RoadAxis axis) {
+    if (axis == RoadAxis::Horizontal) {
+        return kRoadDirectionEast;
+    }
+    if (axis == RoadAxis::Vertical) {
+        return kRoadDirectionNorth;
+    }
+    return 0;
+}
+
 int AxisCoordinate(const Int2& tile, RoadAxis axis) {
     return axis == RoadAxis::Horizontal ? tile.x : tile.y;
 }
@@ -397,6 +407,10 @@ bool Road::appendStrokePlacements(const Int2& startTile, const Int2& cornerTile,
         }
 
         Int2 adjustedEndTile = endTile;
+        Int2 adjustedSecondStartTile = cornerTile;
+        if (!DirectionIsPositive(secondDirection) && secondDirection != 0) {
+            SetAxisCoordinate(adjustedSecondStartTile, secondAxis, AxisCoordinate(cornerTile, secondAxis) + footprint - 1);
+        }
         if (DirectionIsPositive(secondDirection)) {
             adjustedEndTile.x = secondAxis == RoadAxis::Horizontal ? std::max(adjustedEndTile.x, cornerTile.x + footprint) : adjustedEndTile.x;
             adjustedEndTile.y = secondAxis == RoadAxis::Vertical ? std::max(adjustedEndTile.y, cornerTile.y + footprint) : adjustedEndTile.y;
@@ -407,7 +421,7 @@ bool Road::appendStrokePlacements(const Int2& startTile, const Int2& cornerTile,
 
         std::vector<RoadTilePlacement> cornerPlacements;
         if (!appendLegPlacements(startTile, adjustedFirstCornerTile, mapWidth, mapHeight, cornerPlacements) ||
-            !appendLegPlacements(cornerTile, adjustedEndTile, mapWidth, mapHeight, cornerPlacements)) {
+            !appendLegPlacements(adjustedSecondStartTile, adjustedEndTile, mapWidth, mapHeight, cornerPlacements)) {
             return false;
         }
 
@@ -544,12 +558,12 @@ bool Road::appendLegPlacements(const Int2& startTile, const Int2& endTile, int m
         horizontal = true;
         axis = RoadAxis::Horizontal;
         segmentDirection = startTile.x <= endTile.x ? kRoadDirectionEast : kRoadDirectionWest;
-        forwardDirection = segmentDirection;
+        forwardDirection = roadTemplate_.directionMode == RoadDirectionMode::TwoWay ? CanonicalTwoWayForwardDirection(axis) : segmentDirection;
         reverseDirection = OppositeRoadDirection(forwardDirection);
     } else if (startTile.x == endTile.x) {
         axis = RoadAxis::Vertical;
         segmentDirection = startTile.y <= endTile.y ? kRoadDirectionSouth : kRoadDirectionNorth;
-        forwardDirection = segmentDirection;
+        forwardDirection = roadTemplate_.directionMode == RoadDirectionMode::TwoWay ? CanonicalTwoWayForwardDirection(axis) : segmentDirection;
         reverseDirection = OppositeRoadDirection(forwardDirection);
     } else {
         return false;
@@ -567,7 +581,7 @@ bool Road::appendLegPlacements(const Int2& startTile, const Int2& endTile, int m
             layoutLanes[mirroredIndex].end = static_cast<float>(footprint) - oldStart;
         }
     }
-    if (CrossSectionLeftSideIsHigh(segmentDirection)) {
+    if (roadTemplate_.directionMode != RoadDirectionMode::TwoWay && CrossSectionLeftSideIsHigh(segmentDirection)) {
         std::size_t mirroredIndex = 0;
         for (; mirroredIndex < layoutLanes.size(); ++mirroredIndex) {
             const float oldStart = layoutLanes[mirroredIndex].start;
