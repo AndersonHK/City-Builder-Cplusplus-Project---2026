@@ -33,6 +33,7 @@ public:
 
     bool isCar() const;
     bool isPedestrian() const;
+    bool isSeparator() const;
     bool usesRoadArrows() const;
     bool usesDirectedFlow() const;
     std::uint16_t traversalCost(RoadFamily family) const;
@@ -58,6 +59,7 @@ struct RoadLanePlacement {
     RoadLaneTypeId laneType;
     RoadLaneSurface surface;
     RoadLaneRole role;
+    RoadSeparatorStyle separatorStyle;
     std::uint8_t laneTravelMask;
     std::uint8_t arrowTravelMask;
     float sideMin;
@@ -71,6 +73,7 @@ struct RoadLanePlacement {
 
     bool isCar() const;
     bool isPedestrian() const;
+    bool isSeparator() const;
     bool isSameAxis(const RoadLanePlacement& other) const;
     bool sideOverlaps(const RoadLanePlacement& other) const;
     bool isExactReplayOf(const RoadLanePlacement& other) const;

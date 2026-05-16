@@ -47,8 +47,44 @@ struct TransportTileSaveState {
     }
 };
 
+struct TransportStrokeSaveState {
+    std::uint32_t strokeId;
+    Int2 startTile;
+    Int2 cornerTile;
+    Int2 endTile;
+    RoadFamily family;
+    TransportLayerId layer;
+    int laneCount;
+    RoadTrafficSide trafficSide;
+    RoadDirectionMode directionMode;
+
+    TransportStrokeSaveState()
+        : strokeId(0u),
+          startTile(0, 0),
+          cornerTile(0, 0),
+          endTile(0, 0),
+          family(RoadFamily::LocalStreet),
+          layer(TransportLayerId::Ground),
+          laneCount(1),
+          trafficSide(RoadTrafficSide::RightHand),
+          directionMode(RoadDirectionMode::TwoWay) {
+    }
+};
+
+struct TransportTileEraseSaveState {
+    TransportLayerId layer;
+    int tileIndex;
+
+    TransportTileEraseSaveState()
+        : layer(TransportLayerId::Ground),
+          tileIndex(0) {
+    }
+};
+
 struct TransportNetworkSaveState {
     std::uint32_t nextRoadStrokeId;
+    std::vector<TransportStrokeSaveState> strokes;
+    std::vector<TransportTileEraseSaveState> erasures;
     std::vector<TransportTileSaveState> tiles;
 
     TransportNetworkSaveState()

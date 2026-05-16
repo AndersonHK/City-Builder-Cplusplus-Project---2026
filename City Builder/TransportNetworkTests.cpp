@@ -153,6 +153,24 @@ bool IsTurnArrow(const ResolvedRoadCell& cell) {
     return cell.arrowGlyph != 0 && !IsDebugArrow(cell);
 }
 
+int ActiveSavedLaneCount(const TransportNetwork& network, RoadLaneTypeId laneType) {
+    const TransportNetworkSaveState saveState = network.exportSaveState();
+    int count = 0;
+    std::size_t savedTileIndex = 0;
+    for (; savedTileIndex < saveState.tiles.size(); ++savedTileIndex) {
+        const TransportTileSaveState& tile = saveState.tiles[savedTileIndex];
+        std::size_t laneIndex = 0;
+        for (; laneIndex < tile.lanes.size(); ++laneIndex) {
+            const RoadLanePlacement& lane = tile.lanes[laneIndex];
+            if (lane.active && lane.laneType == laneType) {
+                ++count;
+            }
+        }
+    }
+
+    return count;
+}
+
 char ActiveCarAxisChar(std::uint8_t axisMask, const ResolvedRoadCell& cell) {
     const bool horizontal = (axisMask & static_cast<std::uint8_t>(RoadAxis::Horizontal)) != 0;
     const bool vertical = (axisMask & static_cast<std::uint8_t>(RoadAxis::Vertical)) != 0;
@@ -968,6 +986,34 @@ void TestOneWayLocalStreet(TestRunner& runner) {
     runner.expect(ArrowMask(cell) == kLaneIntentEast, "one-way street arrow points east");
     runner.expect(IsDebugArrow(cell), "one-way street arrow is tagged as debug graphics");
     runner.expect((SidewalkEdges(cell) & (kRoadDirectionNorth | kRoadDirectionSouth)) == (kRoadDirectionNorth | kRoadDirectionSouth), "one-way street keeps both sidewalk edges");
+}
+
+void TestSeparatorLaneSandwichRules(TestRunner& runner) {
+    TransportNetwork twoWayNetwork = MakeNetwork(12, 12);
+    std::vector<int> twoWayLotOccupancy(twoWayNetwork.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(twoWayNetwork, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), twoWayLotOccupancy), "two-way separator street placement succeeds");
+    runner.expect(ActiveSavedLaneCount(twoWayNetwork, RoadLaneTypeId::Separator) > 0, "two-way local street emits separator placements");
+    runner.expect((CellAt(twoWayNetwork, TransportLayerId::Ground, 4, 5).dividerMask >> kRoadDividerYellowShift) != 0, "two-way separator publishes yellow divider above center seam");
+    runner.expect((CellAt(twoWayNetwork, TransportLayerId::Ground, 4, 6).dividerMask >> kRoadDividerYellowShift) != 0, "two-way separator publishes yellow divider below center seam");
+
+    const TransportCostCell& northCarCell = CostCellAt(twoWayNetwork, TransportLayerId::Ground, TransportMode::Car, 4, 5);
+    const TransportCostCell& southCarCell = CostCellAt(twoWayNetwork, TransportLayerId::Ground, TransportMode::Car, 4, 6);
+    runner.expect(DirectionCost(northCarCell, kRoadDirectionSouth) == 0u, "separator does not create southbound car edge across center seam");
+    runner.expect(DirectionCost(southCarCell, kRoadDirectionNorth) == 0u, "separator does not create northbound car edge across center seam");
+
+    TransportNetwork oneWayNetwork = MakeNetwork(12, 12);
+    std::vector<int> oneWayLotOccupancy(oneWayNetwork.totalTileCount(), kInvalidLotId);
+    runner.expect(Place(oneWayNetwork, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground, RoadDirectionMode::OneWayForward), oneWayLotOccupancy), "one-way separator street placement succeeds");
+    runner.expect(ActiveSavedLaneCount(oneWayNetwork, RoadLaneTypeId::Separator) == 0, "one-way local street omits separator between same-direction lanes");
+    runner.expect(CellAt(oneWayNetwork, TransportLayerId::Ground, 4, 5).dividerMask == 0, "one-way local street publishes no separator divider");
+
+    TransportNetwork crossingNetwork = MakeNetwork(12, 12);
+    std::vector<int> crossingLotOccupancy(crossingNetwork.totalTileCount(), kInvalidLotId);
+    runner.expect(Place(crossingNetwork, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), crossingLotOccupancy), "separator crossing horizontal placement succeeds");
+    runner.expect(Place(crossingNetwork, MakeStroke(Int2(5, 2), Int2(5, 8), RoadFamily::LocalStreet, TransportLayerId::Ground), crossingLotOccupancy), "separator crossing vertical placement succeeds");
+    runner.expect(CellAt(crossingNetwork, TransportLayerId::Ground, 5, 5).dividerMask == 0, "separator divider is suppressed inside intersection body");
+    runner.expect(CellAt(crossingNetwork, TransportLayerId::Ground, 6, 6).dividerMask == 0, "separator divider is suppressed across the intersection body");
 }
 
 void TestPerpendicularCrosswalkRequiresLaneContinuation(TestRunner& runner) {
@@ -1809,6 +1855,7 @@ int main() {
     TestRunner runner;
     TestStraightTwoWayLocalStreet(runner);
     TestOneWayLocalStreet(runner);
+    TestSeparatorLaneSandwichRules(runner);
     TestPerpendicularCrosswalkRequiresLaneContinuation(runner);
     TestPerpendicularCrosswalkIsOrderIndependent(runner);
     TestTSectionRetexturesRealSidewalkCrosswalks(runner);

@@ -67,7 +67,7 @@ private:
     void markDirtyTileNeighborhood(const std::vector<int>& tileIndices, std::vector<int>& dirtyTileIndices) const;
     void expandDirtyRoadDependencies(TransportLayerId layer, std::vector<int>& dirtyTileIndices) const;
     void bumpDirtyChunkRevisions(TransportLayerId layer, const std::vector<int>& dirtyTileIndices);
-    bool pruneInvalidPedestrianLanes(TransportLayerId layer, const std::vector<int>& dirtyTileIndices);
+    bool refreshDerivedLaneActivity(TransportLayerId layer, const std::vector<int>& dirtyTileIndices);
 
     const TransportTile* tileAt(TransportLayerId layer, int tileX, int tileY) const;
     TransportTile* tileAt(TransportLayerId layer, int tileX, int tileY);
@@ -78,6 +78,13 @@ private:
     bool hasCompatibleNeighborLane(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection, bool includeInactiveLanes) const;
     bool hasCompatibleCarNeighborLane(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const;
     bool hasNeighborLaneBody(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const;
+    bool tileHasCarBodyAxis(TransportLayerId layer, int tileX, int tileY, RoadAxis axis, RoadFamily family) const;
+    bool tileHasAnyCarBody(TransportLayerId layer, int tileX, int tileY, RoadFamily family) const;
+    bool tileIsIntersectionGroupBody(TransportLayerId layer, int tileX, int tileY, RoadFamily family) const;
+    std::uint8_t buildIntersectionGroupApproachMask(TransportLayerId layer, int tileX, int tileY, RoadFamily family) const;
+    bool roadAxisHasTerminalEnd(TransportLayerId layer, int tileX, int tileY, RoadAxis axis, RoadFamily family) const;
+    bool separatorLaneShouldBeActive(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) const;
+    std::uint8_t separatorDividerMaskForLane(const RoadLanePlacement& lanePlacement) const;
     bool laneConnectionRequiresSameStroke(const TransportTile& currentTile, const TransportTile& neighborTile, const RoadLanePlacement& lanePlacement) const;
     std::uint8_t deadEndUTurnDirectionForLane(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const;
     bool hasCarContinuationBeyondCrossing(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& carLane, std::uint8_t roadDirection) const;
@@ -122,6 +129,8 @@ private:
     std::vector<std::uint64_t> groundChunkRevisions_;
     std::vector<std::uint64_t> elevatedChunkRevisions_;
     std::vector<std::uint64_t> trafficOverlayChunkRevisions_;
+    std::vector<TransportStrokeSaveState> strokes_;
+    std::vector<TransportTileEraseSaveState> tileErasures_;
     std::uint64_t revision_;
     std::uint64_t trafficOverlayRevision_;
     std::uint32_t nextRoadStrokeId_;

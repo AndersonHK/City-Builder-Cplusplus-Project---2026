@@ -20,7 +20,7 @@ namespace {
 const std::uint32_t kRegionSaveMagic = 0x52424743u; // CBGR
 const std::uint32_t kRegionSaveVersion = 2u;
 const std::uint32_t kCitySaveMagic = 0x59544243u; // CBTY
-const std::uint32_t kCitySaveVersion = 3u;
+const std::uint32_t kCitySaveVersion = 4u;
 const int kMaximumPreviewBuildsInFlight = 2;
 
 std::string GetExecutableDirectory() {
@@ -121,6 +121,7 @@ void WriteRoadLanePlacement(std::ostream& stream, const RoadLanePlacement& lane)
     WriteValue(stream, static_cast<std::uint8_t>(lane.laneType));
     WriteValue(stream, static_cast<std::uint8_t>(lane.surface));
     WriteValue(stream, static_cast<std::uint8_t>(lane.role));
+    WriteValue(stream, static_cast<std::uint8_t>(lane.separatorStyle));
     WriteValue(stream, lane.laneTravelMask);
     WriteValue(stream, lane.arrowTravelMask);
     WriteValue(stream, lane.sideMin);
@@ -154,6 +155,8 @@ RoadLanePlacement ReadRoadLanePlacement(std::istream& stream) {
     lane.surface = static_cast<RoadLaneSurface>(value);
     ReadValue(stream, value);
     lane.role = static_cast<RoadLaneRole>(value);
+    ReadValue(stream, value);
+    lane.separatorStyle = static_cast<RoadSeparatorStyle>(value);
     ReadValue(stream, lane.laneTravelMask);
     ReadValue(stream, lane.arrowTravelMask);
     ReadValue(stream, lane.sideMin);
@@ -164,6 +167,51 @@ RoadLanePlacement ReadRoadLanePlacement(std::istream& stream) {
     ReadValue(stream, value);
     lane.active = value != 0u;
     return lane;
+}
+
+void WriteTransportStrokeSaveState(std::ostream& stream, const TransportStrokeSaveState& stroke) {
+    WriteValue(stream, stroke.strokeId);
+    WriteInt2(stream, stroke.startTile);
+    WriteInt2(stream, stroke.cornerTile);
+    WriteInt2(stream, stroke.endTile);
+    WriteValue(stream, static_cast<std::uint8_t>(stroke.family));
+    WriteValue(stream, static_cast<std::uint8_t>(stroke.layer));
+    WriteValue(stream, stroke.laneCount);
+    WriteValue(stream, static_cast<std::uint8_t>(stroke.trafficSide));
+    WriteValue(stream, static_cast<std::uint8_t>(stroke.directionMode));
+}
+
+TransportStrokeSaveState ReadTransportStrokeSaveState(std::istream& stream) {
+    TransportStrokeSaveState stroke;
+    std::uint8_t value = 0u;
+    ReadValue(stream, stroke.strokeId);
+    stroke.startTile = ReadInt2(stream);
+    stroke.cornerTile = ReadInt2(stream);
+    stroke.endTile = ReadInt2(stream);
+    ReadValue(stream, value);
+    stroke.family = static_cast<RoadFamily>(value);
+    ReadValue(stream, value);
+    stroke.layer = static_cast<TransportLayerId>(value);
+    ReadValue(stream, stroke.laneCount);
+    ReadValue(stream, value);
+    stroke.trafficSide = static_cast<RoadTrafficSide>(value);
+    ReadValue(stream, value);
+    stroke.directionMode = static_cast<RoadDirectionMode>(value);
+    return stroke;
+}
+
+void WriteTransportTileEraseSaveState(std::ostream& stream, const TransportTileEraseSaveState& erasure) {
+    WriteValue(stream, static_cast<std::uint8_t>(erasure.layer));
+    WriteValue(stream, erasure.tileIndex);
+}
+
+TransportTileEraseSaveState ReadTransportTileEraseSaveState(std::istream& stream) {
+    TransportTileEraseSaveState erasure;
+    std::uint8_t value = 0u;
+    ReadValue(stream, value);
+    erasure.layer = static_cast<TransportLayerId>(value);
+    ReadValue(stream, erasure.tileIndex);
+    return erasure;
 }
 
 void WriteLotRenderInstance(std::ostream& stream, const LotRenderInstance& lot) {
@@ -244,19 +292,18 @@ void WriteCityState(std::ostream& stream, const CitySaveState& state) {
     }
 
     WriteValue(stream, state.transport.nextRoadStrokeId);
-    count = static_cast<std::uint32_t>(state.transport.tiles.size());
+    count = static_cast<std::uint32_t>(state.transport.strokes.size());
     WriteValue(stream, count);
-    std::size_t roadTileIndex = 0;
-    for (; roadTileIndex < state.transport.tiles.size(); ++roadTileIndex) {
-        const TransportTileSaveState& tile = state.transport.tiles[roadTileIndex];
-        WriteValue(stream, static_cast<std::uint8_t>(tile.layer));
-        WriteValue(stream, tile.tileIndex);
-        const std::uint32_t laneCount = static_cast<std::uint32_t>(tile.lanes.size());
-        WriteValue(stream, laneCount);
-        std::size_t laneIndex = 0;
-        for (; laneIndex < tile.lanes.size(); ++laneIndex) {
-            WriteRoadLanePlacement(stream, tile.lanes[laneIndex]);
-        }
+    std::size_t roadStrokeIndex = 0;
+    for (; roadStrokeIndex < state.transport.strokes.size(); ++roadStrokeIndex) {
+        WriteTransportStrokeSaveState(stream, state.transport.strokes[roadStrokeIndex]);
+    }
+
+    count = static_cast<std::uint32_t>(state.transport.erasures.size());
+    WriteValue(stream, count);
+    std::size_t erasureIndex = 0;
+    for (; erasureIndex < state.transport.erasures.size(); ++erasureIndex) {
+        WriteTransportTileEraseSaveState(stream, state.transport.erasures[erasureIndex]);
     }
 }
 
@@ -312,21 +359,17 @@ CitySaveState ReadCityState(std::istream& stream) {
 
     ReadValue(stream, state.transport.nextRoadStrokeId);
     ReadValue(stream, count);
-    state.transport.tiles.resize(count);
-    std::size_t roadTileIndex = 0;
-    for (; roadTileIndex < state.transport.tiles.size(); ++roadTileIndex) {
-        TransportTileSaveState& tile = state.transport.tiles[roadTileIndex];
-        std::uint8_t layerValue = 0u;
-        ReadValue(stream, layerValue);
-        tile.layer = static_cast<TransportLayerId>(layerValue);
-        ReadValue(stream, tile.tileIndex);
-        std::uint32_t laneCount = 0u;
-        ReadValue(stream, laneCount);
-        tile.lanes.resize(laneCount);
-        std::size_t laneIndex = 0;
-        for (; laneIndex < tile.lanes.size(); ++laneIndex) {
-            tile.lanes[laneIndex] = ReadRoadLanePlacement(stream);
-        }
+    state.transport.strokes.resize(count);
+    std::size_t roadStrokeIndex = 0;
+    for (; roadStrokeIndex < state.transport.strokes.size(); ++roadStrokeIndex) {
+        state.transport.strokes[roadStrokeIndex] = ReadTransportStrokeSaveState(stream);
+    }
+
+    ReadValue(stream, count);
+    state.transport.erasures.resize(count);
+    std::size_t erasureIndex = 0;
+    for (; erasureIndex < state.transport.erasures.size(); ++erasureIndex) {
+        state.transport.erasures[erasureIndex] = ReadTransportTileEraseSaveState(stream);
     }
 
     return state;

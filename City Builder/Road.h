@@ -61,7 +61,7 @@ private:
 
     bool appendLegPlacements(const Int2& startTile, const Int2& endTile, int mapWidth, int mapHeight, std::vector<RoadTilePlacement>& placements) const;
     std::vector<LayoutLane> buildLayoutLanes(std::uint8_t forwardDirection, std::uint8_t reverseDirection, int footprint) const;
-    RoadLanePlacement makeLanePlacement(const LayoutLane& layoutLane, int laneOrdinal, int tileX, int tileY, int tileIndex, RoadAxis axis, int crossOffset, int footprint, const std::vector<RoadTemplateSeamKind>& seamAfter) const;
+    RoadLanePlacement makeLanePlacement(const LayoutLane& layoutLane, int laneOrdinal, int tileX, int tileY, int tileIndex, RoadAxis axis, int crossOffset, const std::vector<RoadTemplateSeamKind>& seamAfter) const;
 
     RoadTemplate roadTemplate_;
 };

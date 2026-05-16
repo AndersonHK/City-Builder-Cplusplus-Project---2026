@@ -76,7 +76,7 @@ bool TransportTile::hasLaneType(RoadLaneTypeId laneType) const {
 bool TransportTile::hasAxis(RoadAxis axis) const {
     std::size_t laneIndex = 0;
     for (; laneIndex < lanes_.size(); ++laneIndex) {
-        if (lanes_[laneIndex].active && lanes_[laneIndex].axis == axis) {
+        if (lanes_[laneIndex].active && !lanes_[laneIndex].isSeparator() && lanes_[laneIndex].axis == axis) {
             return true;
         }
     }

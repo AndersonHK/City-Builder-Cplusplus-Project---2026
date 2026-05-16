@@ -62,6 +62,10 @@ bool RoadLane::isPedestrian() const {
     return element_.laneType == RoadLaneTypeId::Pedestrian;
 }
 
+bool RoadLane::isSeparator() const {
+    return element_.laneType == RoadLaneTypeId::Separator;
+}
+
 bool RoadLane::usesRoadArrows() const {
     return element_.laneType == RoadLaneTypeId::Car || element_.laneType == RoadLaneTypeId::Bus;
 }
@@ -80,6 +84,8 @@ std::uint16_t RoadLane::traversalCost(RoadFamily family) const {
             return kTravelCostScale / 4u;
         case RoadLaneTypeId::Bus:
             return family == RoadFamily::Highway ? kTravelCostScale / 14u : kTravelCostScale / 8u;
+        case RoadLaneTypeId::Separator:
+            return 0;
         default:
             return 0;
     }
@@ -99,6 +105,7 @@ RoadLanePlacement::RoadLanePlacement()
       laneType(RoadLaneTypeId::Car),
       surface(RoadLaneSurface::Asphalt),
       role(RoadLaneRole::Through),
+      separatorStyle(RoadSeparatorStyle::None),
       laneTravelMask(0),
       arrowTravelMask(0),
       sideMin(0.0f),
@@ -115,6 +122,10 @@ bool RoadLanePlacement::isCar() const {
 
 bool RoadLanePlacement::isPedestrian() const {
     return laneType == RoadLaneTypeId::Pedestrian;
+}
+
+bool RoadLanePlacement::isSeparator() const {
+    return laneType == RoadLaneTypeId::Separator;
 }
 
 bool RoadLanePlacement::isSameAxis(const RoadLanePlacement& other) const {
@@ -135,6 +146,7 @@ bool RoadLanePlacement::isExactReplayOf(const RoadLanePlacement& other) const {
         laneType == other.laneType &&
         surface == other.surface &&
         role == other.role &&
+        separatorStyle == other.separatorStyle &&
         laneTravelMask == other.laneTravelMask &&
         arrowTravelMask == other.arrowTravelMask &&
         std::fabs(sideMin - other.sideMin) <= kLaneSpanEpsilon &&

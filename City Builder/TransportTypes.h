@@ -45,6 +45,7 @@ enum class RoadLaneTypeId : std::uint8_t {
     Pedestrian,
     Bike,
     Bus,
+    Separator,
     Count
 };
 
@@ -60,7 +61,14 @@ enum class RoadLaneRole : std::uint8_t {
     Through,
     Turn,
     Transit,
-    Access
+    Access,
+    Separator
+};
+
+enum class RoadSeparatorStyle : std::uint8_t {
+    None = 0,
+    PaintedLine,
+    Median
 };
 
 enum class RoadTemplateOverlapPolicy : std::uint8_t {
@@ -160,13 +168,15 @@ struct RoadTemplateElement {
     RoadLaneTypeId laneType;
     RoadLaneSurface surface;
     RoadLaneRole laneRole;
+    RoadSeparatorStyle separatorStyle;
     RoadElementBehavior behavior;
     RoadLaneFlow flow;
 
     RoadTemplateElement()
         : laneType(RoadLaneTypeId::Car),
           surface(RoadLaneSurface::Asphalt),
-          laneRole(RoadLaneRole::Through) {
+          laneRole(RoadLaneRole::Through),
+          separatorStyle(RoadSeparatorStyle::None) {
     }
 };
 
@@ -248,6 +258,7 @@ constexpr std::uint8_t kRoadLaneTypeCar = 1u << static_cast<std::uint8_t>(RoadLa
 constexpr std::uint8_t kRoadLaneTypePedestrian = 1u << static_cast<std::uint8_t>(RoadLaneTypeId::Pedestrian);
 constexpr std::uint8_t kRoadLaneTypeBike = 1u << static_cast<std::uint8_t>(RoadLaneTypeId::Bike);
 constexpr std::uint8_t kRoadLaneTypeBus = 1u << static_cast<std::uint8_t>(RoadLaneTypeId::Bus);
+constexpr std::uint8_t kRoadLaneTypeSeparator = 1u << static_cast<std::uint8_t>(RoadLaneTypeId::Separator);
 
 constexpr std::uint8_t kTransportModeCar = 1u << static_cast<std::uint8_t>(TransportMode::Car);
 constexpr std::uint8_t kTransportModePedestrian = 1u << static_cast<std::uint8_t>(TransportMode::Pedestrian);
