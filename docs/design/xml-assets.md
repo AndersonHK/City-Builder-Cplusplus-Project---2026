@@ -9,14 +9,14 @@ Use this guide when changing `AssetLoader`, data XML files, lot/module archetype
 
 ## Current Shape
 - `AssetLoader` reads module XML from `Data/Modules`, lot XML from `Data/Lots`, and the congestion curve from `Data/TransportNetwork/congestion.xml` when present.
-- UI window XML lives under `Data/UI` and is parsed by `InGameWindow`, not `AssetLoader`.
+- UI window/menu XML lives under `Data/UI` and is parsed by `InGameWindow` and `UiLayout`, not `AssetLoader`.
 - File stems are fallback ids when an explicit `id` attribute is absent.
 - Modules define size, effects, and placeholder render values.
 - Modules may also define city-parameter contributions inside `<parameters>` using `<driver>` or `<satisfaction>` tags.
 - Lots define an anchor, optional explicit footprint, optional render origin, optional front direction, initial module references, and optional access connections.
 - Lot validation ensures module references exist, the anchor is inside the lot footprint, access tiles are inside the footprint, access directions point outside the footprint, and access modes are known.
 - The congestion XML defines `<point utilization="..." speedMultiplier="..." />` rows. Invalid or duplicate utilization points fail asset load.
-- The query window XML defines one `<window>` plus flat `<textField>` entries. It is tolerant and falls back to a built-in layout when missing or malformed.
+- The query window XML defines one `<window>` plus flat `<textField>` entries. City tool XML defines flat `<menu>` containers plus `<button>` children and action strings. Both UI parsers are tolerant and fall back to built-in layouts when missing or malformed.
 
 ## Rules
 - Keep errors descriptive; asset failures should not become silent defaults.
@@ -26,7 +26,7 @@ Use this guide when changing `AssetLoader`, data XML files, lot/module archetype
 - Validate access declarations before normalizing the lot anchor, then store them relative to the normalized anchor so placement rotation can transform them.
 - Prefer simple explicit schema additions over implicit behavior.
 - Keep XML-backed archetypes separate from live runtime placement state.
-- Keep UI layout XML separate from gameplay archetype XML. UI parser fallbacks are acceptable for tools/debug windows, but gameplay asset XML should continue to fail early.
+- Keep UI layout XML separate from gameplay archetype XML. UI parser fallbacks are acceptable for tools/debug windows and tool buttons, but gameplay asset XML should continue to fail early.
 
 ## Checks
 - Build `x64 Release` so post-build copying preserves data beside the executable.

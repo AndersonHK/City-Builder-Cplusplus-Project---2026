@@ -1513,17 +1513,21 @@ std::vector<LotInstanceData> BuildLotInstancesInTileRect(const std::vector<LotRe
     return instances;
 }
 
-AreaOverlayInstanceData BuildAreaOverlayInstance(int minTileX, int minTileY, int maxTileX, int maxTileY) {
+AreaOverlayInstanceData BuildAreaOverlayInstance(int minTileX, int minTileY, int maxTileX, int maxTileY, float colorR, float colorG, float colorB, float colorA) {
     AreaOverlayInstanceData instance;
     instance.originX = static_cast<float>(minTileX);
     instance.originZ = static_cast<float>(minTileY);
     instance.sizeX = static_cast<float>(maxTileX - minTileX + 1);
     instance.sizeZ = static_cast<float>(maxTileY - minTileY + 1);
-    instance.colorR = 1.0f;
-    instance.colorG = 0.05f;
-    instance.colorB = 0.03f;
-    instance.colorA = 0.28f;
+    instance.colorR = colorR;
+    instance.colorG = colorG;
+    instance.colorB = colorB;
+    instance.colorA = colorA;
     return instance;
+}
+
+AreaOverlayInstanceData BuildAreaOverlayInstance(int minTileX, int minTileY, int maxTileX, int maxTileY) {
+    return BuildAreaOverlayInstance(minTileX, minTileY, maxTileX, maxTileY, 1.0f, 0.05f, 0.03f, 0.28f);
 }
 
 // Returns the world-space vertical offset for a road layer.
@@ -1989,6 +1993,41 @@ void UpdateTileOverlayChunkTexture(GLuint textureId, const PublishedWorldSnapsho
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 }
 
+void FillZoningOverlayChunkPixels(const PublishedWorldSnapshot& snapshot, const ChunkRect& chunkRect, std::vector<std::uint8_t>& texturePixels) {
+    const std::size_t chunkByteCount = static_cast<std::size_t>(chunkRect.width) * static_cast<std::size_t>(chunkRect.height) * 4u;
+    if (texturePixels.size() != chunkByteCount) {
+        texturePixels.resize(chunkByteCount, 0u);
+    }
+
+    if (snapshot.tiles == 0) {
+        std::fill(texturePixels.begin(), texturePixels.end(), 0u);
+        return;
+    }
+
+    RendererFillZoningOverlayChunkPixels(*snapshot.tiles, snapshot.width, chunkRect, texturePixels);
+}
+
+void UploadZoningOverlayChunkTexture(GLuint textureId, const ChunkRect& chunkRect, const std::vector<std::uint8_t>& texturePixels) {
+    if (texturePixels.empty()) {
+        return;
+    }
+
+    glActiveTexture(GL_TEXTURE5);
+    glBindTexture(GL_TEXTURE_2D, textureId);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexSubImage2D(
+        GL_TEXTURE_2D,
+        0,
+        chunkRect.startX,
+        chunkRect.startY,
+        chunkRect.width,
+        chunkRect.height,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        &texturePixels[0]);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+}
+
 // Deletes OpenGL objects owned by tile chunk caches.
 void DestroyTileChunkCaches(std::vector<TileChunkRenderCache>& chunkCaches) {
     std::size_t chunkIndex = 0;
@@ -2353,6 +2392,24 @@ int Renderer::run() {
         GL_UNSIGNED_BYTE,
         0);
 
+    GLuint zoningOverlayTextureId = 0;
+    glGenTextures(1, &zoningOverlayTextureId);
+    glBindTexture(GL_TEXTURE_2D, zoningOverlayTextureId);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RGBA8,
+        simulationRuntime.mapWidth(),
+        simulationRuntime.mapHeight(),
+        0,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        0);
+
     const GLuint roadBaseAtlasTextureId = CreateRoadAtlasTexture(false, true);
     const GLuint roadBaseCleanAtlasTextureId = CreateRoadAtlasTexture(false, false);
     const GLuint roadArrowAtlasTextureId = CreateRoadAtlasTexture(true, true);
@@ -2473,6 +2530,7 @@ int Renderer::run() {
         glDeleteTextures(1, &roadArrowAtlasTextureId);
         glDeleteTextures(1, &roadBaseCleanAtlasTextureId);
         glDeleteTextures(1, &roadBaseAtlasTextureId);
+        glDeleteTextures(1, &zoningOverlayTextureId);
         glDeleteTextures(1, &tileOverlayTextureId);
         glDeleteTextures(1, &groundRoadStateTextureId);
         glDeleteTextures(1, &tileLiftTextureId);
@@ -2520,6 +2578,7 @@ int Renderer::run() {
 
     std::vector<GLshort> tileStateChunkPixels;
     std::vector<std::uint8_t> tileLiftChunkPixels;
+    std::vector<std::uint8_t> zoningOverlayChunkPixels;
     std::vector<std::uint8_t> emptyGroundRoadChunkPixels;
     std::vector<LotInstanceData> lotInstances;
     std::vector<LotInstanceData> lotGhostInstances;
@@ -2531,10 +2590,12 @@ int Renderer::run() {
     std::vector<UiQuadInstanceData> uiQuadInstances;
     InGameWindow queryWindow;
     queryWindow.loadFromXmlFile(BuildDataPath("UI\\lot_query.xml"));
+    appController_.loadUiLayoutFromXmlFile(BuildDataPath("UI\\city_tools.xml"));
     std::uint64_t lastUploadedLotRevision = std::numeric_limits<std::uint64_t>::max();
     std::uint64_t lastUploadedQueryRouteRevision = std::numeric_limits<std::uint64_t>::max();
     std::vector<std::uint64_t> lastUploadedGroundRoadChunkRevisions(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
     std::vector<std::uint64_t> lastUploadedTileOverlayChunkRevisions(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
+    std::vector<std::uint64_t> lastUploadedZoningOverlayChunkRevisions(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
     bool lastFrameWasRegion = true;
     std::uint64_t lastHandledRenderStateRevision = gameSession_.renderStateRevision();
     std::uint64_t lastRegionPreviewCacheRevision = std::numeric_limits<std::uint64_t>::max();
@@ -2557,6 +2618,7 @@ int Renderer::run() {
 
         lastUploadedGroundRoadChunkRevisions.assign(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
         lastUploadedTileOverlayChunkRevisions.assign(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
+        lastUploadedZoningOverlayChunkRevisions.assign(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
         lastUploadedLotRevision = std::numeric_limits<std::uint64_t>::max();
         lastUploadedQueryRouteRevision = std::numeric_limits<std::uint64_t>::max();
         lotInstances.clear();
@@ -2923,8 +2985,33 @@ int Renderer::run() {
                 bulldozeLotInstances.empty() ? 0 : &bulldozeLotInstances[0],
                 GL_DYNAMIC_DRAW);
         } else {
-            areaOverlayInstances.clear();
             bulldozeLotInstances.clear();
+            int zoneMinTileX = 0;
+            int zoneMinTileY = 0;
+            int zoneMaxTileX = 0;
+            int zoneMaxTileY = 0;
+            std::uint16_t previewZoningType = TileZoningNone;
+            if (appController_.zonePreviewRect(zoneMinTileX, zoneMinTileY, zoneMaxTileX, zoneMaxTileY, previewZoningType)) {
+                const bool residentialPreview = previewZoningType == TileZoningResidential;
+                areaOverlayInstances.clear();
+                areaOverlayInstances.push_back(BuildAreaOverlayInstance(
+                    zoneMinTileX,
+                    zoneMinTileY,
+                    zoneMaxTileX,
+                    zoneMaxTileY,
+                    residentialPreview ? 0.18f : 0.92f,
+                    residentialPreview ? 0.86f : 0.76f,
+                    residentialPreview ? 0.32f : 0.15f,
+                    residentialPreview ? 0.26f : 0.30f));
+                glBindBuffer(GL_ARRAY_BUFFER, areaOverlayInstanceBufferId);
+                glBufferData(
+                    GL_ARRAY_BUFFER,
+                    static_cast<GLsizeiptr>(areaOverlayInstances.size() * sizeof(AreaOverlayInstanceData)),
+                    &areaOverlayInstances[0],
+                    GL_DYNAMIC_DRAW);
+            } else {
+                areaOverlayInstances.clear();
+            }
         }
 
         if (snapshot.tiles != 0 && snapshot.chunkRevisions != 0) {
@@ -3022,6 +3109,24 @@ int Renderer::run() {
             frameMetrics.groundRoadUploadMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - groundRoadUploadStart).count();
 
             const std::chrono::steady_clock::time_point tileOverlayUploadStart = std::chrono::steady_clock::now();
+            if (snapshot.chunkRevisions != 0) {
+                for (uploadChunkIndex = 0; uploadChunkIndex < chunkCaches.size(); ++uploadChunkIndex) {
+                    const std::uint64_t publishedRevision = (*snapshot.chunkRevisions)[uploadChunkIndex];
+                    if (lastUploadedZoningOverlayChunkRevisions[uploadChunkIndex] == publishedRevision) {
+                        continue;
+                    }
+
+                    if (visibleChunkFlags[uploadChunkIndex] == 0u) {
+                        continue;
+                    }
+
+                    const ChunkRect& chunkRect = chunkCaches[uploadChunkIndex].chunkRect;
+                    FillZoningOverlayChunkPixels(snapshot, chunkRect, zoningOverlayChunkPixels);
+                    UploadZoningOverlayChunkTexture(zoningOverlayTextureId, chunkRect, zoningOverlayChunkPixels);
+                    lastUploadedZoningOverlayChunkRevisions[uploadChunkIndex] = publishedRevision;
+                }
+            }
+
             if (viewState.overlayMode != OverlayMode::None && snapshot.tileOverlayState != 0 && snapshot.tileOverlayChunkRevisions != 0) {
                 for (uploadChunkIndex = 0; uploadChunkIndex < chunkCaches.size(); ++uploadChunkIndex) {
                     const std::uint64_t publishedRevision = (*snapshot.tileOverlayChunkRevisions)[uploadChunkIndex];
@@ -3203,20 +3308,31 @@ int Renderer::run() {
                 glUniform1f(lotTintStrengthLocation, 0.0f);
             }
 
+            glUniform1i(renderModeLocation, 3);
+            glDepthMask(GL_FALSE);
+            glDisable(GL_DEPTH_TEST);
+            const std::chrono::steady_clock::time_point tileOverlayDrawStart = std::chrono::steady_clock::now();
+            glActiveTexture(GL_TEXTURE5);
+            glBindTexture(GL_TEXTURE_2D, zoningOverlayTextureId);
+            for (visibleIndex = 0; visibleIndex < visibleChunkIndices.size(); ++visibleIndex) {
+                const TileChunkRenderCache& cache = chunkCaches[visibleChunkIndices[visibleIndex]];
+                glBindVertexArray(cache.vertexArrayId);
+                glDrawArraysInstanced(GL_TRIANGLES, 0, 6, cache.instanceCount);
+            }
+
             if (viewState.overlayMode != OverlayMode::None && snapshot.tileOverlayState != 0) {
+                glActiveTexture(GL_TEXTURE5);
+                glBindTexture(GL_TEXTURE_2D, tileOverlayTextureId);
                 glUniform1i(renderModeLocation, 3);
-                glDepthMask(GL_FALSE);
-                glDisable(GL_DEPTH_TEST);
-                const std::chrono::steady_clock::time_point tileOverlayDrawStart = std::chrono::steady_clock::now();
                 for (visibleIndex = 0; visibleIndex < visibleChunkIndices.size(); ++visibleIndex) {
                     const TileChunkRenderCache& cache = chunkCaches[visibleChunkIndices[visibleIndex]];
                     glBindVertexArray(cache.vertexArrayId);
                     glDrawArraysInstanced(GL_TRIANGLES, 0, 6, cache.instanceCount);
                 }
-                frameMetrics.tileOverlayDrawMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - tileOverlayDrawStart).count();
-                glEnable(GL_DEPTH_TEST);
-                glDepthMask(GL_TRUE);
             }
+            frameMetrics.tileOverlayDrawMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - tileOverlayDrawStart).count();
+            glEnable(GL_DEPTH_TEST);
+            glDepthMask(GL_TRUE);
 
             if (!routeArrowInstances.empty()) {
                 glUniform1i(renderModeLocation, 4);
@@ -3237,27 +3353,32 @@ int Renderer::run() {
                     queryWindow.setLineText(lineIndex - 1u, viewState.queryWindowLines[lineIndex]);
                 }
                 queryWindow.updateLayout();
+            }
 
-                uiQuadInstances = BuildWindowQuads(queryWindow);
-                glBindBuffer(GL_ARRAY_BUFFER, uiInstanceBufferId);
-                glBufferData(
-                    GL_ARRAY_BUFFER,
-                    static_cast<GLsizeiptr>(uiQuadInstances.size() * sizeof(UiQuadInstanceData)),
-                    uiQuadInstances.empty() ? 0 : &uiQuadInstances[0],
-                    GL_DYNAMIC_DRAW);
+            uiQuadInstances = BuildWindowQuads(queryWindow);
+            {
+                std::vector<UiQuadInstanceData> menuQuadInstances = RendererBuildUiMenuQuads(appController_.uiLayout(), framebufferWidth, framebufferHeight, appController_.activeUiAction());
+                uiQuadInstances.insert(uiQuadInstances.end(), menuQuadInstances.begin(), menuQuadInstances.end());
+            }
 
-                if (!uiQuadInstances.empty()) {
-                    const Mat4 uiProjection = Orthographic(0.0f, static_cast<float>(framebufferWidth), static_cast<float>(framebufferHeight), 0.0f, -1.0f, 1.0f);
-                    shaderProgram.bind();
-                    glUniformMatrix4fv(viewProjectionLocation, 1, GL_FALSE, uiProjection.data);
-                    glUniform1i(renderModeLocation, 6);
-                    glDepthMask(GL_FALSE);
-                    glDisable(GL_DEPTH_TEST);
-                    glBindVertexArray(uiVertexArrayId);
-                    glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(uiQuadInstances.size()));
-                    glEnable(GL_DEPTH_TEST);
-                    glDepthMask(GL_TRUE);
-                }
+            glBindBuffer(GL_ARRAY_BUFFER, uiInstanceBufferId);
+            glBufferData(
+                GL_ARRAY_BUFFER,
+                static_cast<GLsizeiptr>(uiQuadInstances.size() * sizeof(UiQuadInstanceData)),
+                uiQuadInstances.empty() ? 0 : &uiQuadInstances[0],
+                GL_DYNAMIC_DRAW);
+
+            if (!uiQuadInstances.empty()) {
+                const Mat4 uiProjection = Orthographic(0.0f, static_cast<float>(framebufferWidth), static_cast<float>(framebufferHeight), 0.0f, -1.0f, 1.0f);
+                shaderProgram.bind();
+                glUniformMatrix4fv(viewProjectionLocation, 1, GL_FALSE, uiProjection.data);
+                glUniform1i(renderModeLocation, 6);
+                glDepthMask(GL_FALSE);
+                glDisable(GL_DEPTH_TEST);
+                glBindVertexArray(uiVertexArrayId);
+                glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(uiQuadInstances.size()));
+                glEnable(GL_DEPTH_TEST);
+                glDepthMask(GL_TRUE);
             }
 
             glBindVertexArray(0);
@@ -3340,6 +3461,7 @@ int Renderer::run() {
     glDeleteTextures(1, &roadArrowAtlasTextureId);
     glDeleteTextures(1, &roadBaseCleanAtlasTextureId);
     glDeleteTextures(1, &roadBaseAtlasTextureId);
+    glDeleteTextures(1, &zoningOverlayTextureId);
     glDeleteTextures(1, &tileOverlayTextureId);
     glDeleteTextures(1, &groundRoadStateTextureId);
     glDeleteTextures(1, &tileLiftTextureId);

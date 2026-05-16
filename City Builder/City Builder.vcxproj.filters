@@ -75,6 +75,9 @@
     <ClCompile Include="TransportTypes.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="UiWidgets.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="Basic.shader">
@@ -114,6 +117,9 @@
       <Filter>Resource Files</Filter>
     </None>
     <None Include="Data\UI\lot_query.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\UI\city_tools.xml">
       <Filter>Resource Files</Filter>
     </None>
   </ItemGroup>
@@ -179,6 +185,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="TransportTypes.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UiWidgets.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

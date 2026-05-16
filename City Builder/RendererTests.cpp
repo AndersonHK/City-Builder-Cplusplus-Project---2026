@@ -101,6 +101,26 @@ void TestTileLiftChunkPacking(TestRunner& runner) {
     runner.expect(pixels[3] == 255u, "occupied row-major tile lifts to full mask");
 }
 
+void TestZoningOverlayChunkPacking(TestRunner& runner) {
+    std::vector<Tile> tiles(16);
+    tiles[5].zoningType = TileZoningResidential;
+    tiles[6].zoningType = TileZoningIndustrial;
+
+    ChunkRect chunk;
+    chunk.startX = 1;
+    chunk.startY = 1;
+    chunk.width = 2;
+    chunk.height = 2;
+
+    std::vector<std::uint8_t> pixels;
+    RendererFillZoningOverlayChunkPixels(tiles, 4, chunk, pixels);
+
+    runner.expect(pixels.size() == 16u, "zoning overlay writes RGBA bytes per tile");
+    runner.expect(pixels[0] == 50u && pixels[1] == 210u && pixels[3] > 0u, "residential zoning packs green tint");
+    runner.expect(pixels[4] == 238u && pixels[5] == 211u && pixels[7] > 0u, "industrial zoning packs yellow tint");
+    runner.expect(pixels[11] == 0u && pixels[15] == 0u, "un-zoned tiles pack transparent overlay");
+}
+
 void TestUtf8Decoder(TestRunner& runner) {
     std::string text;
     text.push_back('A');
@@ -144,6 +164,23 @@ void TestWindowQuads(TestRunner& runner) {
     }
     runner.expect(allTextQuadsInsideWindow, "text quads stay inside the query window frame");
 }
+
+void TestUiMenuQuadsAndHitTesting(TestRunner& runner) {
+    UiLayout layout;
+    std::string action;
+    runner.expect(layout.hitTestAction(24.0, 480.0, 1024, 768, action) && action == "select_bulldozer", "fallback side-menu button hit tests by screen position");
+
+    std::vector<UiQuadInstanceData> quads = RendererBuildUiMenuQuads(layout, 1024, 768, "select_road_street");
+    runner.expect(!quads.empty(), "visible UI menus produce quads");
+    runner.expect(AlmostEqual(quads[0].x, 16.0f), "side menu resolves to left edge");
+    runner.expect(quads[0].colorA >= 0.0f, "menu background alpha is stable");
+
+    const std::size_t visibleQuadCount = quads.size();
+    layout.toggleMenu("side_tools");
+    std::vector<UiQuadInstanceData> hiddenQuads = RendererBuildUiMenuQuads(layout, 1024, 768, std::string());
+    runner.expect(hiddenQuads.size() < visibleQuadCount, "hidden side menu removes its button quads");
+    runner.expect(layout.hitTestAction(24.0, 740.0, 1024, 768, action) && action == "toggle_side_menu", "bottom-left menu toggle remains clickable");
+}
 }
 
 int main() {
@@ -151,7 +188,9 @@ int main() {
     TestTileStatePacking(runner);
     TestTileStateChunkPacking(runner);
     TestTileLiftChunkPacking(runner);
+    TestZoningOverlayChunkPacking(runner);
     TestUtf8Decoder(runner);
     TestWindowQuads(runner);
+    TestUiMenuQuadsAndHitTesting(runner);
     return runner.finish();
 }

@@ -160,6 +160,7 @@ if exist "$(OutDir)Data\Saves" rmdir /S /Q "$(OutDir)Data\Saves"</Command>
     <ClCompile Include="TransportTile.cpp" />
     <ClCompile Include="TransportNetwork.cpp" />
     <ClCompile Include="TransportTypes.cpp" />
+    <ClCompile Include="UiWidgets.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Basic.shader" />
@@ -174,6 +175,7 @@ if exist "$(OutDir)Data\Saves" rmdir /S /Q "$(OutDir)Data\Saves"</Command>
     <None Include="Data\Modules\smokestack_module.xml" />
     <None Include="Data\Modules\warehouse_module.xml" />
     <None Include="Data\TransportNetwork\congestion.xml" />
+    <None Include="Data\UI\city_tools.xml" />
     <None Include="Data\UI\lot_query.xml" />
   </ItemGroup>
   <ItemGroup>
@@ -200,6 +202,7 @@ if exist "$(OutDir)Data\Saves" rmdir /S /Q "$(OutDir)Data\Saves"</Command>
     <ClInclude Include="TransportTile.h" />
     <ClInclude Include="TransportNetwork.h" />
     <ClInclude Include="TransportTypes.h" />
+    <ClInclude Include="UiWidgets.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

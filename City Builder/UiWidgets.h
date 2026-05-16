@@ -1,0 +1,162 @@
+#pragma once
+
+#include <string>
+#include <vector>
+
+struct UiColor {
+    float r;
+    float g;
+    float b;
+    float a;
+
+    UiColor();
+    UiColor(float red, float green, float blue, float alpha);
+};
+
+struct UiRect {
+    int x;
+    int y;
+    int width;
+    int height;
+
+    UiRect();
+    bool contains(double pointX, double pointY) const;
+};
+
+class UiButton {
+public:
+    UiButton();
+
+    const std::string& id() const;
+    const std::string& text() const;
+    const std::string& action() const;
+    int x() const;
+    int y() const;
+    int width() const;
+    int height() const;
+    bool hasExplicitX() const;
+    bool hasExplicitY() const;
+    bool hasExplicitWidth() const;
+    bool hasExplicitHeight() const;
+    const UiColor& color() const;
+    const UiColor& activeColor() const;
+
+    void setDefinition(
+        const std::string& id,
+        const std::string& text,
+        const std::string& action,
+        int x,
+        int y,
+        int width,
+        int height,
+        bool hasExplicitX,
+        bool hasExplicitY,
+        bool hasExplicitWidth,
+        bool hasExplicitHeight,
+        const UiColor& color,
+        const UiColor& activeColor);
+
+private:
+    std::string id_;
+    std::string text_;
+    std::string action_;
+    int x_;
+    int y_;
+    int width_;
+    int height_;
+    bool hasExplicitX_;
+    bool hasExplicitY_;
+    bool hasExplicitWidth_;
+    bool hasExplicitHeight_;
+    UiColor color_;
+    UiColor activeColor_;
+};
+
+struct UiResolvedButton {
+    std::string menuId;
+    std::string buttonId;
+    std::string text;
+    std::string action;
+    UiRect rect;
+    UiColor color;
+    bool isActive;
+
+    UiResolvedButton();
+};
+
+enum class UiAnchor {
+    TopLeft,
+    BottomLeft
+};
+
+enum class UiFlow {
+    Down,
+    Up
+};
+
+class UiMenu {
+public:
+    UiMenu();
+
+    const std::string& id() const;
+    bool visible() const;
+    void setVisible(bool visible);
+    const UiColor& backgroundColor() const;
+    const std::vector<UiButton>& buttons() const;
+
+    void setDefinition(
+        const std::string& id,
+        int x,
+        int y,
+        int bottom,
+        int width,
+        int height,
+        int buttonWidth,
+        int buttonHeight,
+        int spacing,
+        UiAnchor anchor,
+        UiFlow flow,
+        bool visible,
+        const UiColor& backgroundColor);
+    void addButton(const UiButton& button);
+    UiRect resolvedRect(int framebufferWidth, int framebufferHeight) const;
+    void resolveButtons(int framebufferWidth, int framebufferHeight, const std::string& activeAction, std::vector<UiResolvedButton>& resolvedButtons) const;
+
+private:
+    int automaticHeight() const;
+
+    std::string id_;
+    int x_;
+    int y_;
+    int bottom_;
+    int width_;
+    int height_;
+    int buttonWidth_;
+    int buttonHeight_;
+    int spacing_;
+    UiAnchor anchor_;
+    UiFlow flow_;
+    bool visible_;
+    UiColor backgroundColor_;
+    std::vector<UiButton> buttons_;
+};
+
+class UiLayout {
+public:
+    UiLayout();
+
+    bool loadFromXmlFile(const std::string& filePath);
+    void setFallbackDefinition();
+    const std::vector<UiMenu>& menus() const;
+    void setMenuVisible(const std::string& menuId, bool visible);
+    void toggleMenu(const std::string& menuId);
+    bool menuVisible(const std::string& menuId) const;
+    bool hitTestAction(double mouseX, double mouseY, int framebufferWidth, int framebufferHeight, std::string& action) const;
+    void resolveButtons(int framebufferWidth, int framebufferHeight, const std::string& activeAction, std::vector<UiResolvedButton>& resolvedButtons) const;
+
+private:
+    UiMenu* findMenu(const std::string& menuId);
+    const UiMenu* findMenu(const std::string& menuId) const;
+
+    std::vector<UiMenu> menus_;
+};

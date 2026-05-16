@@ -18,8 +18,9 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
   - alpha-tinted ghost road preview while a road stroke is being dragged
   - alpha-tinted ghost lot preview while a lot placement tool is active
   - red bulldoze area overlay and selected-building tint while dragging
+  - persistent residential/industrial zoning tint overlays plus matching drag previews
   - separate lot prism instancing
-  - screen-space in-game window quads and bitmap text for query inspection
+  - screen-space in-game window, menu, button quads, and bitmap text for query inspection and tool selection
   - chunk frustum culling
   - ground-plane mouse picking
 - `AppController` owns pan/zoom/tool intent and queues simulation commands.
@@ -46,6 +47,9 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
 - `Y`: remove the module under the hovered tile
 - `B`: drag a rectangular bulldoze area; selected tiles overlay red and selected buildings tint red before release
 - `A`: query hovered tile; queried lots show an in-game detail window plus accepted commute routes as green car arrows and pink pedestrian arrows
+- Bottom-left `Tools` button: show or hide the left-side tool menu
+- Left-side menu: select bulldoze, road, query, residential zoning, or industrial zoning
+- Residential / Industrial zoning buttons: drag a rectangle to mark vacant, unoccupied tiles with green or yellow zoning overlays
 - Region mode starts first; double-click a city preview to enter that city
 - `F1`: save the current region autoslot
 - `F2`: load the region autoslot; in city mode, reload the current city in place
@@ -89,7 +93,9 @@ msbuild 'City Builder/RendererTests.vcxproj' /p:Configuration=Release /p:Platfor
 - Road drag previews are renderer-only transient instances tinted with alpha; committed road topology still arrives through published snapshots.
 - Lot placement previews are renderer-only transient instances built from the same XML-backed lot candidate geometry used by committed placement.
 - Bulldoze previews are renderer-only transient area overlays; committed deletion still arrives through queued simulation commands.
+- Residential and industrial zoning are queued simulation commands that mark vacant, unoccupied tiles; the renderer presents their published `Tile::zoningType` as green/yellow tile overlays.
 - In-game windows load from XML under `City Builder/Data/UI`; the current query window uses optional text fields, margins, and content hugging.
+- Tool menus and buttons also load from XML under `City Builder/Data/UI`; the current city tool menu lives in `city_tools.xml`.
 - The renderer timing print breaks out tile-state packing/upload bytes, lift uploads, ground-road uploads, elevated-road uploads, and draw costs.
 - Lots are not chunk-owned yet; they still use a separate renderer path for now.
 - Lot/module archetypes load from XML under `City Builder/Data`; lot XML can declare a front and explicit mode-specific access tiles.
@@ -98,12 +104,12 @@ msbuild 'City Builder/RendererTests.vcxproj' /p:Configuration=Release /p:Platfor
 
 ## Design guides
 - `docs/design/transport-network.md` - lane-owned road placement, directional cost maps, pathfinding, crosswalk graphic rules, packed road state, and layer revisions. Main code anchors: `TransportTypes.h`, `TransportCostMap.h`, `RoadLane.h`, `Road.h`, `TransportTile.h`, `RoadRenderState.h`, and `TransportNetwork.h`.
-- `docs/design/renderer.md` - renderer upload, culling, texture, shader decisions, packed lane graphic masks, shared ground/elevated road render data, placement ghost previews, and UI draw ordering. Main code anchors: `BuildLotInstance`, `BuildRoadPreviewInstances`, `BuildRoadChunkInstances`, `BuildWindowQuads`, `UpdateGroundRoadChunkTexture`, and `applyRoadEdgeOverlays`.
+- `docs/design/renderer.md` - renderer upload, culling, texture, shader decisions, packed lane graphic masks, shared ground/elevated road render data, placement ghost previews, zoning overlays, and UI draw ordering. Main code anchors: `BuildLotInstance`, `BuildRoadPreviewInstances`, `BuildRoadChunkInstances`, `BuildWindowQuads`, `RendererBuildUiMenuQuads`, `UpdateGroundRoadChunkTexture`, and `applyRoadEdgeOverlays`.
 - `docs/design/simulation-threading.md` - tile passes, triple buffering, chunk worker rules, and published snapshot ownership.
 - `docs/design/lots.md` - lot/module placement, occupancy, effects, and render snapshots.
 - `docs/design/xml-assets.md` - strict XML archetype loading and validation.
 - `docs/design/region-save.md` - region/city ownership, autoslot save/load, previews, and alpha compatibility assumptions.
-- `docs/design/window-system.md` - XML-backed in-game windows, text fields, query-window flow layout, and renderer UI quads.
+- `docs/design/window-system.md` - XML-backed in-game windows, text fields, query-window flow layout, menus, buttons, and renderer UI quads.
 
 ## Repository hygiene
 - The active code lives under `City Builder/`; stale tracked build outputs and legacy unused helper files were removed.

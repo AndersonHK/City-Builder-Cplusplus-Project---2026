@@ -334,6 +334,25 @@ void SimulationRuntime::queueBulldozeArea(int startTileX, int startTileY, int en
     enqueueCommand(playerCommand);
 }
 
+void SimulationRuntime::queueZoneArea(int startTileX, int startTileY, int endTileX, int endTileY, std::uint16_t zoningType) {
+    if (zoningType == TileZoningNone) {
+        return;
+    }
+
+    if (!isTileInsideMap(startTileX, startTileY) && !isTileInsideMap(endTileX, endTileY)) {
+        return;
+    }
+
+    PlayerCommand playerCommand;
+    playerCommand.type = PlayerCommandType::ZoneArea;
+    playerCommand.tileX = std::max(0, std::min(startTileX, kMapWidth - 1));
+    playerCommand.tileY = std::max(0, std::min(startTileY, kMapHeight - 1));
+    playerCommand.endTileX = std::max(0, std::min(endTileX, kMapWidth - 1));
+    playerCommand.endTileY = std::max(0, std::min(endTileY, kMapHeight - 1));
+    playerCommand.zoningType = zoningType;
+    enqueueCommand(playerCommand);
+}
+
 // Queues a multi-tile road stroke for transport-layer application.
 void SimulationRuntime::queuePlaceRoadStroke(const RoadStrokeCommand& roadStrokeCommand) {
     if (!isTileInsideMap(roadStrokeCommand.startTile.x, roadStrokeCommand.startTile.y) ||
@@ -1148,6 +1167,10 @@ void SimulationRuntime::applyQueuedCommands(TileBuffer& writeBuffer) {
 
             case PlayerCommandType::BulldozeArea:
                 tryBulldozeArea(playerCommand.tileX, playerCommand.tileY, playerCommand.endTileX, playerCommand.endTileY, writeBuffer);
+                break;
+
+            case PlayerCommandType::ZoneArea:
+                tryZoneArea(playerCommand.tileX, playerCommand.tileY, playerCommand.endTileX, playerCommand.endTileY, playerCommand.zoningType, writeBuffer);
                 break;
         }
     }
@@ -1974,6 +1997,12 @@ bool SimulationRuntime::tryBulldozeAtTile(int clickedTileX, int clickedTileY, Ti
         return true;
     }
 
+    if (writeBuffer.tiles[tileLinearIndex].zoningType != TileZoningNone) {
+        writeBuffer.tiles[tileLinearIndex].zoningType = TileZoningNone;
+        markChunkDirtyByTile(writeBuffer.chunkRevisions, clickedTileX, clickedTileY);
+        return true;
+    }
+
     return false;
 }
 
@@ -1993,6 +2022,46 @@ bool SimulationRuntime::tryBulldozeArea(int startTileX, int startTileY, int endT
     }
 
     return removedAny;
+}
+
+bool SimulationRuntime::tryZoneArea(int startTileX, int startTileY, int endTileX, int endTileY, std::uint16_t zoningType, TileBuffer& writeBuffer) {
+    if (zoningType == TileZoningNone) {
+        return false;
+    }
+
+    const int minTileX = std::max(0, std::min(startTileX, endTileX));
+    const int maxTileX = std::min(kMapWidth - 1, std::max(startTileX, endTileX));
+    const int minTileY = std::max(0, std::min(startTileY, endTileY));
+    const int maxTileY = std::min(kMapHeight - 1, std::max(startTileY, endTileY));
+
+    std::vector<int> changedTileIndices;
+    changedTileIndices.reserve(static_cast<std::size_t>(maxTileX - minTileX + 1) * static_cast<std::size_t>(maxTileY - minTileY + 1));
+
+    int tileY = minTileY;
+    for (; tileY <= maxTileY; ++tileY) {
+        int tileX = minTileX;
+        for (; tileX <= maxTileX; ++tileX) {
+            const int tileLinearIndex = tileIndex(tileX, tileY);
+            if (lotOccupancy_[tileLinearIndex] != kInvalidLotId || transportNetwork_.hasGroundOccupancy(tileLinearIndex)) {
+                continue;
+            }
+
+            Tile& tile = writeBuffer.tiles[tileLinearIndex];
+            if (!tile.isVacant || tile.zoningType == zoningType) {
+                continue;
+            }
+
+            tile.zoningType = zoningType;
+            changedTileIndices.push_back(tileLinearIndex);
+        }
+    }
+
+    if (changedTileIndices.empty()) {
+        return false;
+    }
+
+    markChunksDirtyByTileIndices(writeBuffer.chunkRevisions, changedTileIndices);
+    return true;
 }
 
 // Checks occupancy and ground-road conflicts for a candidate lot footprint.

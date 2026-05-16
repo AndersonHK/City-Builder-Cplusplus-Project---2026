@@ -7,6 +7,7 @@
 #include "ChunkConfig.h"
 #include "InGameWindow.h"
 #include "Tile.h"
+#include "UiWidgets.h"
 
 struct UiQuadInstanceData {
     float x;
@@ -22,5 +23,7 @@ struct UiQuadInstanceData {
 std::int16_t RendererPackTileStateScalar(int value);
 void RendererFillTileStateChunkPixels(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, std::vector<std::int16_t>& texturePixels);
 void RendererFillTileLiftChunkPixels(const std::vector<int>& lotOccupancy, int mapWidth, const ChunkRect& chunkRect, std::vector<std::uint8_t>& texturePixels);
+void RendererFillZoningOverlayChunkPixels(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, std::vector<std::uint8_t>& texturePixels);
 bool RendererNextUtf8Codepoint(const std::string& text, std::size_t& byteIndex, std::uint32_t& codepoint);
 std::vector<UiQuadInstanceData> RendererBuildWindowQuads(const InGameWindow& window);
+std::vector<UiQuadInstanceData> RendererBuildUiMenuQuads(const UiLayout& uiLayout, int framebufferWidth, int framebufferHeight, const std::string& activeAction);

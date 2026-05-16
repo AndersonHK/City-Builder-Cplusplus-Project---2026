@@ -1,10 +1,13 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <string>
 #include <vector>
 
 #include "GameSession.h"
+#include "Tile.h"
+#include "UiWidgets.h"
 
 enum class ActiveTool {
     PollutionBrush,
@@ -17,7 +20,9 @@ enum class ActiveTool {
     AddParkModule,
     RemoveModule,
     Bulldozer,
-    Query
+    Query,
+    ZoneResidential,
+    ZoneIndustrial
 };
 
 enum class OverlayMode {
@@ -47,6 +52,12 @@ struct ViewState {
     int bulldozeDragStartY;
     int bulldozeDragCurrentX;
     int bulldozeDragCurrentY;
+    bool zoneDragActive;
+    int zoneDragStartX;
+    int zoneDragStartY;
+    int zoneDragCurrentX;
+    int zoneDragCurrentY;
+    std::uint16_t zoneDragType;
     int roadLaneCount;
     RoadTrafficSide roadTrafficSide;
     RoadDirectionMode roadDirectionMode;
@@ -88,6 +99,12 @@ struct ViewState {
           bulldozeDragStartY(0),
           bulldozeDragCurrentX(0),
           bulldozeDragCurrentY(0),
+          zoneDragActive(false),
+          zoneDragStartX(0),
+          zoneDragStartY(0),
+          zoneDragCurrentX(0),
+          zoneDragCurrentY(0),
+          zoneDragType(TileZoningNone),
           roadLaneCount(1),
           roadTrafficSide(RoadTrafficSide::RightHand),
           roadDirectionMode(RoadDirectionMode::TwoWay),
@@ -122,6 +139,10 @@ public:
     bool roadPreviewStroke(RoadStrokeCommand& roadStrokeCommand) const;
     bool lotPreviewRequest(std::string& lotAssetId, int& tileX, int& tileY, int& rotationSteps) const;
     bool bulldozePreviewRect(int& minTileX, int& minTileY, int& maxTileX, int& maxTileY) const;
+    bool zonePreviewRect(int& minTileX, int& minTileY, int& maxTileX, int& maxTileY, std::uint16_t& zoningType) const;
+    bool loadUiLayoutFromXmlFile(const std::string& filePath);
+    const UiLayout& uiLayout() const;
+    std::string activeUiAction() const;
     void refreshQueryResultIfNeeded();
     void processPendingRegionClick();
 
@@ -137,6 +158,9 @@ private:
     void toggleRoadDebugGraphics();
     void rotatePlacement(int deltaSteps);
     bool activeToolIsRoad() const;
+    bool activeToolIsZoning() const;
+    bool handleUiClick();
+    void invokeUiAction(const std::string& action);
     bool handleRegionClick();
     void applyCameraFromActiveCity();
     void syncActiveCityCameraToSession();
@@ -144,6 +168,8 @@ private:
     void commitRoadDrag(int tileX, int tileY);
     void beginBulldozeDrag(int tileX, int tileY);
     void commitBulldozeDrag(int tileX, int tileY);
+    void beginZoneDrag(int tileX, int tileY);
+    void commitZoneDrag(int tileX, int tileY);
     RoadTemplate currentRoadTemplate(RoadFamily family, TransportLayerId layer) const;
     void printRoadTemplate() const;
     void printQueryResult();
@@ -153,6 +179,8 @@ private:
 
     GameSession& gameSession_;
     ViewState viewState_;
+    UiLayout uiLayout_;
+    bool uiPressCaptured_;
     bool regionClickPending_;
     bool hasLastRegionClick_;
     int lastRegionClickX_;

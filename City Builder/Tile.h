@@ -2,6 +2,10 @@
 
 #include <cstdint>
 
+const std::uint16_t TileZoningNone = 0;
+const std::uint16_t TileZoningResidential = 1;
+const std::uint16_t TileZoningIndustrial = 2;
+
 struct Tile {
     int landValue;
     int airPollution;

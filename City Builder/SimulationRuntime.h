@@ -42,7 +42,8 @@ enum class PlayerCommandType {
     RemoveModuleAtTile,
     PlaceRoadStroke,
     BulldozeAtTile,
-    BulldozeArea
+    BulldozeArea,
+    ZoneArea
 };
 
 struct PlayerCommand {
@@ -53,6 +54,7 @@ struct PlayerCommand {
     int endTileY;
     int amount;
     int rotationSteps;
+    std::uint16_t zoningType;
     std::string assetId;
     RoadStrokeCommand roadStroke;
 
@@ -64,7 +66,8 @@ struct PlayerCommand {
           endTileX(0),
           endTileY(0),
           amount(0),
-          rotationSteps(0) {
+          rotationSteps(0),
+          zoningType(TileZoningNone) {
     }
 };
 
@@ -207,6 +210,7 @@ public:
     void queueRemoveModuleAtTile(int tileX, int tileY);
     void queueBulldozeAtTile(int tileX, int tileY);
     void queueBulldozeArea(int startTileX, int startTileY, int endTileX, int endTileY);
+    void queueZoneArea(int startTileX, int startTileY, int endTileX, int endTileY, std::uint16_t zoningType);
     void queuePlaceRoadStroke(const RoadStrokeCommand& roadStrokeCommand);
     void queuePlaceSmokestack(int tileX, int tileY, int rotationSteps = 0);
     void queuePlacePark(int tileX, int tileY, int rotationSteps = 0);
@@ -310,6 +314,7 @@ private:
     bool tryRemoveModuleAtTile(int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
     bool tryBulldozeAtTile(int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
     bool tryBulldozeArea(int startTileX, int startTileY, int endTileX, int endTileY, TileBuffer& writeBuffer);
+    bool tryZoneArea(int startTileX, int startTileY, int endTileX, int endTileY, std::uint16_t zoningType, TileBuffer& writeBuffer);
     bool canPlaceLot(const Lot& candidateLot) const;
     bool collectAdjacentLotIdsForModule(const LotModule& moduleAsset, int clickedTileX, int clickedTileY, std::vector<int>& adjacentLotIds) const;
     void clearLotOccupancy(const std::vector<int>& tileIndices);

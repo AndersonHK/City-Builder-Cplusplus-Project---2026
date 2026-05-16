@@ -74,12 +74,14 @@
     <ClCompile Include="InGameWindow.cpp" />
     <ClCompile Include="RendererAlgorithms.cpp" />
     <ClCompile Include="RendererTests.cpp" />
+    <ClCompile Include="UiWidgets.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ChunkConfig.h" />
     <ClInclude Include="InGameWindow.h" />
     <ClInclude Include="RendererAlgorithms.h" />
     <ClInclude Include="Tile.h" />
+    <ClInclude Include="UiWidgets.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

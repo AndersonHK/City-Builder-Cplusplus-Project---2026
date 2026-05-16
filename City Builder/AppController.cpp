@@ -117,6 +117,12 @@ const char* ActiveToolName(ActiveTool activeTool) {
 
         case ActiveTool::Query:
             return "query";
+
+        case ActiveTool::ZoneResidential:
+            return "residential zoning";
+
+        case ActiveTool::ZoneIndustrial:
+            return "industrial zoning";
     }
 
     return "unknown";
@@ -300,6 +306,7 @@ std::string DirectionMaskToString(std::uint8_t directionMask) {
 // Connects input intent to the active game session.
 AppController::AppController(GameSession& gameSession)
     : gameSession_(gameSession),
+      uiPressCaptured_(false),
       regionClickPending_(false),
       hasLastRegionClick_(false),
       lastRegionClickX_(0),
@@ -315,6 +322,12 @@ void AppController::onCursorMoved(double mouseX, double mouseY) {
 
 // Dispatches the currently selected tool's primary click action.
 void AppController::onLeftMouseButtonPressed() {
+    uiPressCaptured_ = false;
+    if (!gameSession_.isRegionMode() && handleUiClick()) {
+        uiPressCaptured_ = true;
+        return;
+    }
+
     if (gameSession_.isRegionMode()) {
         regionClickPending_ = true;
         return;
@@ -364,11 +377,21 @@ void AppController::onLeftMouseButtonPressed() {
         case ActiveTool::Query:
             printQueryResult();
             break;
+
+        case ActiveTool::ZoneResidential:
+        case ActiveTool::ZoneIndustrial:
+            beginZoneDrag(tileX, tileY);
+            break;
     }
 }
 
 // Commits any active road drag when the mouse button is released.
 void AppController::onLeftMouseButtonReleased() {
+    if (uiPressCaptured_) {
+        uiPressCaptured_ = false;
+        return;
+    }
+
     if (gameSession_.isRegionMode()) {
         return;
     }
@@ -380,11 +403,20 @@ void AppController::onLeftMouseButtonReleased() {
 
     if (viewState_.roadDragActive && activeToolIsRoad()) {
         commitRoadDrag(hoveredTileX(), hoveredTileY());
+        return;
+    }
+
+    if (viewState_.zoneDragActive && activeToolIsZoning()) {
+        commitZoneDrag(hoveredTileX(), hoveredTileY());
     }
 }
 
 // Handles continuous actions while the primary mouse button remains down.
 void AppController::onLeftMouseButtonHeld() {
+    if (uiPressCaptured_) {
+        return;
+    }
+
     if (gameSession_.isRegionMode()) {
         return;
     }
@@ -402,6 +434,11 @@ void AppController::onLeftMouseButtonHeld() {
     if (viewState_.bulldozeDragActive && viewState_.activeTool == ActiveTool::Bulldozer) {
         viewState_.bulldozeDragCurrentX = hoveredTileX();
         viewState_.bulldozeDragCurrentY = hoveredTileY();
+    }
+
+    if (viewState_.zoneDragActive && activeToolIsZoning()) {
+        viewState_.zoneDragCurrentX = hoveredTileX();
+        viewState_.zoneDragCurrentY = hoveredTileY();
     }
 }
 
@@ -422,6 +459,7 @@ void AppController::onKeyPressed(int key, int action) {
         applyCameraFromActiveCity();
         viewState_.roadDragActive = false;
         viewState_.bulldozeDragActive = false;
+        viewState_.zoneDragActive = false;
         return;
     }
 
@@ -430,6 +468,7 @@ void AppController::onKeyPressed(int key, int action) {
         gameSession_.exitToRegion();
         viewState_.roadDragActive = false;
         viewState_.bulldozeDragActive = false;
+        viewState_.zoneDragActive = false;
         return;
     }
 
@@ -668,6 +707,49 @@ bool AppController::bulldozePreviewRect(int& minTileX, int& minTileY, int& maxTi
     return true;
 }
 
+bool AppController::zonePreviewRect(int& minTileX, int& minTileY, int& maxTileX, int& maxTileY, std::uint16_t& zoningType) const {
+    if (gameSession_.isRegionMode() || !activeToolIsZoning() || !viewState_.zoneDragActive) {
+        return false;
+    }
+
+    minTileX = std::min(viewState_.zoneDragStartX, viewState_.zoneDragCurrentX);
+    minTileY = std::min(viewState_.zoneDragStartY, viewState_.zoneDragCurrentY);
+    maxTileX = std::max(viewState_.zoneDragStartX, viewState_.zoneDragCurrentX);
+    maxTileY = std::max(viewState_.zoneDragStartY, viewState_.zoneDragCurrentY);
+    zoningType = viewState_.zoneDragType;
+    return zoningType != TileZoningNone;
+}
+
+bool AppController::loadUiLayoutFromXmlFile(const std::string& filePath) {
+    return uiLayout_.loadFromXmlFile(filePath);
+}
+
+const UiLayout& AppController::uiLayout() const {
+    return uiLayout_;
+}
+
+std::string AppController::activeUiAction() const {
+    switch (viewState_.activeTool) {
+        case ActiveTool::RoadStreet:
+            return "select_road_street";
+
+        case ActiveTool::Bulldozer:
+            return "select_bulldozer";
+
+        case ActiveTool::Query:
+            return "select_query";
+
+        case ActiveTool::ZoneResidential:
+            return "select_rci_residential";
+
+        case ActiveTool::ZoneIndustrial:
+            return "select_rci_industrial";
+
+        default:
+            return std::string();
+    }
+}
+
 // Keeps the camera span inside the map after pan or zoom changes.
 void AppController::clampCameraToMap() {
     const int horizontalSlack = std::max(64, viewState_.visibleTiles / 2);
@@ -692,6 +774,7 @@ void AppController::setActiveTool(ActiveTool activeTool) {
     viewState_.activeTool = activeTool;
     viewState_.roadDragActive = false;
     viewState_.bulldozeDragActive = false;
+    viewState_.zoneDragActive = false;
     if (activeToolIsRoad()) {
         NormalizeRoadTemplateSelection(viewState_);
     }
@@ -716,6 +799,43 @@ void AppController::rotatePlacement(int deltaSteps) {
 // Reports whether the active tool uses the road drag workflow.
 bool AppController::activeToolIsRoad() const {
     return viewState_.activeTool == ActiveTool::RoadStreet || viewState_.activeTool == ActiveTool::RoadHighway;
+}
+
+bool AppController::activeToolIsZoning() const {
+    return viewState_.activeTool == ActiveTool::ZoneResidential || viewState_.activeTool == ActiveTool::ZoneIndustrial;
+}
+
+bool AppController::handleUiClick() {
+    std::string action;
+    if (!uiLayout_.hitTestAction(viewState_.mouseX, viewState_.mouseY, viewState_.framebufferWidth, viewState_.framebufferHeight, action)) {
+        return false;
+    }
+
+    invokeUiAction(action);
+    return true;
+}
+
+void AppController::invokeUiAction(const std::string& action) {
+    if (action == "toggle_side_menu") {
+        viewState_.roadDragActive = false;
+        viewState_.bulldozeDragActive = false;
+        viewState_.zoneDragActive = false;
+        uiLayout_.toggleMenu("side_tools");
+        return;
+    }
+
+    if (action == "select_bulldozer") {
+        setActiveTool(ActiveTool::Bulldozer);
+    } else if (action == "select_road_street") {
+        setActiveTool(ActiveTool::RoadStreet);
+        printRoadTemplate();
+    } else if (action == "select_query") {
+        setActiveTool(ActiveTool::Query);
+    } else if (action == "select_rci_residential") {
+        setActiveTool(ActiveTool::ZoneResidential);
+    } else if (action == "select_rci_industrial") {
+        setActiveTool(ActiveTool::ZoneIndustrial);
+    }
 }
 
 bool AppController::handleRegionClick() {
@@ -759,6 +879,7 @@ void AppController::applyCameraFromActiveCity() {
     viewState_.visibleTiles = std::max(kMinimumVisibleTiles, std::min(activeCity->visibleTiles(), kMaximumVisibleTiles));
     viewState_.roadDragActive = false;
     viewState_.bulldozeDragActive = false;
+    viewState_.zoneDragActive = false;
     viewState_.queriedLotId = -1;
     viewState_.queriedLotRevision = 0;
     viewState_.queriedCommuteRevision = 0;
@@ -835,6 +956,27 @@ void AppController::commitBulldozeDrag(int tileX, int tileY) {
         viewState_.bulldozeDragCurrentX,
         viewState_.bulldozeDragCurrentY);
     viewState_.bulldozeDragActive = false;
+}
+
+void AppController::beginZoneDrag(int tileX, int tileY) {
+    viewState_.zoneDragActive = true;
+    viewState_.zoneDragStartX = tileX;
+    viewState_.zoneDragStartY = tileY;
+    viewState_.zoneDragCurrentX = tileX;
+    viewState_.zoneDragCurrentY = tileY;
+    viewState_.zoneDragType = viewState_.activeTool == ActiveTool::ZoneResidential ? TileZoningResidential : TileZoningIndustrial;
+}
+
+void AppController::commitZoneDrag(int tileX, int tileY) {
+    viewState_.zoneDragCurrentX = tileX;
+    viewState_.zoneDragCurrentY = tileY;
+    gameSession_.runtime().queueZoneArea(
+        viewState_.zoneDragStartX,
+        viewState_.zoneDragStartY,
+        viewState_.zoneDragCurrentX,
+        viewState_.zoneDragCurrentY,
+        viewState_.zoneDragType);
+    viewState_.zoneDragActive = false;
 }
 
 // Builds the currently selected modular road template for a placement command.

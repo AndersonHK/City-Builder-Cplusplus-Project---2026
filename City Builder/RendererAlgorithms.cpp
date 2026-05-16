@@ -112,24 +112,50 @@ void RendererAddUiQuad(std::vector<UiQuadInstanceData>& quads, float x, float y,
     quads.push_back(quad);
 }
 
-void RendererBuildTextQuads(const TextFieldElement& field, float windowX, float windowY, std::vector<UiQuadInstanceData>& quads) {
-    const float scale = 2.0f;
-    const float characterAdvance = 6.0f * scale;
-    const float originX = windowX + static_cast<float>(field.x());
-    const float originY = windowY + static_cast<float>(field.y());
-    const float maxX = originX + static_cast<float>(field.width());
-    const float maxY = originY + static_cast<float>(field.height());
-    const RendererColor textColor(0.88f, 0.94f, 0.91f, 1.0f);
+RendererColor ToRendererColor(const UiColor& color) {
+    return RendererColor(color.r, color.g, color.b, color.a);
+}
 
-    float cursorX = originX;
+std::size_t RendererVisibleCharacterCount(const std::string& text) {
     std::size_t byteIndex = 0;
-    while (byteIndex < field.text().size()) {
+    std::size_t characterCount = 0;
+    while (byteIndex < text.size()) {
         std::uint32_t codepoint = 0u;
-        if (!RendererNextUtf8Codepoint(field.text(), byteIndex, codepoint) || codepoint == '\n') {
+        if (!RendererNextUtf8Codepoint(text, byteIndex, codepoint) || codepoint == '\n') {
             break;
         }
 
-        if (cursorX + (5.0f * scale) > maxX || originY + (7.0f * scale) > maxY) {
+        ++characterCount;
+    }
+
+    return characterCount;
+}
+
+void RendererBuildTextQuadsInRect(const std::string& text, float originX, float originY, float width, float height, const RendererColor& textColor, bool centered, std::vector<UiQuadInstanceData>& quads) {
+    const float scale = 2.0f;
+    const float characterAdvance = 6.0f * scale;
+    const float glyphWidth = 5.0f * scale;
+    const float glyphHeight = 7.0f * scale;
+    const float maxX = originX + width;
+    const float maxY = originY + height;
+    float cursorX = originX;
+    float cursorY = originY;
+
+    if (centered) {
+        const std::size_t characterCount = RendererVisibleCharacterCount(text);
+        const float textWidth = characterCount == 0u ? 0.0f : (static_cast<float>(characterCount - 1u) * characterAdvance) + glyphWidth;
+        cursorX = originX + std::max(0.0f, (width - textWidth) * 0.5f);
+        cursorY = originY + std::max(0.0f, (height - glyphHeight) * 0.5f);
+    }
+
+    std::size_t byteIndex = 0;
+    while (byteIndex < text.size()) {
+        std::uint32_t codepoint = 0u;
+        if (!RendererNextUtf8Codepoint(text, byteIndex, codepoint) || codepoint == '\n') {
+            break;
+        }
+
+        if (cursorX + glyphWidth > maxX || cursorY + glyphHeight > maxY) {
             break;
         }
 
@@ -139,13 +165,25 @@ void RendererBuildTextQuads(const TextFieldElement& field, float windowX, float 
             int column = 0;
             for (; column < 5; ++column) {
                 if (rows[row][column] == '1') {
-                    RendererAddUiQuad(quads, cursorX + static_cast<float>(column) * scale, originY + static_cast<float>(row) * scale, scale, scale, textColor);
+                    RendererAddUiQuad(quads, cursorX + static_cast<float>(column) * scale, cursorY + static_cast<float>(row) * scale, scale, scale, textColor);
                 }
             }
         }
 
         cursorX += characterAdvance;
     }
+}
+
+void RendererBuildTextQuads(const TextFieldElement& field, float windowX, float windowY, std::vector<UiQuadInstanceData>& quads) {
+    RendererBuildTextQuadsInRect(
+        field.text(),
+        windowX + static_cast<float>(field.x()),
+        windowY + static_cast<float>(field.y()),
+        static_cast<float>(field.width()),
+        static_cast<float>(field.height()),
+        RendererColor(0.88f, 0.94f, 0.91f, 1.0f),
+        false,
+        quads);
 }
 }
 
@@ -190,6 +228,39 @@ void RendererFillTileLiftChunkPixels(const std::vector<int>& lotOccupancy, int m
         for (; tileX < chunkRect.startX + chunkRect.width; ++tileX) {
             const std::size_t sourceIndex = static_cast<std::size_t>(tileY) * static_cast<std::size_t>(mapWidth) + static_cast<std::size_t>(tileX);
             texturePixels[writeIndex++] = lotOccupancy[sourceIndex] < 0 ? 0u : kOccupiedTileLiftMask;
+        }
+    }
+}
+
+void RendererFillZoningOverlayChunkPixels(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, std::vector<std::uint8_t>& texturePixels) {
+    const std::size_t chunkTileCount = static_cast<std::size_t>(chunkRect.width) * static_cast<std::size_t>(chunkRect.height);
+    if (texturePixels.size() != chunkTileCount * 4u) {
+        texturePixels.resize(chunkTileCount * 4u, 0u);
+    }
+
+    std::size_t writeIndex = 0;
+    int tileY = chunkRect.startY;
+    for (; tileY < chunkRect.startY + chunkRect.height; ++tileY) {
+        int tileX = chunkRect.startX;
+        for (; tileX < chunkRect.startX + chunkRect.width; ++tileX) {
+            const std::size_t sourceIndex = static_cast<std::size_t>(tileY) * static_cast<std::size_t>(mapWidth) + static_cast<std::size_t>(tileX);
+            const Tile& tile = tiles[sourceIndex];
+            if (tile.zoningType == TileZoningResidential) {
+                texturePixels[writeIndex++] = 50u;
+                texturePixels[writeIndex++] = 210u;
+                texturePixels[writeIndex++] = 92u;
+                texturePixels[writeIndex++] = 96u;
+            } else if (tile.zoningType == TileZoningIndustrial) {
+                texturePixels[writeIndex++] = 238u;
+                texturePixels[writeIndex++] = 211u;
+                texturePixels[writeIndex++] = 58u;
+                texturePixels[writeIndex++] = 104u;
+            } else {
+                texturePixels[writeIndex++] = 0u;
+                texturePixels[writeIndex++] = 0u;
+                texturePixels[writeIndex++] = 0u;
+                texturePixels[writeIndex++] = 0u;
+            }
         }
     }
 }
@@ -261,6 +332,49 @@ std::vector<UiQuadInstanceData> RendererBuildWindowQuads(const InGameWindow& win
     std::size_t fieldIndex = 0;
     for (; fieldIndex < textFields.size(); ++fieldIndex) {
         RendererBuildTextQuads(textFields[fieldIndex], x, y, quads);
+    }
+
+    return quads;
+}
+
+std::vector<UiQuadInstanceData> RendererBuildUiMenuQuads(const UiLayout& uiLayout, int framebufferWidth, int framebufferHeight, const std::string& activeAction) {
+    std::vector<UiQuadInstanceData> quads;
+    const std::vector<UiMenu>& menus = uiLayout.menus();
+
+    std::size_t menuIndex = 0;
+    for (; menuIndex < menus.size(); ++menuIndex) {
+        const UiMenu& menu = menus[menuIndex];
+        if (!menu.visible()) {
+            continue;
+        }
+
+        const UiRect menuRect = menu.resolvedRect(framebufferWidth, framebufferHeight);
+        RendererAddUiQuad(
+            quads,
+            static_cast<float>(menuRect.x),
+            static_cast<float>(menuRect.y),
+            static_cast<float>(menuRect.width),
+            static_cast<float>(menuRect.height),
+            ToRendererColor(menu.backgroundColor()));
+    }
+
+    std::vector<UiResolvedButton> resolvedButtons;
+    uiLayout.resolveButtons(framebufferWidth, framebufferHeight, activeAction, resolvedButtons);
+
+    std::size_t buttonIndex = 0;
+    for (; buttonIndex < resolvedButtons.size(); ++buttonIndex) {
+        const UiResolvedButton& button = resolvedButtons[buttonIndex];
+        const float x = static_cast<float>(button.rect.x);
+        const float y = static_cast<float>(button.rect.y);
+        const float width = static_cast<float>(button.rect.width);
+        const float height = static_cast<float>(button.rect.height);
+
+        RendererAddUiQuad(quads, x, y, width, height, ToRendererColor(button.color));
+        RendererAddUiQuad(quads, x, y, width, 2.0f, RendererColor(0.70f, 0.78f, 0.70f, button.isActive ? 0.96f : 0.52f));
+        RendererAddUiQuad(quads, x, y + height - 2.0f, width, 2.0f, RendererColor(0.03f, 0.04f, 0.05f, 0.56f));
+        RendererAddUiQuad(quads, x, y, 2.0f, height, RendererColor(0.58f, 0.66f, 0.61f, button.isActive ? 0.92f : 0.46f));
+        RendererAddUiQuad(quads, x + width - 2.0f, y, 2.0f, height, RendererColor(0.03f, 0.04f, 0.05f, 0.56f));
+        RendererBuildTextQuadsInRect(button.text, x, y, width, height, RendererColor(0.92f, 0.96f, 0.92f, 1.0f), true, quads);
     }
 
     return quads;
