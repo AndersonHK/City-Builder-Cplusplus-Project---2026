@@ -226,16 +226,23 @@ vec3 applyRoadEdgeOverlays(vec3 baseColor, vec2 localUv, float laneGraphicMask, 
     int divider = int(floor(dividerMask + 0.5));
     int whiteMask = divider & 15;
     int yellowMask = (divider >> 4) & 15;
-    bool northDivider = ((whiteMask | yellowMask) & 1) != 0 && localUv.y < 0.035;
-    bool eastDivider = ((whiteMask | yellowMask) & 2) != 0 && localUv.x > 0.965;
-    bool southDivider = ((whiteMask | yellowMask) & 4) != 0 && localUv.y > 0.965;
-    bool westDivider = ((whiteMask | yellowMask) & 8) != 0 && localUv.x < 0.035;
-    if (northDivider || eastDivider || southDivider || westDivider) {
-        bool yellow = ((yellowMask & 1) != 0 && northDivider) ||
-            ((yellowMask & 2) != 0 && eastDivider) ||
-            ((yellowMask & 4) != 0 && southDivider) ||
-            ((yellowMask & 8) != 0 && westDivider);
-        finalColor = yellow ? yellowDividerColor : whiteDividerColor;
+    bool yellowNorthDivider = (yellowMask & 1) != 0 && localUv.y < 0.035;
+    bool yellowEastDivider = (yellowMask & 2) != 0 && localUv.x > 0.965;
+    bool yellowSouthDivider = (yellowMask & 4) != 0 && localUv.y > 0.965;
+    bool yellowWestDivider = (yellowMask & 8) != 0 && localUv.x < 0.035;
+    bool yellowDivider = yellowNorthDivider || yellowEastDivider || yellowSouthDivider || yellowWestDivider;
+    if (yellowDivider) {
+        finalColor = yellowDividerColor;
+    } else {
+        bool horizontalDash = fract(localUv.x * 3.0) < 0.58;
+        bool verticalDash = fract(localUv.y * 3.0) < 0.58;
+        bool whiteNorthDivider = (whiteMask & 1) != 0 && localUv.y < 0.035 && horizontalDash;
+        bool whiteEastDivider = (whiteMask & 2) != 0 && localUv.x > 0.965 && verticalDash;
+        bool whiteSouthDivider = (whiteMask & 4) != 0 && localUv.y > 0.965 && horizontalDash;
+        bool whiteWestDivider = (whiteMask & 8) != 0 && localUv.x < 0.035 && verticalDash;
+        if (whiteNorthDivider || whiteEastDivider || whiteSouthDivider || whiteWestDivider) {
+            finalColor = whiteDividerColor;
+        }
     }
 
     return finalColor;
