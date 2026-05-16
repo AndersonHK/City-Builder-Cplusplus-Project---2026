@@ -13,7 +13,7 @@ Use this guide when changing `Lot`, lot placement, module expansion/removal, lot
 - `Lot` owns module placements, occupied offsets, occupied tile indices, aggregate effects, render height, and render color.
 - Module placements store the placed footprint width/height separately from the source module archetype so non-square modules rotate correctly.
 - `Lot` stores clockwise quarter-turn placement rotation so commute access can be evaluated in the same orientation as the placed footprint.
-- `Lot` also caches module-backed city-parameter contributions and the latest accepted commute route segments for query visualization.
+- `Lot` also caches module-backed city-parameter contributions, accepted commute route records, and coalesced route segments for query visualization.
 - `SimulationRuntime` owns the live lot list and the global lot-occupancy map.
 - Lot render snapshots rebuild only when `lotsRevision_` changes.
 - Tile lift for occupied lots is rendered through the renderer's lift mask texture rather than tile geometry rebuilds.
@@ -25,7 +25,7 @@ Use this guide when changing `Lot`, lot placement, module expansion/removal, lot
 - Update occupancy and chunk revisions whenever a lot footprint changes.
 - Preserve the invariant that a module add must attach to exactly one adjacent lot.
 - Rebuild cached lot state after any module add/remove/rebase.
-- Recompute city parameters and dirty commutes when lots or modules change.
+- Recompute city parameters when lots or modules change, but do not force a global commute rebuild for every building edit. Queue only the affected source/destination lots immediately and let the deterministic rolling commute queue rebalance the rest over time.
 - Keep commute access explicit in lot XML. Do not fall back to whole-footprint perimeter guessing for new commuter-producing lots.
 - Keep lot previews presentation-only; they can share candidate footprint/render construction, but occupancy rejection and mutation belong to committed placement.
 - When rotating lots, rotate both module origin and placed module footprint dimensions. Do not render a rotated non-square module with its original width/height.

@@ -102,6 +102,8 @@ Primary design goals:
 - Do not drift into object-heavy "simulate everything literally" design just because modern hardware allows more brute force.
 - Do not let graphics ambition erase the clarity and scalability of the tile-statistical core.
 - Keep traffic simulation statistical: pathfinding assigns aggregate loads, congestion reads old loads, and future building batches should write new loads through worker-local deltas before reduction.
+- Prefer integration-style sandbox tests for complex systems. For roads, pathfinding, and commute assignment, exercise player-like action sequences and micro-simulations instead of relying mainly on isolated helper unit tests.
+- The sandbox harness should eventually become reusable across test targets with map size, tick count, scheduled actions, lot placement, bulldoze, query, and tool-level operations.
 - Do not overfit chunk sizing to one exact CPU; detect and override should coexist.
 - Use comments only at load-bearing seams so future work stays explainable without drowning the code in narration.
 

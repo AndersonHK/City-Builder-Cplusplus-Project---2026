@@ -105,6 +105,19 @@ void main()
         vRouteColor = vec3(0.0);
         vUiColor = aInstanceData1;
         vSurfaceLift = 0.0;
+    } else if (uRenderMode == 7) {
+        worldPosition = vec3(
+            aLocalPosition.x * aInstanceData0.z + aInstanceData0.x,
+            0.075,
+            aLocalPosition.z * aInstanceData0.w + aInstanceData0.y);
+        vTileUv = vec2(0.0);
+        vLocalUv = aLocalPosition.xz;
+        vLotColor = vec3(0.0);
+        vRoadGlyphs = vec2(0.0);
+        vRoadMasks = vec2(0.0);
+        vRouteColor = vec3(0.0);
+        vUiColor = aInstanceData1;
+        vSurfaceLift = 0.0;
     } else {
         worldPosition = vec3(
             aLocalPosition.x + aInstanceData0.x,
@@ -339,6 +352,11 @@ void main()
     }
 
     if (vRenderMode == 6) {
+        color = vUiColor;
+        return;
+    }
+
+    if (vRenderMode == 7) {
         color = vUiColor;
         return;
     }

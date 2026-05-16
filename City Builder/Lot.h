@@ -88,6 +88,7 @@ public:
     const std::vector<int>& occupiedTileIndices() const;
     const std::vector<CityParameterContribution>& parameterContributions() const;
     const std::vector<CommuteRouteSegment>& commuteRouteSegments() const;
+    const std::vector<CommuteRouteRecord>& commuteRoutes() const;
     int commuteDemand() const;
     int commuteSatisfied() const;
     int lowWealthResidentsTotal() const;
@@ -112,18 +113,22 @@ public:
     std::string parameterSummary(const CityParameterRegistry& registry) const;
     std::string complaintSummary() const;
     void clearCommutes();
+    void clearCommuteRoutes();
     void setLowWealthResidentsTotal(int residents);
     void setLowWealthJobsTotal(int jobs);
+    void setLowWealthJobsFilled(int jobs);
     void setLowWealthResidentsRoadAccess(bool hasRoadAccess);
     void setLowWealthJobsRoadAccess(bool hasRoadAccess);
+    void setCommuteDemand(int demand);
     void addCommuteDemand(int demand);
-    void addCommuteRoute(int demand, const std::vector<CommuteRouteSegment>& segments);
+    void addCommuteRoute(int destinationLotId, int demand, std::uint16_t transportLoad, bool longCommute, const TransportPathResult& pathResult, const std::vector<CommuteRouteSegment>& segments);
     void addLowWealthJobsFilled(int jobs);
     void flagLongCommute();
 
 private:
     void rebuildCachedState(int mapWidth);
     void lotGroundColor(float& red, float& green, float& blue) const;
+    void rebuildCommuteRouteSummary();
 
     int lotId_;
     std::string assetId_;
@@ -136,6 +141,7 @@ private:
     std::vector<Int2> occupiedOffsets_;
     std::vector<int> occupiedTileIndices_;
     std::vector<CityParameterContribution> parameterContributions_;
+    std::vector<CommuteRouteRecord> commuteRoutes_;
     std::vector<CommuteRouteSegment> commuteRouteSegments_;
     int commuteDemand_;
     int commuteSatisfied_;

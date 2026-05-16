@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
 
+#include "TransportCostMap.h"
 #include "TransportTypes.h"
 
 struct CommuteRouteSegment {
@@ -26,3 +28,18 @@ struct CommuteRouteSegment {
     }
 };
 
+struct CommuteRouteRecord {
+    int destinationLotId;
+    int demand;
+    std::uint16_t transportLoad;
+    bool longCommute;
+    TransportPathResult pathResult;
+    std::vector<CommuteRouteSegment> segments;
+
+    CommuteRouteRecord()
+        : destinationLotId(-1),
+          demand(0),
+          transportLoad(0u),
+          longCommute(false) {
+    }
+};

@@ -1348,6 +1348,36 @@ void TestRemoveRoadTileClearsFourTileFootprint(TestRunner& runner) {
     }
 }
 
+void TestShortTwoTileRoadRemnantIsRemoved(TestRunner& runner) {
+    TransportNetwork network = MakeNetwork(10, 10);
+    std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(network, MakeStroke(Int2(2, 5), Int2(3, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "short two-tile road remnant setup succeeds");
+    runner.expect(network.removeRoadAtTile(2, 5), "short two-tile road first slice removal succeeds");
+
+    int tileY = 5;
+    for (; tileY <= 6; ++tileY) {
+        runner.expect(RoadCellEmpty(CellAt(network, TransportLayerId::Ground, 2, tileY)), "short two-tile road clears deleted slice");
+        runner.expect(RoadCellEmpty(CellAt(network, TransportLayerId::Ground, 3, tileY)), "short two-tile road removes one-slice remnant");
+    }
+}
+
+void TestShortFourTileRoadRemnantIsRemoved(TestRunner& runner) {
+    TransportNetwork network = MakeNetwork(12, 12);
+    std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(network, MakeStroke(Int2(2, 4), Int2(5, 4), RoadFamily::LocalStreet, TransportLayerId::Ground, RoadDirectionMode::TwoWay, 2), lotOccupancy), "short four-tile road remnant setup succeeds");
+    runner.expect(network.removeRoadAtTile(2, 5), "short four-tile road first slice removal succeeds");
+
+    int tileX = 2;
+    for (; tileX <= 5; ++tileX) {
+        int tileY = 4;
+        for (; tileY <= 7; ++tileY) {
+            runner.expect(RoadCellEmpty(CellAt(network, TransportLayerId::Ground, tileX, tileY)), "short four-tile road removes three-slice remnant");
+        }
+    }
+}
+
 void TestRemovingApproachDoesNotLeavePartialIntersectionCrosswalk(TestRunner& runner) {
     TransportNetwork network = MakeNetwork(12, 12);
     std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
@@ -2050,6 +2080,8 @@ int main() {
     TestSingleStrokeCornerCleanupUsesValidCornerMasks(runner);
     TestRemoveRoadTileClearsTwoTileFootprint(runner);
     TestRemoveRoadTileClearsFourTileFootprint(runner);
+    TestShortTwoTileRoadRemnantIsRemoved(runner);
+    TestShortFourTileRoadRemnantIsRemoved(runner);
     TestRemovingApproachDoesNotLeavePartialIntersectionCrosswalk(runner);
     TestWideRoadCleanupPropagatesAcrossIntersectionBody(runner);
     TestCornerUpgradeMatchesDirectFourWay(runner);

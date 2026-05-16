@@ -134,6 +134,7 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - holding left mouse in `Q` mode continuously paints pollution again
   - mouse wheel supports `2048 / 1024 / 512 / 256 / 128 / 64 / 32` visible-tile steps
   - `R` drag-places ground streets and `H` drag-places elevated highways
+  - `B` drag-selects a 2D bulldoze area with red tile/building preview before queued deletion
   - `T` toggles the traffic capacity overlay
   - `M` and `Y` still expose live module add/remove testing for the XML-backed lot system
 
@@ -142,6 +143,7 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 - Use contiguous storage and chunk-based passes to improve cache behavior without jumping to full structure-of-arrays immediately.
 - Add comments only where they preserve future reasoning about cache sizing, swap rules, command timing, and render/sim ownership.
 - When changing architecture, update the nearest `docs/design/*.md` guide, keep `README.md` as the navigable index, and cite important code symbols/line references where practical so future sessions can find the source of truth quickly.
+- When adding test coverage for transport/pathfinding/commutes, prefer reusable sandbox or micro-simulation scenarios over tiny function-only assertions.
 - The next likely renderer seam is one of:
   - split `Renderer.cpp` into smaller renderer support units
   - move lots into chunk ownership

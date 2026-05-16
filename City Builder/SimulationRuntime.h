@@ -41,13 +41,16 @@ enum class PlayerCommandType {
     AddModuleAtTile,
     RemoveModuleAtTile,
     PlaceRoadStroke,
-    BulldozeAtTile
+    BulldozeAtTile,
+    BulldozeArea
 };
 
 struct PlayerCommand {
     PlayerCommandType type;
     int tileX;
     int tileY;
+    int endTileX;
+    int endTileY;
     int amount;
     int rotationSteps;
     std::string assetId;
@@ -58,6 +61,8 @@ struct PlayerCommand {
         : type(PlayerCommandType::PaintPollution),
           tileX(0),
           tileY(0),
+          endTileX(0),
+          endTileY(0),
           amount(0),
           rotationSteps(0) {
     }
@@ -67,6 +72,8 @@ struct TileQueryResult {
     bool isValid;
     Tile tile;
     std::uint64_t generation;
+    std::uint64_t lotRevision;
+    std::uint64_t commuteRevision;
     bool hasLot;
     int lotId;
     std::string lotAssetId;
@@ -87,6 +94,8 @@ struct TileQueryResult {
     TileQueryResult()
         : isValid(false),
           generation(0),
+          lotRevision(0),
+          commuteRevision(0),
           hasLot(false),
           lotId(-1),
           commuteDemand(0),
@@ -197,6 +206,7 @@ public:
     void queueAddModuleAtTile(const std::string& moduleAssetId, int tileX, int tileY);
     void queueRemoveModuleAtTile(int tileX, int tileY);
     void queueBulldozeAtTile(int tileX, int tileY);
+    void queueBulldozeArea(int startTileX, int startTileY, int endTileX, int endTileY);
     void queuePlaceRoadStroke(const RoadStrokeCommand& roadStrokeCommand);
     void queuePlaceSmokestack(int tileX, int tileY, int rotationSteps = 0);
     void queuePlacePark(int tileX, int tileY, int rotationSteps = 0);
@@ -274,6 +284,9 @@ private:
     void applyLotEffects(std::vector<Tile>& writeTiles);
     void rebuildCityParameters();
     void runCommuteAssignment();
+    void queueCommuteRecalculationForLot(int lotId);
+    void queueCommuteSourcesForDestination(int destinationLotId);
+    void removeCommuteLoadsForLot(const Lot& lot);
     void runLocalTilePass(std::vector<Tile>& writeTiles);
     void enqueueCommand(const PlayerCommand& playerCommand);
     void publishCompletedBuffer();
@@ -296,6 +309,7 @@ private:
     bool tryAddModuleAtTile(const LotModule& moduleAsset, int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
     bool tryRemoveModuleAtTile(int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
     bool tryBulldozeAtTile(int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
+    bool tryBulldozeArea(int startTileX, int startTileY, int endTileX, int endTileY, TileBuffer& writeBuffer);
     bool canPlaceLot(const Lot& candidateLot) const;
     bool collectAdjacentLotIdsForModule(const LotModule& moduleAsset, int clickedTileX, int clickedTileY, std::vector<int>& adjacentLotIds) const;
     void clearLotOccupancy(const std::vector<int>& tileIndices);
@@ -304,6 +318,7 @@ private:
     float lotDerivedParameterAmount(const Lot& lot, int parameterId) const;
     void collectLotAccessNodes(const Lot& lot, const LotAsset& lotAsset, std::uint8_t allowedModeMask, std::vector<std::uint32_t>& accessNodes) const;
     std::vector<CommuteRouteSegment> buildCommuteRouteSegments(const TransportPathResult& pathResult, std::uint16_t demand) const;
+    bool commuteRouteIsStillValid(const CommuteRouteRecord& route) const;
     bool isTileInsideMap(int tileX, int tileY) const;
     int tileIndex(int tileX, int tileY) const;
 
@@ -343,6 +358,8 @@ private:
     std::vector<std::vector<float> > cityParameterDeltaBuffers_;
     std::uint64_t commuteRevision_;
     bool commutesDirty_;
+    std::vector<int> forcedCommuteLotIds_;
+    std::size_t commuteRebalanceCursor_;
     TransportNetwork transportNetwork_;
 
     std::deque<PlayerCommand> pendingCommands_;

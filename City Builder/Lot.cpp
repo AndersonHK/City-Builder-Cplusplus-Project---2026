@@ -143,6 +143,10 @@ const std::vector<CommuteRouteSegment>& Lot::commuteRouteSegments() const {
     return commuteRouteSegments_;
 }
 
+const std::vector<CommuteRouteRecord>& Lot::commuteRoutes() const {
+    return commuteRoutes_;
+}
+
 // Returns low-wealth commute demand assigned to this lot in the latest pass.
 int Lot::commuteDemand() const {
     return commuteDemand_;
@@ -450,6 +454,7 @@ std::string Lot::complaintSummary() const {
 
 // Clears committed commute visualization/statistics for a fresh assignment pass.
 void Lot::clearCommutes() {
+    commuteRoutes_.clear();
     commuteRouteSegments_.clear();
     commuteDemand_ = 0;
     commuteSatisfied_ = 0;
@@ -461,12 +466,21 @@ void Lot::clearCommutes() {
     hasLongCommuteComplaint_ = false;
 }
 
+void Lot::clearCommuteRoutes() {
+    commuteRoutes_.clear();
+    rebuildCommuteRouteSummary();
+}
+
 void Lot::setLowWealthResidentsTotal(int residents) {
     lowWealthResidentsTotal_ = std::max(0, residents);
 }
 
 void Lot::setLowWealthJobsTotal(int jobs) {
     lowWealthJobsTotal_ = std::max(0, jobs);
+}
+
+void Lot::setLowWealthJobsFilled(int jobs) {
+    lowWealthJobsFilled_ = std::max(0, jobs);
 }
 
 void Lot::setLowWealthResidentsRoadAccess(bool hasRoadAccess) {
@@ -477,6 +491,10 @@ void Lot::setLowWealthJobsRoadAccess(bool hasRoadAccess) {
     lowWealthJobsHaveRoadAccess_ = hasRoadAccess;
 }
 
+void Lot::setCommuteDemand(int demand) {
+    commuteDemand_ = std::max(0, demand);
+}
+
 // Adds commute demand whether or not it finds a route this pass.
 void Lot::addCommuteDemand(int demand) {
     if (demand > 0) {
@@ -485,13 +503,20 @@ void Lot::addCommuteDemand(int demand) {
 }
 
 // Adds one accepted commute route to the lot's latest assignment data.
-void Lot::addCommuteRoute(int demand, const std::vector<CommuteRouteSegment>& segments) {
+void Lot::addCommuteRoute(int destinationLotId, int demand, std::uint16_t transportLoad, bool longCommute, const TransportPathResult& pathResult, const std::vector<CommuteRouteSegment>& segments) {
     if (demand <= 0) {
         return;
     }
 
-    commuteSatisfied_ += demand;
-    commuteRouteSegments_.insert(commuteRouteSegments_.end(), segments.begin(), segments.end());
+    CommuteRouteRecord route;
+    route.destinationLotId = destinationLotId;
+    route.demand = demand;
+    route.transportLoad = transportLoad;
+    route.longCommute = longCommute;
+    route.pathResult = pathResult;
+    route.segments = segments;
+    commuteRoutes_.push_back(route);
+    rebuildCommuteRouteSummary();
 }
 
 void Lot::addLowWealthJobsFilled(int jobs) {
@@ -502,6 +527,27 @@ void Lot::addLowWealthJobsFilled(int jobs) {
 
 void Lot::flagLongCommute() {
     hasLongCommuteComplaint_ = true;
+}
+
+void Lot::rebuildCommuteRouteSummary() {
+    commuteRouteSegments_.clear();
+    commuteSatisfied_ = 0;
+    hasLongCommuteComplaint_ = false;
+
+    std::size_t routeIndex = 0;
+    for (; routeIndex < commuteRoutes_.size(); ++routeIndex) {
+        const CommuteRouteRecord& route = commuteRoutes_[routeIndex];
+        if (route.demand <= 0) {
+            continue;
+        }
+
+        commuteSatisfied_ += route.demand;
+        if (route.longCommute) {
+            hasLongCommuteComplaint_ = true;
+        }
+
+        commuteRouteSegments_.insert(commuteRouteSegments_.end(), route.segments.begin(), route.segments.end());
+    }
 }
 
 // Recomputes occupied tiles, bounds, render height, and aggregate color.

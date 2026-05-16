@@ -20,6 +20,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Elevated roads use separate per-chunk instance buffers and rebuild lazily for visible stale chunks. They consume the same resolved road glyph, lane graphic, and divider masks through `BuildRoadChunkInstances`.
 - Road placement ghost previews are transient renderer instances built from the active drag stroke and drawn with a blue alpha tint when valid or a red tint when invalid. They do not enter published road snapshots.
 - Lot placement ghost previews are transient renderer instances built from XML-backed, rotation-aware lot candidate geometry and drawn with a green alpha tint when valid or a red tint when invalid. They do not enter published lot snapshots.
+- Bulldoze area previews are transient renderer instances built from the active drag rectangle. The selected tiles draw a red world-space overlay and intersecting buildings draw through a red-tinted lot pass; the preview does not enter published snapshots.
 - Lots still render through one global placeholder-prism instance buffer keyed by lot revision.
 - In-game windows render as screen-space UI quads after world rendering. `InGameWindow` supplies window/text layout, and `BuildWindowQuads` turns the active query window into dynamic `UiQuadInstanceData`.
 - The current text renderer decodes UTF-8 and emits clipped 5x7 bitmap glyph quads. Unsupported glyphs draw as `?`.
@@ -48,6 +49,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Keep ground and elevated road rendering fed by the same resolved road cell contract; do not fork road-template semantics in the renderer.
 - Keep road ghost previews presentation-only. They may reuse road templates and glyph helpers, but committed topology and validation must stay in the simulation/transport command path.
 - Keep lot ghost previews presentation-only. They may reuse XML-backed lot candidate geometry, but committed placement validation must stay in the simulation command path.
+- Keep bulldoze previews presentation-only. They may reuse published lot render instances for tinting, but committed deletion must stay in queued simulation commands.
 - Draw overlays after roads and lots with depth disabled/restored so the tint remains presentation, not terrain truth.
 - Draw query route arrows after tile overlays with depth disabled/restored so selected commute paths remain inspectable.
 - Draw in-game windows last with a screen-space orthographic projection, depth disabled, and no simulation ownership.
@@ -63,6 +65,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Verify local-street crosswalk graphics appear only where pedestrian and car lanes both continue through the crossing, and elevated highways render without pedestrian lane graphics by default.
 - Drag local streets and elevated highways before release to confirm the alpha-tinted ghost follows the intended L-shaped stroke and disappears after commit.
 - Hover each lot placement tool over valid terrain to confirm the alpha-tinted lot ghost matches the committed footprint and disappears after placement.
+- Drag `B` across lots and empty/road tiles to confirm selected tiles overlay red, selected buildings tint red, and the preview disappears after release.
 - Rotate lot placement with `,` and `.` while hovering to confirm the ghost footprint rotates before commit.
 - Toggle `T` to verify the traffic capacity overlay appears above roads/lots and starts green at zero load.
 - Query lots with `A` to verify the in-game window draws above world content, hugs populated fields, and disappears when the query selection has no lot.

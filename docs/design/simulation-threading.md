@@ -20,9 +20,10 @@ Use this guide when changing tile update passes, buffer ownership, chunk schedul
 - Keep chunk geometry rectangular and evenly dividing the map.
 - Keep render-topology revisions separate from scalar tile updates.
 - Mark render chunks dirty only when topology or render masks change.
-- Transport route recalculation should read old loads and write new loads through worker-local deltas, then reduce after the batch. Path searches must not mutate shared load arrays directly.
+- Transport route recalculation should preserve valid existing routes and force recalculation only when a route, source, or destination becomes invalid. Routine congestion rebalancing should use a deterministic rolling queue, currently about 1 percent of source lots per tick, so all source lots are visited over roughly 100 ticks without random repeats.
+- A future parallel route assignment pass should read old loads and write new loads through worker-local deltas, then reduce after the batch. Path searches must not mutate shared load arrays directly.
 - City parameters use dense old/new vectors and per-worker-shaped delta buffers so future lot batches can aggregate drivers and satisfactions without hot shared writes.
-- Sample subsets of commuter/building routes over time so congestion feedback distributes statistically without relying on sequential determinism.
+- Sample subsets of commuter/building routes over time by queue/cursor, not random choice, so stale buildings are revisited predictably while congestion feedback still distributes statistically.
 - Preserve `fastForward` behavior: simulation may outrun presentation unless disabled.
 
 ## Checks

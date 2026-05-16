@@ -27,6 +27,7 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 - Ground roads piggyback on the tile pass through a packed road-state texture plus atlas lookups.
 - Ground-road and elevated-road uploads are lazy per visible dirty chunk.
 - Traffic capacity is the first generic per-tile overlay; `T` toggles it, and it draws above roads/lots.
+- Bulldoze is intended to be an area drag tool, with renderer-only red tile/building preview and committed deletion through queued commands.
 - Lots render through a separate world-space placeholder prism path and are not chunk-owned yet.
 - Mouse picking now raycasts from the perspective camera onto the ground plane.
 - Arrow-key panning was corrected after the renderer migration so movement now matches the camera-facing directions.
@@ -77,6 +78,7 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - do not reintroduce tracked build outputs
   - keep user-local VS files like `.vcxproj.user` out of git
 - continue cleaning up project/build assumptions around local dependency paths
+- split the road-tool sandbox logic into a reusable integration-test harness when expanding tests for commute/pathfinding behavior
 - keep profiling the simulation before speculative SIMD work
 - look for remaining low-hanging runtime wins in:
   - lot-effects iteration cost

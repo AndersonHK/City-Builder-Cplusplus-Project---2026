@@ -223,6 +223,28 @@ struct RegionPreviewInstanceData {
     }
 };
 
+struct AreaOverlayInstanceData {
+    float originX;
+    float originZ;
+    float sizeX;
+    float sizeZ;
+    float colorR;
+    float colorG;
+    float colorB;
+    float colorA;
+
+    AreaOverlayInstanceData()
+        : originX(0.0f),
+          originZ(0.0f),
+          sizeX(1.0f),
+          sizeZ(1.0f),
+          colorR(1.0f),
+          colorG(0.0f),
+          colorB(0.0f),
+          colorA(0.25f) {
+    }
+};
+
 struct RegionPreviewTextureCache {
     int regionX;
     int regionY;
@@ -1379,6 +1401,20 @@ void ConfigureRegionPreviewVertexArray(GLuint vertexArrayId, GLuint tileVertexBu
     glBindVertexArray(0);
 }
 
+void ConfigureAreaOverlayVertexArray(GLuint vertexArrayId, GLuint tileVertexBufferId, GLuint instanceBufferId) {
+    glBindVertexArray(vertexArrayId);
+
+    glBindBuffer(GL_ARRAY_BUFFER, tileVertexBufferId);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(float) * 3, 0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, instanceBufferId);
+    SetupInstanceAttribute(1, 4, sizeof(AreaOverlayInstanceData), 0);
+    SetupInstanceAttribute(2, 4, sizeof(AreaOverlayInstanceData), sizeof(float) * 4);
+
+    glBindVertexArray(0);
+}
+
 void ConfigureUiVertexArray(GLuint vertexArrayId, GLuint tileVertexBufferId, GLuint instanceBufferId) {
     glBindVertexArray(vertexArrayId);
 
@@ -1453,6 +1489,41 @@ std::vector<LotInstanceData> BuildLotInstances(const std::vector<LotRenderInstan
     }
 
     return instances;
+}
+
+bool LotInstanceIntersectsTileRect(const LotRenderInstance& lot, int minTileX, int minTileY, int maxTileX, int maxTileY) {
+    const int selectionMaxExclusiveX = maxTileX + 1;
+    const int selectionMaxExclusiveY = maxTileY + 1;
+    return lot.originX < selectionMaxExclusiveX &&
+        lot.originX + lot.width > minTileX &&
+        lot.originY < selectionMaxExclusiveY &&
+        lot.originY + lot.height > minTileY;
+}
+
+std::vector<LotInstanceData> BuildLotInstancesInTileRect(const std::vector<LotRenderInstance>& lots, int minTileX, int minTileY, int maxTileX, int maxTileY) {
+    std::vector<LotInstanceData> instances;
+
+    std::size_t lotIndex = 0;
+    for (; lotIndex < lots.size(); ++lotIndex) {
+        if (LotInstanceIntersectsTileRect(lots[lotIndex], minTileX, minTileY, maxTileX, maxTileY)) {
+            instances.push_back(BuildLotInstance(lots[lotIndex]));
+        }
+    }
+
+    return instances;
+}
+
+AreaOverlayInstanceData BuildAreaOverlayInstance(int minTileX, int minTileY, int maxTileX, int maxTileY) {
+    AreaOverlayInstanceData instance;
+    instance.originX = static_cast<float>(minTileX);
+    instance.originZ = static_cast<float>(minTileY);
+    instance.sizeX = static_cast<float>(maxTileX - minTileX + 1);
+    instance.sizeZ = static_cast<float>(maxTileY - minTileY + 1);
+    instance.colorR = 1.0f;
+    instance.colorG = 0.05f;
+    instance.colorB = 0.03f;
+    instance.colorA = 0.28f;
+    return instance;
 }
 
 // Returns the world-space vertical offset for a road layer.
@@ -2337,6 +2408,12 @@ int Renderer::run() {
     glGenBuffers(1, &lotGhostInstanceBufferId);
     ConfigureLotVertexArray(lotGhostVertexArrayId, lotVertexBufferId, lotGhostInstanceBufferId);
 
+    GLuint areaOverlayVertexArrayId = 0;
+    GLuint areaOverlayInstanceBufferId = 0;
+    glGenVertexArrays(1, &areaOverlayVertexArrayId);
+    glGenBuffers(1, &areaOverlayInstanceBufferId);
+    ConfigureAreaOverlayVertexArray(areaOverlayVertexArrayId, tileVertexBufferId, areaOverlayInstanceBufferId);
+
     GLuint regionPreviewVertexArrayId = 0;
     GLuint regionPreviewInstanceBufferId = 0;
     glGenVertexArrays(1, &regionPreviewVertexArrayId);
@@ -2387,6 +2464,8 @@ int Renderer::run() {
         glDeleteVertexArrays(1, &roadGhostVertexArrayId);
         glDeleteBuffers(1, &routeArrowInstanceBufferId);
         glDeleteVertexArrays(1, &routeArrowVertexArrayId);
+        glDeleteBuffers(1, &areaOverlayInstanceBufferId);
+        glDeleteVertexArrays(1, &areaOverlayVertexArrayId);
         glDeleteBuffers(1, &lotGhostInstanceBufferId);
         glDeleteVertexArrays(1, &lotGhostVertexArrayId);
         glDeleteBuffers(1, &lotInstanceBufferId);
@@ -2444,6 +2523,8 @@ int Renderer::run() {
     std::vector<std::uint8_t> emptyGroundRoadChunkPixels;
     std::vector<LotInstanceData> lotInstances;
     std::vector<LotInstanceData> lotGhostInstances;
+    std::vector<LotInstanceData> bulldozeLotInstances;
+    std::vector<AreaOverlayInstanceData> areaOverlayInstances;
     std::vector<RoadInstanceData> roadGhostInstances;
     std::vector<RouteArrowInstanceData> routeArrowInstances;
     std::vector<RegionPreviewTextureCache> regionPreviewTextureCaches;
@@ -2480,6 +2561,8 @@ int Renderer::run() {
         lastUploadedQueryRouteRevision = std::numeric_limits<std::uint64_t>::max();
         lotInstances.clear();
         lotGhostInstances.clear();
+        bulldozeLotInstances.clear();
+        areaOverlayInstances.clear();
         roadGhostInstances.clear();
         routeArrowInstances.clear();
     };
@@ -2672,6 +2755,7 @@ int Renderer::run() {
             continue;
         }
 
+        appController_.refreshQueryResultIfNeeded();
         const ViewState viewState = appController_.viewState();
         if (gameSession_.isRegionMode()) {
             if (!updateRegionPreviewTextures()) {
@@ -2812,6 +2896,35 @@ int Renderer::run() {
                 routeArrowInstances.empty() ? 0 : &routeArrowInstances[0],
                 GL_DYNAMIC_DRAW);
             lastUploadedQueryRouteRevision = viewState.queryRouteRevision;
+        }
+
+        int bulldozeMinTileX = 0;
+        int bulldozeMinTileY = 0;
+        int bulldozeMaxTileX = 0;
+        int bulldozeMaxTileY = 0;
+        if (appController_.bulldozePreviewRect(bulldozeMinTileX, bulldozeMinTileY, bulldozeMaxTileX, bulldozeMaxTileY)) {
+            areaOverlayInstances.clear();
+            areaOverlayInstances.push_back(BuildAreaOverlayInstance(bulldozeMinTileX, bulldozeMinTileY, bulldozeMaxTileX, bulldozeMaxTileY));
+            glBindBuffer(GL_ARRAY_BUFFER, areaOverlayInstanceBufferId);
+            glBufferData(
+                GL_ARRAY_BUFFER,
+                static_cast<GLsizeiptr>(areaOverlayInstances.size() * sizeof(AreaOverlayInstanceData)),
+                &areaOverlayInstances[0],
+                GL_DYNAMIC_DRAW);
+
+            bulldozeLotInstances.clear();
+            if (snapshot.lots != 0) {
+                bulldozeLotInstances = BuildLotInstancesInTileRect(*snapshot.lots, bulldozeMinTileX, bulldozeMinTileY, bulldozeMaxTileX, bulldozeMaxTileY);
+            }
+            glBindBuffer(GL_ARRAY_BUFFER, lotGhostInstanceBufferId);
+            glBufferData(
+                GL_ARRAY_BUFFER,
+                static_cast<GLsizeiptr>(bulldozeLotInstances.size() * sizeof(LotInstanceData)),
+                bulldozeLotInstances.empty() ? 0 : &bulldozeLotInstances[0],
+                GL_DYNAMIC_DRAW);
+        } else {
+            areaOverlayInstances.clear();
+            bulldozeLotInstances.clear();
         }
 
         if (snapshot.tiles != 0 && snapshot.chunkRevisions != 0) {
@@ -3012,6 +3125,16 @@ int Renderer::run() {
             }
             frameMetrics.elevatedRoadDrawMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - elevatedRoadDrawStart).count();
 
+            if (!areaOverlayInstances.empty()) {
+                glUniform1i(renderModeLocation, 7);
+                glDepthMask(GL_FALSE);
+                glDisable(GL_DEPTH_TEST);
+                glBindVertexArray(areaOverlayVertexArrayId);
+                glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(areaOverlayInstances.size()));
+                glEnable(GL_DEPTH_TEST);
+                glDepthMask(GL_TRUE);
+            }
+
             if (!roadGhostInstances.empty()) {
                 glUniform1f(roadAlphaScaleLocation, roadGhostPlacementValid ? kRoadGhostAlpha : 0.55f);
                 if (roadGhostPlacementValid) {
@@ -3062,6 +3185,22 @@ int Renderer::run() {
                 glBindVertexArray(lotVertexArrayId);
                 glDrawArraysInstanced(GL_TRIANGLES, 0, 36, static_cast<GLsizei>(lotInstances.size()));
                 frameMetrics.lotDrawMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - lotDrawStart).count();
+            }
+
+            if (!bulldozeLotInstances.empty()) {
+                glUniform1i(renderModeLocation, 1);
+                glUniform1f(lotAlphaScaleLocation, 0.70f);
+                glUniform3f(lotTintColorLocation, 1.0f, 0.05f, 0.03f);
+                glUniform1f(lotTintStrengthLocation, 0.78f);
+                glDepthMask(GL_FALSE);
+                glDepthFunc(GL_LEQUAL);
+                glBindVertexArray(lotGhostVertexArrayId);
+                glDrawArraysInstanced(GL_TRIANGLES, 0, 36, static_cast<GLsizei>(bulldozeLotInstances.size()));
+                glDepthFunc(GL_LESS);
+                glDepthMask(GL_TRUE);
+                glUniform1f(lotAlphaScaleLocation, 1.0f);
+                glUniform3f(lotTintColorLocation, 1.0f, 1.0f, 1.0f);
+                glUniform1f(lotTintStrengthLocation, 0.0f);
             }
 
             if (viewState.overlayMode != OverlayMode::None && snapshot.tileOverlayState != 0) {
@@ -3192,6 +3331,8 @@ int Renderer::run() {
     glDeleteVertexArrays(1, &roadGhostVertexArrayId);
     glDeleteBuffers(1, &routeArrowInstanceBufferId);
     glDeleteVertexArrays(1, &routeArrowVertexArrayId);
+    glDeleteBuffers(1, &areaOverlayInstanceBufferId);
+    glDeleteVertexArrays(1, &areaOverlayVertexArrayId);
     glDeleteBuffers(1, &lotGhostInstanceBufferId);
     glDeleteVertexArrays(1, &lotGhostVertexArrayId);
     glDeleteBuffers(1, &lotInstanceBufferId);

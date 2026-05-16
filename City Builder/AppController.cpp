@@ -141,6 +141,36 @@ const char* LotAssetIdForTool(ActiveTool activeTool) {
     }
 }
 
+std::vector<std::string> BuildLotQueryWindowLines(const TileQueryResult& queryResult) {
+    std::vector<std::string> lines;
+    {
+        std::ostringstream title;
+        title << "Lot #" << queryResult.lotId << " " << queryResult.lotAssetId;
+        lines.push_back(title.str());
+    }
+    if (!queryResult.moduleSummary.empty()) {
+        lines.push_back("Modules: " + queryResult.moduleSummary);
+    }
+    if (queryResult.residentsLowWealthTotal > 0) {
+        std::ostringstream residentsLine;
+        residentsLine << "Residents low wealth: " << queryResult.residentsLowWealthCurrent << "/" << queryResult.residentsLowWealthTotal;
+        lines.push_back(residentsLine.str());
+    }
+    if (queryResult.jobsLowWealthTotal > 0) {
+        std::ostringstream jobsLine;
+        jobsLine << "Jobs low wealth: " << queryResult.jobsLowWealthCurrent << "/" << queryResult.jobsLowWealthTotal;
+        lines.push_back(jobsLine.str());
+    }
+    if (!queryResult.complaintSummary.empty()) {
+        lines.push_back("Complaints: " + queryResult.complaintSummary);
+    }
+    if (!queryResult.parameterSummary.empty() && queryResult.parameterSummary != "none") {
+        lines.push_back("Parameters: " + queryResult.parameterSummary);
+    }
+
+    return lines;
+}
+
 // Formats a road family for query output.
 const char* RoadFamilyName(RoadFamily family) {
     switch (family) {
@@ -328,7 +358,7 @@ void AppController::onLeftMouseButtonPressed() {
             break;
 
         case ActiveTool::Bulldozer:
-            gameSession_.runtime().queueBulldozeAtTile(tileX, tileY);
+            beginBulldozeDrag(tileX, tileY);
             break;
 
         case ActiveTool::Query:
@@ -343,11 +373,14 @@ void AppController::onLeftMouseButtonReleased() {
         return;
     }
 
-    if (!viewState_.roadDragActive || !activeToolIsRoad()) {
+    if (viewState_.bulldozeDragActive && viewState_.activeTool == ActiveTool::Bulldozer) {
+        commitBulldozeDrag(hoveredTileX(), hoveredTileY());
         return;
     }
 
-    commitRoadDrag(hoveredTileX(), hoveredTileY());
+    if (viewState_.roadDragActive && activeToolIsRoad()) {
+        commitRoadDrag(hoveredTileX(), hoveredTileY());
+    }
 }
 
 // Handles continuous actions while the primary mouse button remains down.
@@ -364,6 +397,11 @@ void AppController::onLeftMouseButtonHeld() {
     if (viewState_.roadDragActive && activeToolIsRoad()) {
         viewState_.roadDragCurrentX = hoveredTileX();
         viewState_.roadDragCurrentY = hoveredTileY();
+    }
+
+    if (viewState_.bulldozeDragActive && viewState_.activeTool == ActiveTool::Bulldozer) {
+        viewState_.bulldozeDragCurrentX = hoveredTileX();
+        viewState_.bulldozeDragCurrentY = hoveredTileY();
     }
 }
 
@@ -383,6 +421,7 @@ void AppController::onKeyPressed(int key, int action) {
         gameSession_.loadAutoslot();
         applyCameraFromActiveCity();
         viewState_.roadDragActive = false;
+        viewState_.bulldozeDragActive = false;
         return;
     }
 
@@ -390,6 +429,7 @@ void AppController::onKeyPressed(int key, int action) {
         syncActiveCityCameraToSession();
         gameSession_.exitToRegion();
         viewState_.roadDragActive = false;
+        viewState_.bulldozeDragActive = false;
         return;
     }
 
@@ -614,6 +654,20 @@ bool AppController::lotPreviewRequest(std::string& lotAssetId, int& tileX, int& 
     return true;
 }
 
+bool AppController::bulldozePreviewRect(int& minTileX, int& minTileY, int& maxTileX, int& maxTileY) const {
+    if (gameSession_.isRegionMode() ||
+        viewState_.activeTool != ActiveTool::Bulldozer ||
+        !viewState_.bulldozeDragActive) {
+        return false;
+    }
+
+    minTileX = std::min(viewState_.bulldozeDragStartX, viewState_.bulldozeDragCurrentX);
+    minTileY = std::min(viewState_.bulldozeDragStartY, viewState_.bulldozeDragCurrentY);
+    maxTileX = std::max(viewState_.bulldozeDragStartX, viewState_.bulldozeDragCurrentX);
+    maxTileY = std::max(viewState_.bulldozeDragStartY, viewState_.bulldozeDragCurrentY);
+    return true;
+}
+
 // Keeps the camera span inside the map after pan or zoom changes.
 void AppController::clampCameraToMap() {
     const int horizontalSlack = std::max(64, viewState_.visibleTiles / 2);
@@ -637,6 +691,7 @@ void AppController::panCamera(int deltaX, int deltaY) {
 void AppController::setActiveTool(ActiveTool activeTool) {
     viewState_.activeTool = activeTool;
     viewState_.roadDragActive = false;
+    viewState_.bulldozeDragActive = false;
     if (activeToolIsRoad()) {
         NormalizeRoadTemplateSelection(viewState_);
     }
@@ -703,7 +758,10 @@ void AppController::applyCameraFromActiveCity() {
     viewState_.cameraY = activeCity->cameraY();
     viewState_.visibleTiles = std::max(kMinimumVisibleTiles, std::min(activeCity->visibleTiles(), kMaximumVisibleTiles));
     viewState_.roadDragActive = false;
+    viewState_.bulldozeDragActive = false;
     viewState_.queriedLotId = -1;
+    viewState_.queriedLotRevision = 0;
+    viewState_.queriedCommuteRevision = 0;
     viewState_.queriedCommuteRouteSegments.clear();
     viewState_.queryWindowLines.clear();
     ++viewState_.queryRouteRevision;
@@ -760,6 +818,25 @@ void AppController::commitRoadDrag(int tileX, int tileY) {
     viewState_.roadDragActive = false;
 }
 
+void AppController::beginBulldozeDrag(int tileX, int tileY) {
+    viewState_.bulldozeDragActive = true;
+    viewState_.bulldozeDragStartX = tileX;
+    viewState_.bulldozeDragStartY = tileY;
+    viewState_.bulldozeDragCurrentX = tileX;
+    viewState_.bulldozeDragCurrentY = tileY;
+}
+
+void AppController::commitBulldozeDrag(int tileX, int tileY) {
+    viewState_.bulldozeDragCurrentX = tileX;
+    viewState_.bulldozeDragCurrentY = tileY;
+    gameSession_.runtime().queueBulldozeArea(
+        viewState_.bulldozeDragStartX,
+        viewState_.bulldozeDragStartY,
+        viewState_.bulldozeDragCurrentX,
+        viewState_.bulldozeDragCurrentY);
+    viewState_.bulldozeDragActive = false;
+}
+
 // Builds the currently selected modular road template for a placement command.
 RoadTemplate AppController::currentRoadTemplate(RoadFamily family, TransportLayerId layer) const {
     return TransportNetwork::makeRoadTemplate(family, layer, viewState_.roadLaneCount, viewState_.roadTrafficSide, viewState_.roadDirectionMode);
@@ -775,6 +852,34 @@ void AppController::printRoadTemplate() const {
         << " traffic=" << RoadTrafficSideName(viewState_.roadTrafficSide)
         << " mode=" << RoadDirectionModeName(viewState_.roadDirectionMode)
         << std::endl;
+}
+
+void AppController::refreshQueryResultIfNeeded() {
+    if (gameSession_.isRegionMode() || viewState_.queriedLotId < 0) {
+        return;
+    }
+
+    const TileQueryResult queryResult = gameSession_.runtime().queryTile(viewState_.queriedTileX, viewState_.queriedTileY);
+    if (!queryResult.isValid || !queryResult.hasLot || queryResult.lotId != viewState_.queriedLotId) {
+        viewState_.queriedLotId = -1;
+        viewState_.queriedLotRevision = 0;
+        viewState_.queriedCommuteRevision = 0;
+        viewState_.queriedCommuteRouteSegments.clear();
+        viewState_.queryWindowLines.clear();
+        ++viewState_.queryRouteRevision;
+        return;
+    }
+
+    if (queryResult.lotRevision == viewState_.queriedLotRevision &&
+        queryResult.commuteRevision == viewState_.queriedCommuteRevision) {
+        return;
+    }
+
+    viewState_.queriedLotRevision = queryResult.lotRevision;
+    viewState_.queriedCommuteRevision = queryResult.commuteRevision;
+    viewState_.queriedCommuteRouteSegments = queryResult.commuteRouteSegments;
+    viewState_.queryWindowLines = BuildLotQueryWindowLines(queryResult);
+    ++viewState_.queryRouteRevision;
 }
 
 // Returns a copy of the input/view state for renderer-side camera work.
@@ -811,6 +916,8 @@ void AppController::printQueryResult() {
     const TileQueryResult queryResult = gameSession_.runtime().queryTile(tileX, tileY);
     if (!queryResult.isValid) {
         viewState_.queriedLotId = -1;
+        viewState_.queriedLotRevision = 0;
+        viewState_.queriedCommuteRevision = 0;
         viewState_.queriedCommuteRouteSegments.clear();
         viewState_.queryWindowLines.clear();
         ++viewState_.queryRouteRevision;
@@ -823,32 +930,12 @@ void AppController::printQueryResult() {
 
     if (queryResult.hasLot) {
         viewState_.queriedLotId = queryResult.lotId;
+        viewState_.queriedTileX = tileX;
+        viewState_.queriedTileY = tileY;
+        viewState_.queriedLotRevision = queryResult.lotRevision;
+        viewState_.queriedCommuteRevision = queryResult.commuteRevision;
         viewState_.queriedCommuteRouteSegments = queryResult.commuteRouteSegments;
-        viewState_.queryWindowLines.clear();
-        {
-            std::ostringstream title;
-            title << "Lot #" << queryResult.lotId << " " << queryResult.lotAssetId;
-            viewState_.queryWindowLines.push_back(title.str());
-        }
-        if (!queryResult.moduleSummary.empty()) {
-            viewState_.queryWindowLines.push_back("Modules: " + queryResult.moduleSummary);
-        }
-        if (queryResult.residentsLowWealthTotal > 0) {
-            std::ostringstream residentsLine;
-            residentsLine << "Residents low wealth: " << queryResult.residentsLowWealthCurrent << "/" << queryResult.residentsLowWealthTotal;
-            viewState_.queryWindowLines.push_back(residentsLine.str());
-        }
-        if (queryResult.jobsLowWealthTotal > 0) {
-            std::ostringstream jobsLine;
-            jobsLine << "Jobs low wealth: " << queryResult.jobsLowWealthCurrent << "/" << queryResult.jobsLowWealthTotal;
-            viewState_.queryWindowLines.push_back(jobsLine.str());
-        }
-        if (!queryResult.complaintSummary.empty()) {
-            viewState_.queryWindowLines.push_back("Complaints: " + queryResult.complaintSummary);
-        }
-        if (!queryResult.parameterSummary.empty() && queryResult.parameterSummary != "none") {
-            viewState_.queryWindowLines.push_back("Parameters: " + queryResult.parameterSummary);
-        }
+        viewState_.queryWindowLines = BuildLotQueryWindowLines(queryResult);
         ++viewState_.queryRouteRevision;
         std::cout << " and belongs to lot #" << queryResult.lotId
             << " (" << queryResult.lotAssetId << ") with modules: " << queryResult.moduleSummary
@@ -856,6 +943,8 @@ void AppController::printQueryResult() {
             << " commute=" << queryResult.commuteSatisfied << "/" << queryResult.commuteDemand;
     } else {
         viewState_.queriedLotId = -1;
+        viewState_.queriedLotRevision = 0;
+        viewState_.queriedCommuteRevision = 0;
         viewState_.queriedCommuteRouteSegments.clear();
         viewState_.queryWindowLines.clear();
         ++viewState_.queryRouteRevision;

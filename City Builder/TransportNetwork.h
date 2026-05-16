@@ -32,6 +32,7 @@ public:
     std::uint64_t trafficOverlayRevision() const;
     void setCongestionCurve(const TransportCongestionCurve& congestionCurve);
 
+    void beginTrafficAssignmentFromOldLoad();
     void beginTrafficAssignmentFromZero();
     void applyTrafficPathLoad(const TransportPathResult& pathResult, std::uint16_t demand, bool addLoad);
     void commitTrafficAssignment();
@@ -58,6 +59,8 @@ private:
     bool validateAndApplyPlacements(TransportLayerId layer, const std::vector<RoadTilePlacement>& placements, const std::vector<int>& lotOccupancy, int invalidLotId, bool& madeChange);
     void rebuildRoadTilesInRegion(TransportLayerId layer, const std::vector<int>& tileIndices);
     bool tileIsErased(TransportLayerId layer, int tileIndex) const;
+    bool addRoadTileErasure(TransportLayerId layer, int tileIndex);
+    void collectShortRoadSegmentErasures(TransportLayerId layer, std::vector<int>& erasureTileIndices) const;
     bool mergeReplayStrokeIds(TransportLayerId layer, const std::vector<RoadTilePlacement>& placements);
     bool mergeConnectedReplayStrokeId(TransportLayerId layer, const RoadLanePlacement& lanePlacement, std::uint32_t oldStrokeId);
     void resolveDirtyTile(TransportLayerId layer, int tileX, int tileY);

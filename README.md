@@ -17,6 +17,7 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
   - lazy visible-chunk elevated-road rendering for stacked highways
   - alpha-tinted ghost road preview while a road stroke is being dragged
   - alpha-tinted ghost lot preview while a lot placement tool is active
+  - red bulldoze area overlay and selected-building tint while dragging
   - separate lot prism instancing
   - screen-space in-game window quads and bitmap text for query inspection
   - chunk frustum culling
@@ -43,7 +44,7 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
 - `F11`: toggle road debug graphics; off by default
 - `M`: add park module to an adjacent lot footprint
 - `Y`: remove the module under the hovered tile
-- `B`: bulldoze the lot or road under the hovered tile
+- `B`: drag a rectangular bulldoze area; selected tiles overlay red and selected buildings tint red before release
 - `A`: query hovered tile; queried lots show an in-game detail window plus accepted commute routes as green car arrows and pink pedestrian arrows
 - Region mode starts first; double-click a city preview to enter that city
 - `F1`: save the current region autoslot
@@ -87,12 +88,13 @@ msbuild 'City Builder/RendererTests.vcxproj' /p:Configuration=Release /p:Platfor
 - Road debug graphics start disabled and can be toggled with `F11`; disabling them hides ordinary direction arrows and car-lane connection markers while preserving turn-lane arrows, lane dividers, crosswalks, and road surfaces.
 - Road drag previews are renderer-only transient instances tinted with alpha; committed road topology still arrives through published snapshots.
 - Lot placement previews are renderer-only transient instances built from the same XML-backed lot candidate geometry used by committed placement.
+- Bulldoze previews are renderer-only transient area overlays; committed deletion still arrives through queued simulation commands.
 - In-game windows load from XML under `City Builder/Data/UI`; the current query window uses optional text fields, margins, and content hugging.
 - The renderer timing print breaks out tile-state packing/upload bytes, lift uploads, ground-road uploads, elevated-road uploads, and draw costs.
 - Lots are not chunk-owned yet; they still use a separate renderer path for now.
 - Lot/module archetypes load from XML under `City Builder/Data`; lot XML can declare a front and explicit mode-specific access tiles.
 - Transport congestion speed curves load from `City Builder/Data/TransportNetwork/congestion.xml`.
-- Factory/house XML assets are the first driver-backed lots: houses emit low-wealth resident demand, factories emit dirty-industry jobs, and the commute pass assigns accepted low-wealth commutes through the directional transport cost map into road load.
+- Factory/house XML assets are the first driver-backed lots: houses emit low-wealth resident demand, factories emit dirty-industry jobs, and commute assignment preserves valid existing routes while forcing invalid source/destination routes and rebalancing a deterministic rolling 1 percent source-lot queue per tick.
 
 ## Design guides
 - `docs/design/transport-network.md` - lane-owned road placement, directional cost maps, pathfinding, crosswalk graphic rules, packed road state, and layer revisions. Main code anchors: `TransportTypes.h`, `TransportCostMap.h`, `RoadLane.h`, `Road.h`, `TransportTile.h`, `RoadRenderState.h`, and `TransportNetwork.h`.

@@ -40,6 +40,7 @@ Use this guide when changing road placement, lane topology, road render data, or
 - Route tie-breaking uses tiny deterministic jitter from the route seed so equivalent alternatives can distribute statistically over repeated sampled updates.
 - The first commute pass routes low-wealth residential demand to compatible low-wealth job destinations, then commits accepted aggregate demand back into road loads and the traffic capacity overlay.
 - Querying a lot can publish coalesced commute route segments; rendering turns those tile/layer/mode/direction segments into mode-colored arrows above roads, buildings, and overlays.
+- Runtime commute assignment preserves valid accepted routes instead of clearing every lot after ordinary building edits. Removed or invalid source/destination routes are forced back through assignment, and otherwise a deterministic rolling queue rebalances about 1 percent of source lots per tick so all source lots are visited over roughly 100 ticks without random repeats.
 
 ## Crosswalk Rule
 A pedestrian lane renders as a crosswalk only when all of these are true:
@@ -53,6 +54,19 @@ Otherwise the same pedestrian lane remains a sidewalk. This keeps T-section endp
 
 ## Cleanup Rule
 Road edits seed the immediate neighborhood and then expand dirty resolution across the connected road component. This lets validation use information from the full local road graph, including wide roads where the deciding continuation can be several tiles away from the modified slice. Same-stroke L-corner overlaps are cleaned to a valid corner configuration with one horizontal and one vertical junction leg; they must not remain as partial T/cross intersections. Road removal clears the full road cross-section for the clicked slice, so a normal two-tile two-way road removes both paired footprint tiles and wider avenue templates remove the full template width.
+
+After removal, any remaining contiguous authored road run whose longitudinal length is shorter than that road template's footprint is invalid and should be erased too. This prevents remnants such as a two-wide road left one tile long, or a four-wide road left only three tiles long.
+
+## Test Doctrine
+Prefer scenario-style sandbox and micro-simulation coverage over narrow helper-only unit tests. Small function assertions are useful for parsing and bit packing, but road, pathfinding, and commute behavior should be tested through authored configurations that look like player actions and inspect the resulting network state.
+
+Good examples:
+
+- a known-good road layout where one building can path to another building
+- many houses on one end of a multi-lane road and jobs on the other, simulated long enough for the rolling route queue to split traffic load across lanes
+- a long four-lane road intersected at both ends by two-lane roads, with source lots on one side and destination lots on the other
+
+The current road-tool fixture sandbox should eventually be split out of `TransportNetworkTests.cpp` into a reusable integration-test harness. That harness should accept map width/height, tick count, and scheduled actions by tick. Actions should be able to use tool-level operations such as road strokes, lot placement at exact coordinates, area bulldoze, query, and other future tools. The goal is for transport, runtime, and renderer-adjacent tests to share the same player-action language rather than each test target inventing its own mini-sandbox.
 
 ## Road Tool Semantic Cases
 Road-tool tests should model small player-action sandboxes, not only individual helper return values. The fixture files under `City Builder/Data/TransportNetwork/SandboxCases/` define action sequences and expected final ASCII grids for materials, active car axes, resolved road variants, crosswalks, sidewalk masks, and junction masks. Material grids use `.` for empty terrain, `R` for road body without visible pedestrian edge, `S` for visible pedestrian edge without road body, and `B` for road body plus visible pedestrian edge. Sidewalk and junction mask grids use the same low-nibble cardinal bit table:

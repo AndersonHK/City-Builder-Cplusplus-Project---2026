@@ -42,6 +42,11 @@ struct ViewState {
     int roadDragStartY;
     int roadDragCurrentX;
     int roadDragCurrentY;
+    bool bulldozeDragActive;
+    int bulldozeDragStartX;
+    int bulldozeDragStartY;
+    int bulldozeDragCurrentX;
+    int bulldozeDragCurrentY;
     int roadLaneCount;
     RoadTrafficSide roadTrafficSide;
     RoadDirectionMode roadDirectionMode;
@@ -49,6 +54,10 @@ struct ViewState {
     OverlayMode overlayMode;
     bool roadDebugGraphicsEnabled;
     int queriedLotId;
+    int queriedTileX;
+    int queriedTileY;
+    std::uint64_t queriedLotRevision;
+    std::uint64_t queriedCommuteRevision;
     std::uint64_t queryRouteRevision;
     std::vector<CommuteRouteSegment> queriedCommuteRouteSegments;
     std::vector<std::string> queryWindowLines;
@@ -74,6 +83,11 @@ struct ViewState {
           roadDragStartY(0),
           roadDragCurrentX(0),
           roadDragCurrentY(0),
+          bulldozeDragActive(false),
+          bulldozeDragStartX(0),
+          bulldozeDragStartY(0),
+          bulldozeDragCurrentX(0),
+          bulldozeDragCurrentY(0),
           roadLaneCount(1),
           roadTrafficSide(RoadTrafficSide::RightHand),
           roadDirectionMode(RoadDirectionMode::TwoWay),
@@ -81,6 +95,10 @@ struct ViewState {
           overlayMode(OverlayMode::None),
           roadDebugGraphicsEnabled(false),
           queriedLotId(-1),
+          queriedTileX(0),
+          queriedTileY(0),
+          queriedLotRevision(0),
+          queriedCommuteRevision(0),
           queryRouteRevision(0),
           hoveredRegionX(0),
           hoveredRegionY(0),
@@ -103,6 +121,8 @@ public:
     void setHoveredRegionCity(int regionX, int regionY, bool isValid);
     bool roadPreviewStroke(RoadStrokeCommand& roadStrokeCommand) const;
     bool lotPreviewRequest(std::string& lotAssetId, int& tileX, int& tileY, int& rotationSteps) const;
+    bool bulldozePreviewRect(int& minTileX, int& minTileY, int& maxTileX, int& maxTileY) const;
+    void refreshQueryResultIfNeeded();
     void processPendingRegionClick();
 
     ViewState viewState() const;
@@ -122,6 +142,8 @@ private:
     void syncActiveCityCameraToSession();
     void beginRoadDrag(int tileX, int tileY);
     void commitRoadDrag(int tileX, int tileY);
+    void beginBulldozeDrag(int tileX, int tileY);
+    void commitBulldozeDrag(int tileX, int tileY);
     RoadTemplate currentRoadTemplate(RoadFamily family, TransportLayerId layer) const;
     void printRoadTemplate() const;
     void printQueryResult();

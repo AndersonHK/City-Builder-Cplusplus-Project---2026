@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <map>
 
 namespace {
 struct PendingTileUpdate {
@@ -362,21 +363,28 @@ bool TransportNetwork::removeRoadAtTile(int tileX, int tileY) {
             const std::size_t slot = slotIndex(layer, removalTileIndex, totalTileCount_);
             if (slot < transportTiles_.size() && !transportTiles_[slot].lanes().empty()) {
                 transportTiles_[slot].clear();
-                bool alreadySaved = false;
-                std::size_t erasureIndex = 0;
-                for (; erasureIndex < tileErasures_.size(); ++erasureIndex) {
-                    if (tileErasures_[erasureIndex].layer == layer &&
-                        tileErasures_[erasureIndex].tileIndex == removalTileIndex) {
-                        alreadySaved = true;
-                        break;
-                    }
-                }
-                if (!alreadySaved) {
-                    TransportTileEraseSaveState erasure;
-                    erasure.layer = layer;
-                    erasure.tileIndex = removalTileIndex;
-                    tileErasures_.push_back(erasure);
-                }
+                addRoadTileErasure(layer, removalTileIndex);
+                removedAnyRoad = true;
+            }
+        }
+
+        std::vector<int> shortSegmentTileIndices;
+        collectShortRoadSegmentErasures(layer, shortSegmentTileIndices);
+        std::sort(shortSegmentTileIndices.begin(), shortSegmentTileIndices.end());
+        shortSegmentTileIndices.erase(std::unique(shortSegmentTileIndices.begin(), shortSegmentTileIndices.end()), shortSegmentTileIndices.end());
+
+        for (removalIndex = 0; removalIndex < shortSegmentTileIndices.size(); ++removalIndex) {
+            const int removalTileIndex = shortSegmentTileIndices[removalIndex];
+            if (removalTileIndex < 0 || removalTileIndex >= static_cast<int>(totalTileCount_)) {
+                continue;
+            }
+
+            const std::size_t slot = slotIndex(layer, removalTileIndex, totalTileCount_);
+            if (slot < transportTiles_.size()) {
+                transportTiles_[slot].clear();
+            }
+            if (addRoadTileErasure(layer, removalTileIndex)) {
+                removalTileIndices.push_back(removalTileIndex);
                 removedAnyRoad = true;
             }
         }
@@ -446,6 +454,10 @@ std::uint64_t TransportNetwork::trafficOverlayRevision() const {
 
 void TransportNetwork::setCongestionCurve(const TransportCongestionCurve& congestionCurve) {
     costMap_.setCongestionCurve(congestionCurve);
+}
+
+void TransportNetwork::beginTrafficAssignmentFromOldLoad() {
+    costMap_.beginNextLoadFromOldLoad();
 }
 
 void TransportNetwork::beginTrafficAssignmentFromZero() {
@@ -756,6 +768,97 @@ bool TransportNetwork::tileIsErased(TransportLayerId layer, int tileIndexValue) 
     }
 
     return false;
+}
+
+bool TransportNetwork::addRoadTileErasure(TransportLayerId layer, int tileIndexValue) {
+    if (tileIndexValue < 0 || tileIndexValue >= static_cast<int>(totalTileCount_) || tileIsErased(layer, tileIndexValue)) {
+        return false;
+    }
+
+    TransportTileEraseSaveState erasure;
+    erasure.layer = layer;
+    erasure.tileIndex = tileIndexValue;
+    tileErasures_.push_back(erasure);
+    return true;
+}
+
+void TransportNetwork::collectShortRoadSegmentErasures(TransportLayerId layer, std::vector<int>& erasureTileIndices) const {
+    std::size_t strokeIndex = 0;
+    for (; strokeIndex < strokes_.size(); ++strokeIndex) {
+        const TransportStrokeSaveState& stroke = strokes_[strokeIndex];
+        if (stroke.layer != layer) {
+            continue;
+        }
+
+        const RoadTemplate roadTemplate = Road::makeTemplate(stroke.family, stroke.layer, stroke.laneCount, stroke.trafficSide, stroke.directionMode);
+        const int footprint = std::max(1, static_cast<int>(roadTemplate.identity.footprint));
+        if (footprint <= 1) {
+            continue;
+        }
+
+        Road road(roadTemplate);
+        std::vector<RoadTilePlacement> placements;
+        placements.reserve(4096);
+        if (!road.appendStrokePlacements(stroke.startTile, stroke.cornerTile, stroke.endTile, width_, height_, placements)) {
+            continue;
+        }
+
+        const RoadAxis axes[] = {
+            RoadAxis::Horizontal,
+            RoadAxis::Vertical
+        };
+
+        std::size_t axisIndex = 0;
+        for (; axisIndex < sizeof(axes) / sizeof(axes[0]); ++axisIndex) {
+            const RoadAxis axis = axes[axisIndex];
+            const std::uint8_t axisMask = AxisMaskFor(axis);
+            std::map<int, std::vector<int> > tileIndicesByLongitudinalCoordinate;
+
+            std::size_t placementIndex = 0;
+            for (; placementIndex < placements.size(); ++placementIndex) {
+                const RoadTilePlacement& placement = placements[placementIndex];
+                if ((AxisMaskFor(placement.lanePlacement.axis) & axisMask) == 0u ||
+                    tileIsErased(layer, placement.tileIndex)) {
+                    continue;
+                }
+
+                const int longitudinalCoordinate = axis == RoadAxis::Horizontal ? placement.tileX : placement.tileY;
+                tileIndicesByLongitudinalCoordinate[longitudinalCoordinate].push_back(placement.tileIndex);
+            }
+
+            if (tileIndicesByLongitudinalCoordinate.empty()) {
+                continue;
+            }
+
+            std::map<int, std::vector<int> >::const_iterator runBegin = tileIndicesByLongitudinalCoordinate.begin();
+            std::map<int, std::vector<int> >::const_iterator iterator = runBegin;
+            int previousCoordinate = iterator->first;
+            ++iterator;
+
+            for (;;) {
+                const bool runEnded = iterator == tileIndicesByLongitudinalCoordinate.end() || iterator->first != previousCoordinate + 1;
+                if (runEnded) {
+                    const int runEndCoordinate = previousCoordinate;
+                    const int runLength = runEndCoordinate - runBegin->first + 1;
+                    if (runLength < footprint) {
+                        std::map<int, std::vector<int> >::const_iterator eraseIterator = runBegin;
+                        for (; eraseIterator != iterator; ++eraseIterator) {
+                            erasureTileIndices.insert(erasureTileIndices.end(), eraseIterator->second.begin(), eraseIterator->second.end());
+                        }
+                    }
+
+                    if (iterator == tileIndicesByLongitudinalCoordinate.end()) {
+                        break;
+                    }
+
+                    runBegin = iterator;
+                }
+
+                previousCoordinate = iterator->first;
+                ++iterator;
+            }
+        }
+    }
 }
 
 bool TransportNetwork::mergeReplayStrokeIds(TransportLayerId layer, const std::vector<RoadTilePlacement>& placements) {
