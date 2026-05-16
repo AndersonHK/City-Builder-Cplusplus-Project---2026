@@ -7,12 +7,12 @@ no crosswalks that imply a through north-south road, and no north-going correcte
 end
 actions:
 drag 2 6 13 6 lanes=2
-drag 6 2 6 13 lanes=2
+drag 6 1 6 13 lanes=2
 bulldoze 6 5
 end
 expect active_car_axes 0 0 15 15:
 ................
-................
+......vvvv......
 ......VVVV......
 ......VVVV......
 ......VVVV......
@@ -30,10 +30,10 @@ expect active_car_axes 0 0 15 15:
 end
 expect resolved 0 0 15 15:
 ................
-................
-......DTTD......
-......VVVV......
-......DTTD......
+......DHHD......
+......VDDV......
+......VDDV......
+......DHHD......
 ................
 ..DHHHTTTTHHHD..
 ..THHHTTTTHHHT..
@@ -64,27 +64,45 @@ expect crosswalks 0 0 15 15:
 ................
 ................
 end
-expect sidewalks 0 0 15 15:
-0000000000000000
-0000000000000000
-0000004004000000
-0000005005000000
-0000001001000000
-0000000000000000
-002AAAEAAEAAA800
-0000005005000000
-0000005005000000
-002AAAFAAFAAA800
-0000005005000000
-0000005005000000
-0000005005000000
-0000001001000000
-0000000000000000
-0000000000000000
+expect car_directions 0 0 15 15:
+.	.	.	.	.	.	.	.	.	.	.	.	.	.	.	.
+.	.	.	.	.	.	S	W	W	W	.	.	.	.	.	.
+.	.	.	.	.	.	S	S	W	N	.	.	.	.	.	.
+.	.	.	.	.	.	S	E	N	N	.	.	.	.	.	.
+.	.	.	.	.	.	E	E	E	N	.	.	.	.	.	.
+.	.	.	.	.	.	.	.	.	.	.	.	.	.	.	.
+.	.	S	W	W	W	SW	SW	W	W	W	W	W	W	.	.
+.	.	S	S	W	W	SW	SW	NW	NW	W	W	W	N	.	.
+.	.	S	E	E	E	SE	SE	NE	NE	E	E	N	N	.	.
+.	.	E	E	E	E	SE	SE	NE	NE	E	E	E	N	.	.
+.	.	.	.	.	.	S	S	N	N	.	.	.	.	.	.
+.	.	.	.	.	.	S	S	N	N	.	.	.	.	.	.
+.	.	.	.	.	.	S	S	N	N	.	.	.	.	.	.
+.	.	.	.	.	.	E	E	NE	NW	.	.	.	.	.	.
+.	.	.	.	.	.	.	.	.	.	.	.	.	.	.	.
+.	.	.	.	.	.	.	.	.	.	.	.	.	.	.	.
+end
+expect sidewalk_directions 0 0 15 15:
+.	.	.	.	.	.	.	.	.	.	.	.	.	.	.	.
+.	.	.	.	.	.	SE	WE	WE	SW	.	.	.	.	.	.
+.	.	.	.	.	.	SN	.	.	SN	.	.	.	.	.	.
+.	.	.	.	.	.	SN	.	.	SN	.	.	.	.	.	.
+.	.	.	.	.	.	NE	WE	WE	NW	.	.	.	.	.	.
+.	.	.	.	.	.	.	.	.	.	.	.	.	.	.	.
+.	.	SE	WE	WE	WE	SEW	WE	WE	SEW	WE	WE	WE	WS	.	.
+.	.	NS	.	.	.	SN	.	.	SN	.	.	.	NS	.	.
+.	.	NS	.	.	.	SN	.	.	SN	.	.	.	NS	.	.
+.	.	NE	WE	WE	WE	NSEW	WE	WE	NSEW	WE	WE	WE	WN	.	.
+.	.	.	.	.	.	SN	.	.	SN	.	.	.	.	.	.
+.	.	.	.	.	.	SN	.	.	SN	.	.	.	.	.	.
+.	.	.	.	.	.	SN	.	.	SN	.	.	.	.	.	.
+.	.	.	.	.	.	NE	WE	WE	NW	.	.	.	.	.	.
+.	.	.	.	.	.	.	.	.	.	.	.	.	.	.	.
+.	.	.	.	.	.	.	.	.	.	.	.	.	.	.	.
 end
 expect materials 0 0 15 15:
 ................
-................
+......BRRB......
 ......BRRB......
 ......BRRB......
 ......BRRB......
@@ -99,22 +117,4 @@ expect materials 0 0 15 15:
 ......BRRB......
 ................
 ................
-end
-expect junctions 0 0 15 15:
-0000000000000000
-0000000000000000
-000000CEE6000000
-0000005555000000
-0000003BB9000000
-0000000000000000
-006AAAEEEEAAAC00
-007AAAEEEEAAAD00
-007AAAEEEEAAAD00
-003AAAEEEEAAA900
-0000005555000000
-0000005555000000
-0000005555000000
-0000003BB9000000
-0000000000000000
-0000000000000000
 end

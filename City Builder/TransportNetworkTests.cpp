@@ -232,6 +232,60 @@ std::string ActiveCarAxisGrid(const TransportNetwork& network, int minX, int min
     return grid;
 }
 
+char DirectionLetter(std::uint8_t roadDirection) {
+    switch (roadDirection) {
+        case kRoadDirectionNorth:
+            return 'N';
+        case kRoadDirectionEast:
+            return 'E';
+        case kRoadDirectionSouth:
+            return 'S';
+        case kRoadDirectionWest:
+            return 'W';
+        default:
+            return '?';
+    }
+}
+
+std::string DirectionLetters(std::uint8_t roadDirectionMask) {
+    const std::uint8_t straightVerticalMask = static_cast<std::uint8_t>(kRoadDirectionNorth | kRoadDirectionSouth);
+    const std::uint8_t straightHorizontalMask = static_cast<std::uint8_t>(kRoadDirectionEast | kRoadDirectionWest);
+    if (roadDirectionMask == straightVerticalMask) {
+        return "SN";
+    }
+    if (roadDirectionMask == straightHorizontalMask) {
+        return "WE";
+    }
+
+    std::string result;
+    const std::uint8_t directions[] = {
+        kRoadDirectionNorth,
+        kRoadDirectionSouth,
+        kRoadDirectionEast,
+        kRoadDirectionWest
+    };
+    std::size_t directionIndex = 0;
+    for (; directionIndex < sizeof(directions) / sizeof(directions[0]); ++directionIndex) {
+        if ((roadDirectionMask & directions[directionIndex]) != 0) {
+            result += DirectionLetter(directions[directionIndex]);
+        }
+    }
+
+    return result.empty() ? "." : result;
+}
+
+std::string AxisDirectionLetters(std::uint8_t axisMask) {
+    std::string result;
+    if ((axisMask & AxisMaskFor(RoadAxis::Vertical)) != 0) {
+        result += "SN";
+    }
+    if ((axisMask & AxisMaskFor(RoadAxis::Horizontal)) != 0) {
+        result += "WE";
+    }
+
+    return result.empty() ? "." : result;
+}
+
 char ResolvedCellChar(const ResolvedRoadCell& cell) {
     if (cell.family == static_cast<std::uint8_t>(RoadFamily::None)) {
         return '.';
@@ -319,7 +373,7 @@ std::uint8_t CostCellDirectionMask(const TransportCostCell& cell) {
     return directionMask;
 }
 
-std::string SidewalkLaneGrid(const TransportNetwork& network, int minX, int minY, int maxX, int maxY) {
+std::string DirectionGridForMode(const TransportNetwork& network, TransportMode mode, int minX, int minY, int maxX, int maxY) {
     std::string grid;
     int tileY = minY;
     for (; tileY <= maxY; ++tileY) {
@@ -329,15 +383,50 @@ std::string SidewalkLaneGrid(const TransportNetwork& network, int minX, int minY
 
         int tileX = minX;
         for (; tileX <= maxX; ++tileX) {
-            const TransportCostCell& cell = CostCellAt(network, TransportLayerId::Ground, TransportMode::Pedestrian, tileX, tileY);
-            grid += HexDigit(CostCellDirectionMask(cell));
+            if (tileX > minX) {
+                grid += "\t";
+            }
+
+            const TransportCostCell& cell = CostCellAt(network, TransportLayerId::Ground, mode, tileX, tileY);
+            grid += DirectionLetters(CostCellDirectionMask(cell));
         }
     }
 
     return grid;
 }
 
-std::string CarLaneGrid(const TransportNetwork& network, int minX, int minY, int maxX, int maxY) {
+std::string MedianDirectionGrid(const TransportNetwork& network, int minX, int minY, int maxX, int maxY) {
+    std::vector<std::uint8_t> axisMasks(network.totalTileCount(), 0);
+    const TransportNetworkSaveState saveState = network.exportSaveState();
+    std::size_t savedTileIndex = 0;
+    for (; savedTileIndex < saveState.tiles.size(); ++savedTileIndex) {
+        const TransportTileSaveState& tile = saveState.tiles[savedTileIndex];
+        if (tile.layer != TransportLayerId::Ground ||
+            tile.tileIndex < 0 ||
+            tile.tileIndex >= static_cast<int>(network.totalTileCount())) {
+            continue;
+        }
+
+        std::size_t laneIndex = 0;
+        for (; laneIndex < tile.lanes.size(); ++laneIndex) {
+            const RoadLanePlacement& lane = tile.lanes[laneIndex];
+            if (!lane.active || !lane.isSeparator()) {
+                continue;
+            }
+
+            std::uint8_t laneAxisMask = AxisMaskFor(lane.axis);
+            if (laneAxisMask == 0) {
+                if ((lane.opposingDirectionDividerMask & (kRoadDirectionNorth | kRoadDirectionSouth)) != 0) {
+                    laneAxisMask |= AxisMaskFor(RoadAxis::Horizontal);
+                }
+                if ((lane.opposingDirectionDividerMask & (kRoadDirectionEast | kRoadDirectionWest)) != 0) {
+                    laneAxisMask |= AxisMaskFor(RoadAxis::Vertical);
+                }
+            }
+            axisMasks[static_cast<std::size_t>(tile.tileIndex)] |= laneAxisMask;
+        }
+    }
+
     std::string grid;
     int tileY = minY;
     for (; tileY <= maxY; ++tileY) {
@@ -347,8 +436,12 @@ std::string CarLaneGrid(const TransportNetwork& network, int minX, int minY, int
 
         int tileX = minX;
         for (; tileX <= maxX; ++tileX) {
-            const TransportCostCell& cell = CostCellAt(network, TransportLayerId::Ground, TransportMode::Car, tileX, tileY);
-            grid += HexDigit(CostCellDirectionMask(cell));
+            if (tileX > minX) {
+                grid += "\t";
+            }
+
+            const int index = tileY * network.width() + tileX;
+            grid += AxisDirectionLetters(axisMasks[static_cast<std::size_t>(index)]);
         }
     }
 
@@ -430,10 +523,12 @@ std::string SandboxSnapshot(const std::string& action, const TransportNetwork& n
     snapshot += ResolvedRoadGrid(network, 0, 0, network.width() - 1, network.height() - 1);
     snapshot += "\ncrosswalks:\n";
     snapshot += CrosswalkGrid(network, 0, 0, network.width() - 1, network.height() - 1);
-    snapshot += "\ncar lanes:\n";
-    snapshot += CarLaneGrid(network, 0, 0, network.width() - 1, network.height() - 1);
-    snapshot += "\nsidewalk lanes:\n";
-    snapshot += SidewalkLaneGrid(network, 0, 0, network.width() - 1, network.height() - 1);
+    snapshot += "\ncar directions:\n";
+    snapshot += DirectionGridForMode(network, TransportMode::Car, 0, 0, network.width() - 1, network.height() - 1);
+    snapshot += "\nsidewalk directions:\n";
+    snapshot += DirectionGridForMode(network, TransportMode::Pedestrian, 0, 0, network.width() - 1, network.height() - 1);
+    snapshot += "\nmedian directions:\n";
+    snapshot += MedianDirectionGrid(network, 0, 0, network.width() - 1, network.height() - 1);
     snapshot += "\nsidewalk edge graphics:\n";
     snapshot += SidewalkEdgeGrid(network, 0, 0, network.width() - 1, network.height() - 1);
     snapshot += "\nmaterials:\n";
@@ -775,17 +870,17 @@ std::string SandboxGridForExpectation(const RoadToolSandbox& sandbox, const Sand
     if (expectedGrid.kind == "crosswalks") {
         return CrosswalkGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
     }
-    if (expectedGrid.kind == "car_lanes") {
-        return CarLaneGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
+    if (expectedGrid.kind == "car_directions") {
+        return DirectionGridForMode(sandbox.network, TransportMode::Car, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
     }
-    if (expectedGrid.kind == "sidewalks") {
-        return SidewalkLaneGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
+    if (expectedGrid.kind == "sidewalk_directions") {
+        return DirectionGridForMode(sandbox.network, TransportMode::Pedestrian, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
+    }
+    if (expectedGrid.kind == "median_directions") {
+        return MedianDirectionGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
     }
     if (expectedGrid.kind == "sidewalk_edges") {
         return SidewalkEdgeGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
-    }
-    if (expectedGrid.kind == "sidewalk_lanes") {
-        return SidewalkLaneGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
     }
     if (expectedGrid.kind == "materials") {
         return MaterialGrid(sandbox.network, expectedGrid.bounds.minX, expectedGrid.bounds.minY, expectedGrid.bounds.maxX, expectedGrid.bounds.maxY);
