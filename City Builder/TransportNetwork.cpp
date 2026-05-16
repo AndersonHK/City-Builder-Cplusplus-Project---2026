@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <iostream>
 
 namespace {
 struct PendingTileUpdate {
@@ -1626,22 +1625,13 @@ std::uint8_t TransportNetwork::pedestrianLaneCrosswalkMask(TransportLayerId laye
     }
 
     const std::uint8_t approachMask = buildIntersectionGroupApproachMask(layer, tileX, tileY, tile.family());
-    if (CountCardinalDirections(approachMask) < 3) {
+    const int approachCount = CountCardinalDirections(approachMask);
+    if (approachCount < 3) {
         return 0;
     }
 
-    if ((tileX == 5 && tileY == 5) || (tileX == 7 && (tileY == 7 || tileY == 8)) || (tileX == 8 && (tileY == 7 || tileY == 8))) {
-        std::cout << "CWDBG " << tileX << "," << tileY
-            << " axis=" << static_cast<int>(pedestrianLane.axis)
-            << " lane=" << pedestrianLane.laneIndex
-            << " travel=" << static_cast<int>(RoadDirectionsFromLaneIntent(pedestrianLane.laneTravelMask))
-            << " graphic=" << static_cast<int>(pedestrianGraphicMask)
-            << " approach=" << static_cast<int>(approachMask)
-            << " through=" << pedestrianLaneContinuesThroughCrossing(layer, tileX, tileY, pedestrianLane)
-            << " throughEnds=" << hasPedestrianThroughBothEnds(layer, tileX, tileY, pedestrianLane)
-            << " endpoint=" << pedestrianLaneHasEndpointConnection(layer, tileX, tileY, pedestrianLane, false)
-            << " bordersEmpty=" << pedestrianLaneBordersEmptyTile(layer, tileX, tileY, pedestrianLane)
-            << std::endl;
+    if (approachCount == 4 && !pedestrianLaneContinuesThroughCrossing(layer, tileX, tileY, pedestrianLane)) {
+        return 0;
     }
 
     return static_cast<std::uint8_t>(pedestrianGraphicMask & approachMask);
