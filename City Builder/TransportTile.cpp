@@ -66,19 +66,43 @@ RoadTileLaneAddResult TransportTile::tryAddLane(const RoadLanePlacement& lanePla
                 return RoadTileLaneAddResult::Rejected;
             }
 
-            existingLane.laneTravelMask |= lanePlacement.laneTravelMask;
-            existingLane.arrowTravelMask |= lanePlacement.arrowTravelMask;
-            existingLane.sidewalkEdgeMask |= lanePlacement.sidewalkEdgeMask;
-            existingLane.sameDirectionDividerMask |= lanePlacement.sameDirectionDividerMask;
-            existingLane.opposingDirectionDividerMask |= lanePlacement.opposingDirectionDividerMask;
-            existingLane.axis = MergeRoadAxes(existingLane.axis, lanePlacement.axis);
-            existingLane.crossSectionMask |= lanePlacement.crossSectionMask;
-            existingLane.sideMin = std::min(existingLane.sideMin, lanePlacement.sideMin);
-            existingLane.sideMax = std::max(existingLane.sideMax, lanePlacement.sideMax);
-            if (existingLane.separatorStyle == RoadSeparatorStyle::None) {
-                existingLane.separatorStyle = lanePlacement.separatorStyle;
+            const std::uint8_t laneTravelMask = static_cast<std::uint8_t>(existingLane.laneTravelMask | lanePlacement.laneTravelMask);
+            const std::uint8_t arrowTravelMask = static_cast<std::uint8_t>(existingLane.arrowTravelMask | lanePlacement.arrowTravelMask);
+            const std::uint8_t sidewalkEdgeMask = static_cast<std::uint8_t>(existingLane.sidewalkEdgeMask | lanePlacement.sidewalkEdgeMask);
+            const std::uint8_t sameDirectionDividerMask = static_cast<std::uint8_t>(existingLane.sameDirectionDividerMask | lanePlacement.sameDirectionDividerMask);
+            const std::uint8_t opposingDirectionDividerMask = static_cast<std::uint8_t>(existingLane.opposingDirectionDividerMask | lanePlacement.opposingDirectionDividerMask);
+            const RoadAxis axis = MergeRoadAxes(existingLane.axis, lanePlacement.axis);
+            const std::uint8_t crossSectionMask = static_cast<std::uint8_t>(existingLane.crossSectionMask | lanePlacement.crossSectionMask);
+            const float sideMin = std::min(existingLane.sideMin, lanePlacement.sideMin);
+            const float sideMax = std::max(existingLane.sideMax, lanePlacement.sideMax);
+            const RoadSeparatorStyle separatorStyle = existingLane.separatorStyle == RoadSeparatorStyle::None ? lanePlacement.separatorStyle : existingLane.separatorStyle;
+            const bool active = existingLane.active || lanePlacement.active;
+
+            if (existingLane.laneTravelMask == laneTravelMask &&
+                existingLane.arrowTravelMask == arrowTravelMask &&
+                existingLane.sidewalkEdgeMask == sidewalkEdgeMask &&
+                existingLane.sameDirectionDividerMask == sameDirectionDividerMask &&
+                existingLane.opposingDirectionDividerMask == opposingDirectionDividerMask &&
+                existingLane.axis == axis &&
+                existingLane.crossSectionMask == crossSectionMask &&
+                existingLane.sideMin == sideMin &&
+                existingLane.sideMax == sideMax &&
+                existingLane.separatorStyle == separatorStyle &&
+                existingLane.active == active) {
+                return RoadTileLaneAddResult::Replay;
             }
-            existingLane.active = existingLane.active || lanePlacement.active;
+
+            existingLane.laneTravelMask = laneTravelMask;
+            existingLane.arrowTravelMask = arrowTravelMask;
+            existingLane.sidewalkEdgeMask = sidewalkEdgeMask;
+            existingLane.sameDirectionDividerMask = sameDirectionDividerMask;
+            existingLane.opposingDirectionDividerMask = opposingDirectionDividerMask;
+            existingLane.axis = axis;
+            existingLane.crossSectionMask = crossSectionMask;
+            existingLane.sideMin = sideMin;
+            existingLane.sideMax = sideMax;
+            existingLane.separatorStyle = separatorStyle;
+            existingLane.active = active;
             return RoadTileLaneAddResult::Added;
         }
 

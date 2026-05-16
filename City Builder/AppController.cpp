@@ -38,6 +38,25 @@ const int kMinimumRoadLaneCount = 1;
 const int kMaximumRoadLaneCount = 4;
 const long long kRegionDoubleClickMillis = 650;
 
+void RoadTemplateControlContext(const ViewState& viewState, RoadFamily& family, TransportLayerId& layer) {
+    if (viewState.activeTool == ActiveTool::RoadHighway) {
+        family = RoadFamily::Highway;
+        layer = TransportLayerId::Elevated;
+        return;
+    }
+
+    family = RoadFamily::LocalStreet;
+    layer = TransportLayerId::Ground;
+}
+
+void NormalizeRoadTemplateSelection(ViewState& viewState) {
+    RoadFamily family = RoadFamily::LocalStreet;
+    TransportLayerId layer = TransportLayerId::Ground;
+    RoadTemplateControlContext(viewState, family, layer);
+    const RoadTemplate roadTemplate = TransportNetwork::makeRoadTemplate(family, layer, viewState.roadLaneCount, viewState.roadTrafficSide, viewState.roadDirectionMode);
+    viewState.roadLaneCount = roadTemplate.laneCount;
+}
+
 const char* OverlayModeName(OverlayMode overlayMode) {
     switch (overlayMode) {
         case OverlayMode::None:
@@ -462,11 +481,13 @@ void AppController::onKeyPressed(int key, int action) {
 
         case kKeyLeftBracket:
             viewState_.roadLaneCount = std::max(kMinimumRoadLaneCount, viewState_.roadLaneCount - 1);
+            NormalizeRoadTemplateSelection(viewState_);
             printRoadTemplate();
             return;
 
         case kKeyRightBracket:
             viewState_.roadLaneCount = std::min(kMaximumRoadLaneCount, viewState_.roadLaneCount + 1);
+            NormalizeRoadTemplateSelection(viewState_);
             printRoadTemplate();
             return;
 
@@ -483,6 +504,7 @@ void AppController::onKeyPressed(int key, int action) {
             } else {
                 viewState_.roadDirectionMode = RoadDirectionMode::TwoWay;
             }
+            NormalizeRoadTemplateSelection(viewState_);
             printRoadTemplate();
             return;
     }
@@ -615,6 +637,9 @@ void AppController::panCamera(int deltaX, int deltaY) {
 void AppController::setActiveTool(ActiveTool activeTool) {
     viewState_.activeTool = activeTool;
     viewState_.roadDragActive = false;
+    if (activeToolIsRoad()) {
+        NormalizeRoadTemplateSelection(viewState_);
+    }
     std::cout << "Selected tool: " << ActiveToolName(activeTool) << std::endl;
 }
 
@@ -742,7 +767,11 @@ RoadTemplate AppController::currentRoadTemplate(RoadFamily family, TransportLaye
 
 // Prints active road-template settings whenever the lightweight controls change.
 void AppController::printRoadTemplate() const {
-    std::cout << "Road template: lanes=" << viewState_.roadLaneCount
+    RoadFamily family = RoadFamily::LocalStreet;
+    TransportLayerId layer = TransportLayerId::Ground;
+    RoadTemplateControlContext(viewState_, family, layer);
+    const RoadTemplate roadTemplate = currentRoadTemplate(family, layer);
+    std::cout << "Road template: lanes=" << roadTemplate.laneCount
         << " traffic=" << RoadTrafficSideName(viewState_.roadTrafficSide)
         << " mode=" << RoadDirectionModeName(viewState_.roadDirectionMode)
         << std::endl;

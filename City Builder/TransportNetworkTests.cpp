@@ -1093,13 +1093,31 @@ void TestOneWayLocalStreet(TestRunner& runner) {
     std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
 
     runner.expect(Place(network, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground, RoadDirectionMode::OneWayForward), lotOccupancy), "one-way street placement succeeds");
-    const ResolvedRoadCell& cell = CellAt(network, TransportLayerId::Ground, 4, 5);
+    const ResolvedRoadCell& northCell = CellAt(network, TransportLayerId::Ground, 4, 5);
+    const ResolvedRoadCell& southCell = CellAt(network, TransportLayerId::Ground, 4, 6);
 
-    runner.expect((cell.exitMask & kRoadDirectionEast) != 0, "one-way street exits forward");
-    runner.expect((cell.exitMask & kRoadDirectionWest) != 0, "one-way street keeps bidirectional pedestrian sidewalk exit");
-    runner.expect(ArrowMask(cell) == kLaneIntentEast, "one-way street arrow points east");
-    runner.expect(IsDebugArrow(cell), "one-way street arrow is tagged as debug graphics");
-    runner.expect((SidewalkEdges(cell) & (kRoadDirectionNorth | kRoadDirectionSouth)) == (kRoadDirectionNorth | kRoadDirectionSouth), "one-way street keeps both sidewalk edges");
+    runner.expect((northCell.exitMask & kRoadDirectionEast) != 0, "one-way street exits forward on north tile");
+    runner.expect((southCell.exitMask & kRoadDirectionEast) != 0, "one-way street exits forward on south tile");
+    runner.expect((northCell.exitMask & kRoadDirectionWest) != 0, "one-way street keeps bidirectional pedestrian sidewalk exit on north tile");
+    runner.expect((southCell.exitMask & kRoadDirectionWest) != 0, "one-way street keeps bidirectional pedestrian sidewalk exit on south tile");
+    runner.expect(ArrowMask(northCell) == kLaneIntentEast, "one-way street north arrow points east");
+    runner.expect(ArrowMask(southCell) == kLaneIntentEast, "one-way street south arrow points east");
+    runner.expect(IsDebugArrow(northCell), "one-way street north arrow is tagged as debug graphics");
+    runner.expect(IsDebugArrow(southCell), "one-way street south arrow is tagged as debug graphics");
+    runner.expect((SidewalkEdges(northCell) & kRoadDirectionNorth) != 0, "one-way street keeps outer north sidewalk edge");
+    runner.expect((SidewalkEdges(southCell) & kRoadDirectionSouth) != 0, "one-way street keeps outer south sidewalk edge");
+}
+
+void TestOneWayLaneMinimums(TestRunner& runner) {
+    const RoadTemplate localOneWay = TransportNetwork::makeRoadTemplate(RoadFamily::LocalStreet, TransportLayerId::Ground, 1, RoadTrafficSide::RightHand, RoadDirectionMode::OneWayForward);
+    runner.expect(localOneWay.laneCount == 2, "one-way local street promotes requested one lane to two lanes");
+    runner.expect(localOneWay.identity.footprint == 2, "one-way local street promoted lane count occupies two tiles");
+
+    const RoadTemplate localTwoWay = TransportNetwork::makeRoadTemplate(RoadFamily::LocalStreet, TransportLayerId::Ground, 1, RoadTrafficSide::RightHand, RoadDirectionMode::TwoWay);
+    runner.expect(localTwoWay.laneCount == 1, "two-way local street still allows one lane per direction");
+
+    const RoadTemplate highwayOneWay = TransportNetwork::makeRoadTemplate(RoadFamily::Highway, TransportLayerId::Elevated, 1, RoadTrafficSide::RightHand, RoadDirectionMode::OneWayForward);
+    runner.expect(highwayOneWay.laneCount == 1, "one-way elevated highway still allows one lane");
 }
 
 void TestSeparatorLaneSandwichRules(TestRunner& runner) {
@@ -1120,7 +1138,7 @@ void TestSeparatorLaneSandwichRules(TestRunner& runner) {
     std::vector<int> oneWayLotOccupancy(oneWayNetwork.totalTileCount(), kInvalidLotId);
     runner.expect(Place(oneWayNetwork, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground, RoadDirectionMode::OneWayForward), oneWayLotOccupancy), "one-way separator street placement succeeds");
     runner.expect(ActiveSavedLaneCount(oneWayNetwork, RoadLaneTypeId::Separator) == 0, "one-way local street omits separator between same-direction lanes");
-    runner.expect(CellAt(oneWayNetwork, TransportLayerId::Ground, 4, 5).dividerMask == 0, "one-way local street publishes no separator divider");
+    runner.expect((CellAt(oneWayNetwork, TransportLayerId::Ground, 4, 5).dividerMask >> kRoadDividerYellowShift) == 0, "one-way local street publishes no opposing-direction separator divider");
 
     TransportNetwork crossingNetwork = MakeNetwork(12, 12);
     std::vector<int> crossingLotOccupancy(crossingNetwork.totalTileCount(), kInvalidLotId);
@@ -2020,6 +2038,7 @@ int main() {
     TestRunner runner;
     TestStraightTwoWayLocalStreet(runner);
     TestOneWayLocalStreet(runner);
+    TestOneWayLaneMinimums(runner);
     TestSeparatorLaneSandwichRules(runner);
     TestPerpendicularCrosswalkRequiresLaneContinuation(runner);
     TestPerpendicularCrosswalkIsOrderIndependent(runner);

@@ -122,6 +122,14 @@ std::uint8_t LaneIntentMaskForRoadDirections(std::uint8_t roadDirectionMask) {
     return laneIntentMask;
 }
 
+RoadDirectionMode DirectionModeFromTemplateId(std::uint16_t templateId) {
+    return static_cast<RoadDirectionMode>((templateId >> 6) & 0x3u);
+}
+
+bool PathLaneAllowsCapReturn(const RoadLanePlacement& lanePlacement) {
+    return !lanePlacement.isCar() || DirectionModeFromTemplateId(lanePlacement.templateId) == RoadDirectionMode::TwoWay;
+}
+
 bool LaneTypeCollapsesToOneTile(const RoadLanePlacement& lanePlacement) {
     return lanePlacement.isCar() || lanePlacement.isPedestrian() || lanePlacement.isSeparator();
 }
@@ -243,7 +251,7 @@ std::uint8_t RawMovementMaskForPathLane(const std::vector<RoadTilePlacement>& pl
         const int neighborTileY = lanePlacement.tileY + RoadDirectionDeltaY(direction);
         if (HasSamePathLaneAt(placements, lanePlacement, neighborTileX, neighborTileY, direction)) {
             movementMask |= direction;
-        } else if (!hasDifferentAxisNearby) {
+        } else if (!hasDifferentAxisNearby && PathLaneAllowsCapReturn(lanePlacement)) {
             movementMask |= CapReturnDirectionForPathLane(placements, lanePlacement, direction, mapWidth, mapHeight);
         }
     }
@@ -348,6 +356,18 @@ bool CornerWantsLaneAxis(const RoadTilePlacement& placement, const Int2& cornerT
         return verticalDistance <= horizontalDistance;
     }
     return true;
+}
+
+bool TemplateHasPedestrianEdgeLanes(RoadFamily family, TransportLayerId layer) {
+    return family == RoadFamily::LocalStreet && layer == TransportLayerId::Ground;
+}
+
+int MinimumLaneCountForTemplate(RoadFamily family, TransportLayerId layer, RoadDirectionMode directionMode) {
+    if (TemplateHasPedestrianEdgeLanes(family, layer) && directionMode != RoadDirectionMode::TwoWay) {
+        return 2;
+    }
+
+    return 1;
 }
 }
 
@@ -456,11 +476,10 @@ RoadTemplate Road::makeTemplate(RoadFamily family, TransportLayerId layer, int l
     roadTemplate.layer = layer;
     roadTemplate.trafficSide = trafficSide;
     roadTemplate.directionMode = directionMode;
-    roadTemplate.laneCount = std::max(1, laneCount);
+    const bool hasPedestrianEdgeLanes = TemplateHasPedestrianEdgeLanes(family, layer);
+    roadTemplate.laneCount = std::max(MinimumLaneCountForTemplate(family, layer, directionMode), laneCount);
     roadTemplate.identity.id = makeTemplateId(family, layer, roadTemplate.laneCount, trafficSide, directionMode);
     roadTemplate.overlapPolicy = RoadTemplateOverlapPolicy::AdapterFriendly;
-
-    const bool hasPedestrianEdgeLanes = family == RoadFamily::LocalStreet && layer == TransportLayerId::Ground;
 
     RoadTemplateElement pedestrianElement;
     pedestrianElement.laneType = RoadLaneTypeId::Pedestrian;
