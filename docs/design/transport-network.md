@@ -12,31 +12,41 @@ Use this guide when changing road placement, lane topology, road render data, or
 
 ## Current Shape
 - `TransportTypes.h` owns shared enums, direction bits, masks, and snapshot structs such as `ResolvedRoadCell`.
-- `RoadLane` owns lane behavior and emitted lane placements. Each placement carries a road axis, tile-local side span, lane type, flow, and lane-owned graphic/divider hints.
-- `Road` owns road-template construction and stroke expansion. It converts the current tool inputs into clipped per-tile lane placements.
-- `TransportTile` owns the authored lanes on one tile/layer and validates merge/replay rules locally, including replayed stroke identity updates during upgrades.
-- `RoadRenderState` owns base glyph, arrow glyph, lane graphic mask, and divider packing.
+- `RoadTemplateKind` selects the template family: `Street`, `Road`, `Avenue`, or `Highway`. Compatibility shims still migrate legacy local two-way lane-count-two input to `Avenue`.
+- `RoadTemplateDefinition` owns template semantics. It normalizes tool input, builds template elements, and recreates `RoadLaneCell`s from authored placements during dirty resolution.
+- `RoadLane` owns lane behavior and emitted lane placements. Each placement carries a template id, road axis, tile-local side span, lane type, flow, and lane-owned divider hints.
+- `RoadLaneCell` is the small resolved unit: one required primary car-like lane plus an optional deterministic secondary lane such as a sidewalk or median.
+- `RoadGraphic` is lane-owned render intent. It packs primitives into `RoadRenderState`; it does not decide pathing or infer topology.
+- `Road` owns template construction and brush expansion. It converts the current tool inputs into clipped per-tile lane placements.
+- `TransportTile` owns the authored lanes on one tile/layer and validates local merge/replay rules. Save state stores these authored tile lanes, not stroke objects.
+- `RoadRenderState` owns base glyph, arrow glyph, lane graphic mask, and divider packing. `RoadAtlas` generates the finite road-tile atlas used by the renderer.
 - `TransportCostMap` owns dense outgoing directional costs, capacities, building access, sparse transfer edges, morning/evening traffic load states, A* scratch reuse, and traffic-overlay generation.
 - `TransportNetwork` owns layer storage, lot-occupancy rejection, dirty tile neighborhoods, chunk revisions, resolved-cell publication, affected-tile cost-map rebuilding, traffic-overlay publication, and packed ground-road bytes.
 - `Data/TransportNetwork/congestion.xml` owns the utilization-to-speed-multiplier table used when old load turns base lane travel time into congested A* cost.
 
 ## Lane Rules
-- Sidewalks are pedestrian lanes. Crosswalks are not authored lanes; they are pedestrian lane graphics chosen during tile resolution.
+- Templates emit lane cells. The cost map, building access, sidewalk graphics, crosswalk graphics, median graphics, dividers, and packed render state all derive from those lane cells.
+- `Street` emits slow car lanes with sidewalks. Two-way street lanes use the suburban concrete-grey slow lane.
+- `Road` emits medium car lanes with sidewalks. Medium lanes use the darker asphalt road surface.
+- `Avenue` emits four car lanes total. Outer avenue tiles are medium lanes with sidewalks; inner avenue tiles are fast lanes with median secondaries. Medians are non-commuter lanes and add a small land-value/park effect.
+- `Highway` emits fast car lanes only unless a future template explicitly adds secondaries.
+- The one-way tool uses fast car lanes. It emits a normal sidewalk side when the lane has a one-way neighbor on the left side of travel, otherwise it emits the mirrored sidewalk side.
+- Sidewalks are pedestrian secondary lanes. Crosswalks are not authored lanes; they are pedestrian secondary graphics chosen during tile resolution.
 - `RoadLaneSurface` is a default graphic surface, not pathing truth. Lane type and flow decide traversal.
-- Pedestrian lanes are candidate-authored and active only when they either border empty terrain or continue as the same side/span on both ends of their axis. Inactive candidates stay stored so later road strokes can make first-built sidewalks valid without order dependence.
-- Lane connections across an occupied perpendicular road body require matching stroke identity; two opposite stubs may touch opposite halves of the road body without becoming one through lane. When a later stroke both adds new lanes and exactly replays old lanes, the contiguous lanes from that replayed old stroke adopt the later stroke identity so corner-to-four-way upgrades resolve the same as directly built four-way crossings, even when the player draws only the missing arms.
+- There are no hidden generated pedestrian cap lanes. Pedestrian pathing exists only when a template emits a pedestrian secondary lane.
 - Same-axis overlap is lane-span validated. Exact replay is accepted; incompatible shifted road bodies are rejected.
 - Perpendicular overlap is allowed as lane coexistence inside the same transport tile. Intersection behavior is resolved afterward from lane adjacency.
 - A resolved tile aggregates lane type masks, surface masks, costs, travel, exits, junction glyphs, lane graphics, and dividers for renderer/query consumers.
 - A pathing lane contributes only the outgoing directions it actually permits. If multiple lanes contribute to the same tile/layer/mode/direction, the cost map keeps the lower cost and accumulates capacity.
-- Local car lane base cost is calibrated as 10 tiles/time at 100 percent capacity. Pedestrian paths currently move 2 tiles/time. Current alpha car-lane capacity is 200 for all car lanes.
+- Transport costs are fixed-point seconds with 1000 cost units per second. Current tile-speed placeholders are slow 9 tiles/second, medium 11 tiles/second, fast 13 tiles/second, highway fast 14 tiles/second, and pedestrian 2 tiles/second. The tile length in meters is intentionally undecided.
+- Current lane capacities are slow 240, medium 440, fast 680, and pedestrian 1500.
 - Ground local sidewalks expose adjacent building access for pedestrian and car spawning. Highways, elevated lanes, underground lanes, and through-only lanes do not expose adjacent building access by default.
 
 ## Pathfinding And Traffic Loads
 - Cost-map nodes use `tile + totalTiles * (mode + modeCount * layer)` so A* can use compact scratch arrays.
 - The cost map stores eight outgoing direction slots. Current road lanes populate cardinal directions; diagonal slots are reserved for future connectors.
 - A* expands movement edges within one layer/mode and sparse transfer edges for mode/layer changes. There is no implicit connection between overlapping layers.
-- A* seeds each candidate start node with a mode start cost before movement: car starts currently add 2 commute-time units, while pedestrian starts add 0. This lets multi-mode access compare the up-front cost of choosing a car against walking.
+- A* seeds each candidate start node with a mode start cost before movement: car starts currently add 60 seconds, while pedestrian starts add 0. This represents parking/unparking overhead and makes short walking trips competitive.
 - Congestion reads immutable committed load for the requested commute time, converts `oldLoad / capacity` through the XML speed table, and writes reassigned traffic into that commute time's touched new-load edges. Morning and evening loads are parallel states over one stable base cost/capacity graph.
 - Route tie-breaking uses tiny deterministic jitter from the route seed so equivalent alternatives can distribute statistically over repeated sampled updates.
 - Commute assignment routes low-wealth residential demand to compatible low-wealth job destinations as a round trip. A destination is valid only when the morning home-to-job path and evening job-to-home path both succeed within the maximum commute cost.
@@ -47,17 +57,10 @@ Use this guide when changing road placement, lane topology, road render data, or
 - Traffic overlay pixels are congestion summaries, not query-route data: each tile displays the worst utilization across morning/evening, modes, layers, and directions.
 
 ## Crosswalk Rule
-A pedestrian lane renders as a crosswalk only when all of these are true:
-
-- The pedestrian lane has a sidewalk graphic edge on this tile.
-- The pedestrian lane overlaps a perpendicular car lane in the same tile.
-- The perpendicular car lane has car-road continuation on both cardinal ends of its axis.
-- The pedestrian lane has pedestrian continuation on both cardinal ends of its own axis.
-
-Otherwise the same pedestrian lane remains a sidewalk. This keeps T-section endpoints from painting half-crosswalks and prevents isolated or partially cleaned intersection tiles from inventing crosswalks where the car road does not continue through the crossing.
+Pedestrian secondaries first choose their edge from the primary lane's `centerMask()`. A sidewalk edge becomes a crosswalk edge only when the edge is opposite the primary center and the primary lane's combined incoming/outgoing mask says that edge is crossing the primary motion. Edges moving away from the center remain sidewalks. This keeps caps and ordinary corners from converting into crosswalks while allowing valid T and four-way crossings to draw pedestrian crossing graphics from the same lane-cell data that feeds pathing.
 
 ## Cleanup Rule
-Road edits seed the immediate neighborhood and then expand dirty resolution across the connected road component. This lets validation use information from the full local road graph, including wide roads where the deciding continuation can be several tiles away from the modified slice. Same-stroke L-corner overlaps are cleaned to a valid corner configuration with one horizontal and one vertical junction leg; they must not remain as partial T/cross intersections. Road removal clears the full road cross-section for the clicked slice, so a normal two-tile two-way road removes both paired footprint tiles and wider avenue templates remove the full template width.
+Road edits seed the immediate neighborhood and then expand dirty resolution across the connected road component. This lets validation use information from the full local road graph, including wide roads where the deciding continuation can be several tiles away from the modified slice. L-corner overlaps are cleaned to a valid corner configuration with one horizontal and one vertical junction leg; they must not remain as partial T/cross intersections. Road removal clears the full road cross-section for the clicked slice, so a normal two-tile two-way road removes both paired footprint tiles and wider avenue templates remove the full template width. Dragging bulldoze across every slice of a road should remove every authored lane for that road and leave no stale template/direction data in save state.
 
 After removal, any remaining contiguous authored road run whose longitudinal length is shorter than that road template's footprint is invalid and should be erased too. This prevents remnants such as a two-wide road left one tile long, or a four-wide road left only three tiles long.
 
@@ -121,11 +124,11 @@ A car intersection node is a resolved car junction with at least three cardinal 
 - Build and run `TransportNetworkTests.vcxproj`.
 - Verify straight one-way and two-way local streets, elevated highways, corners, tees, crosses, same-axis overlap rejection, exact replay revision stability, and lot-road occupancy rejection.
 - Verify directional one-way costs, lower-cost merge behavior, mode start costs, capacity accumulation, no implicit layer connection, explicit transfer edges, independent morning/evening load add/subtract, congestion rerouting, worst-case traffic-overlay colors, and affected-only overlay chunk updates after road removal.
-- Verify congestion XML keeps car cost at 10 tiles/time and pedestrian cost at 2 tiles/time at 100 percent capacity before applying over-capacity slowdowns.
+- Verify lane traversal costs remain fixed-point seconds, car starts add 60 seconds, pedestrian starts add 0 seconds, and congestion applies over-capacity slowdowns after the base lane travel cost.
 - In game, pan away and back after road edits to confirm deferred chunk uploads still catch up when visible.
 
 ## Related Guides
 - `README.md` indexes the project and controls.
 - `docs/design/transport-routing-scalability-plan.md` owns the persistent route scratch, sparse load delta, lazy route budgeting, later chunk-owned topology cache, and destination-field plan for making commute work scale with active network size.
-- `docs/design/renderer.md` covers packed road-state texture upload and elevated-road instance consumption.
+- `docs/design/renderer.md` covers packed road-state texture upload, generated road atlases, and elevated-road instance consumption.
 - `docs/design/simulation-threading.md` covers command application and snapshot publication.

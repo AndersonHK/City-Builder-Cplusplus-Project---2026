@@ -59,12 +59,6 @@ private:
     int chunkIndexForTile(int tileX, int tileY) const;
 
     bool validateAndApplyPlacements(TransportLayerId layer, const std::vector<RoadTilePlacement>& placements, const std::vector<int>& lotOccupancy, int invalidLotId, bool& madeChange);
-    void rebuildRoadTilesInRegion(TransportLayerId layer, const std::vector<int>& tileIndices);
-    bool tileIsErased(TransportLayerId layer, int tileIndex) const;
-    void collectRoadStrokeTileIndices(const TransportStrokeSaveState& stroke, std::vector<int>& tileIndices) const;
-    void resetNextRoadStrokeId();
-    bool mergeReplayStrokeIds(TransportLayerId layer, const std::vector<RoadTilePlacement>& placements);
-    bool mergeConnectedReplayStrokeId(TransportLayerId layer, const RoadLanePlacement& lanePlacement, std::uint32_t oldStrokeId);
     void resolveDirtyTile(TransportLayerId layer, int tileX, int tileY);
     void rebuildCostMapAndTrafficOverlay();
     void rebuildCostMapAndTrafficOverlayForTiles(const std::vector<int>& dirtyTileIndices);
@@ -81,9 +75,10 @@ private:
     TransportTile* tileAt(TransportLayerId layer, int tileX, int tileY);
     bool tileHasActiveRoadLane(TransportLayerId layer, int tileX, int tileY) const;
     bool tileIsStableStraightSandwich(TransportLayerId layer, int tileX, int tileY) const;
-    void collectRoadRemovalFootprint(TransportLayerId layer, int tileX, int tileY, std::vector<int>& removalTileIndices) const;
-    void collectRoadSliceFootprint(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& referenceLane, std::vector<int>& removalTileIndices) const;
+    void collectRoadRemovalFootprint(TransportLayerId layer, int tileX, int tileY, RoadAxis preferredAxis, std::vector<RoadLanePlacement>& removalLanes) const;
+    void collectRoadSliceFootprint(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& referenceLane, std::vector<RoadLanePlacement>& removalLanes) const;
     bool tileHasMatchingRoadSliceLane(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& referenceLane) const;
+    bool removeMatchingRoadSliceLanes(TransportLayerId layer, const RoadLanePlacement& referenceLane);
     std::uint8_t capReturnDirectionForLane(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const;
     bool laneHasAuthoredContinuation(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const;
     std::uint8_t pathLaneMovementMask(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) const;
@@ -115,9 +110,6 @@ private:
     std::vector<std::uint64_t> groundChunkRevisions_;
     std::vector<std::uint64_t> elevatedChunkRevisions_;
     std::vector<std::uint64_t> trafficOverlayChunkRevisions_;
-    std::vector<TransportStrokeSaveState> strokes_;
-    std::vector<TransportTileEraseSaveState> tileErasures_;
     std::uint64_t revision_;
     std::uint64_t trafficOverlayRevision_;
-    std::uint32_t nextRoadStrokeId_;
 };

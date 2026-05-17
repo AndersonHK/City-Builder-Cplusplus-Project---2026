@@ -15,6 +15,8 @@ enum class RoadGraphicPrimitive : std::uint8_t {
     Divider
 };
 
+// Render intent emitted by a lane cell. This class only packs primitive masks
+// into RoadRenderState; it does not decide topology or pathing.
 class RoadGraphic {
 public:
     RoadGraphic();

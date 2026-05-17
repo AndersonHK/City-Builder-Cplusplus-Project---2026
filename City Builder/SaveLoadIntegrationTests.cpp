@@ -254,7 +254,6 @@ bool WaitForSandboxCommands(GameSession& session, CitySaveState& state) {
         if (state.tiles.size() == 32u * 32u &&
             state.tiles[pollutedIndex].airPollution == 123456 &&
             state.tiles[(10 * 32) + 10].zoningType == TileZoningResidential &&
-            !state.transport.strokes.empty() &&
             !state.transport.tiles.empty() &&
             !state.lots.empty()) {
             return true;
@@ -355,7 +354,6 @@ bool EqualRoadLanePlacement(const RoadLanePlacement& left, const RoadLanePlaceme
         left.family == right.family &&
         left.layer == right.layer &&
         left.templateId == right.templateId &&
-        left.strokeId == right.strokeId &&
         left.laneIndex == right.laneIndex &&
         left.axis == right.axis &&
         left.crossSectionMask == right.crossSectionMask &&
@@ -371,23 +369,6 @@ bool EqualRoadLanePlacement(const RoadLanePlacement& left, const RoadLanePlaceme
         left.sameDirectionDividerMask == right.sameDirectionDividerMask &&
         left.opposingDirectionDividerMask == right.opposingDirectionDividerMask &&
         left.active == right.active;
-}
-
-bool EqualTransportStroke(const TransportStrokeSaveState& left, const TransportStrokeSaveState& right) {
-    return left.strokeId == right.strokeId &&
-        EqualInt2(left.startTile, right.startTile) &&
-        EqualInt2(left.cornerTile, right.cornerTile) &&
-        EqualInt2(left.endTile, right.endTile) &&
-        left.templateKind == right.templateKind &&
-        left.family == right.family &&
-        left.layer == right.layer &&
-        left.laneCount == right.laneCount &&
-        left.trafficSide == right.trafficSide &&
-        left.directionMode == right.directionMode;
-}
-
-bool EqualTransportErase(const TransportTileEraseSaveState& left, const TransportTileEraseSaveState& right) {
-    return left.layer == right.layer && left.tileIndex == right.tileIndex;
 }
 
 bool EqualTransportTile(const TransportTileSaveState& left, const TransportTileSaveState& right) {
@@ -460,10 +441,7 @@ bool EqualCitySaveState(const CitySaveState& left, const CitySaveState& right, s
         return false;
     }
 
-    if (left.transport.nextRoadStrokeId != right.transport.nextRoadStrokeId ||
-        !EqualVector(left.transport.strokes, right.transport.strokes, EqualTransportStroke) ||
-        !EqualVector(left.transport.erasures, right.transport.erasures, EqualTransportErase) ||
-        !EqualVector(left.transport.tiles, right.transport.tiles, EqualTransportTile)) {
+    if (!EqualVector(left.transport.tiles, right.transport.tiles, EqualTransportTile)) {
         detail = "transport save state differs";
         return false;
     }

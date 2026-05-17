@@ -288,7 +288,7 @@ void TestUiMenuQuadsAndHitTesting(TestRunner& runner) {
     std::vector<std::string> regionMenuIds;
     regionMenuIds.push_back("region_exit");
     runner.expect(layout.hitTestAction(24.0, 24.0, 1024, 768, regionMenuIds, action) && action == "open_exit_confirm", "fallback region exit button hit tests in filtered region UI");
-    runner.expect(layout.hitTestAction(24.0, 434.0, 1024, 768, action) && action == "select_bulldozer", "fallback side-menu button hit tests by screen position");
+    runner.expect(layout.hitTestAction(24.0, 300.0, 1024, 768, action) && action == "select_bulldozer", "fallback side-menu button hit tests by screen position");
     runner.expect(layout.hitTestAction(24.0, 664.0, 1024, 768, action) && action == "select_rci_unzone", "fallback side-menu exposes unzone button");
 
     std::vector<UiQuadInstanceData> quads = RendererBuildUiMenuQuads(layout, 1024, 768, "select_road_street");

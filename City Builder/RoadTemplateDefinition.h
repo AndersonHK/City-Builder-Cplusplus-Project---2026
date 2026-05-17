@@ -5,6 +5,8 @@
 #include "RoadLaneCell.h"
 #include "RoadTemplate.h"
 
+// Per-tile context computed by transport resolution before asking the owning
+// template to rebuild the lane cell for pathing/render publication.
 struct RoadLaneCellContext {
     std::uint8_t directionMask;
     std::uint8_t travelDirectionMask;
@@ -17,6 +19,9 @@ struct RoadLaneCellContext {
     RoadLaneCellContext();
 };
 
+// Template definitions are the boundary between gross brush strokes and lane
+// cells. Adding a road tool should usually mean adding or extending one of
+// these definitions rather than branching inside TransportNetwork.
 class RoadTemplateDefinition {
 public:
     virtual ~RoadTemplateDefinition();

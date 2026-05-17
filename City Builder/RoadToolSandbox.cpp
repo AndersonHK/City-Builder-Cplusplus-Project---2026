@@ -500,15 +500,23 @@ RoadTemplateKind ParseTemplateKind(const std::string& token) {
     return RoadTemplateKind::Street;
 }
 
+bool TokenIsOneWayTool(const std::string& token) {
+    return token == "one_way" || token == "oneway";
+}
+
 RoadToolSandboxAction ParseSandboxAction(const std::string& line) {
     std::istringstream stream(line);
     std::string command;
     stream >> command;
 
     RoadToolSandboxAction action;
-    if (command == "drag" || command == "street" || command == "road" || command == "avenue") {
+    if (command == "drag" || command == "street" || command == "road" || command == "one_way" || command == "oneway" || command == "avenue") {
         if (command == "road") {
             action.templateKind = RoadTemplateKind::Road;
+        }
+        if (TokenIsOneWayTool(command)) {
+            action.templateKind = RoadTemplateKind::Street;
+            action.directionMode = RoadDirectionMode::OneWayForward;
         }
         if (command == "avenue") {
             action.templateKind = RoadTemplateKind::Avenue;
@@ -529,7 +537,13 @@ RoadToolSandboxAction ParseSandboxAction(const std::string& line) {
             } else if (StartsWith(token, "mode=")) {
                 action.directionMode = ParseDirectionMode(token.substr(5));
             } else if (StartsWith(token, "tool=")) {
-                action.templateKind = ParseTemplateKind(token.substr(5));
+                const std::string toolName = token.substr(5);
+                if (TokenIsOneWayTool(toolName)) {
+                    action.templateKind = RoadTemplateKind::Street;
+                    action.directionMode = RoadDirectionMode::OneWayForward;
+                } else {
+                    action.templateKind = ParseTemplateKind(toolName);
+                }
             }
         }
         action.templateKind = InferToolKind(action.templateKind, action.laneCount, action.directionMode);

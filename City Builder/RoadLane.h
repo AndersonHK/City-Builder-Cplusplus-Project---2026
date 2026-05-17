@@ -52,7 +52,6 @@ struct RoadLanePlacement {
     RoadFamily family;
     TransportLayerId layer;
     std::uint16_t templateId;
-    std::uint32_t strokeId;
     int laneIndex;
     RoadAxis axis;
     std::uint8_t crossSectionMask;

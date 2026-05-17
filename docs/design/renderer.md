@@ -14,7 +14,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Tiles draw from persistent per-chunk static instance buffers containing world origin and map UV.
 - Tile scalar color comes from a persistent full-map `GL_RG16_SNORM` texture updated only for visible stale chunks.
 - Lot occupancy lift comes from a persistent full-map `GL_R8` mask texture updated only for visible stale chunks.
-- Ground roads render in the tile pass from packed road-state bytes and generated road atlases. The ground-road upload path is `UpdateGroundRoadChunkTexture`.
+- Ground roads render in the tile pass from packed road-state bytes and CPU-generated road atlases. The ground-road upload path is `UpdateGroundRoadChunkTexture`.
 - Reusable tile overlays render from RGBA tile textures. Zoning and traffic capacity both use visible-dirty chunk uploads from published state; land value reuses the same overlay texture/draw path and packs visible chunks from the published tile snapshot using the current city-wide min/max land-value range.
 - Queried lot and road commutes render morning-only coalesced route arrows above roads, lots, and tile overlays; car arrows are green and pedestrian arrows are pink.
 - Elevated roads use separate per-chunk instance buffers and rebuild lazily for visible stale chunks. They consume the same resolved road glyph, lane graphic, and divider masks through `BuildRoadChunkInstances`.
@@ -40,9 +40,10 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 
 ## Road Render Data
 - The road simulation owns lane topology, lane type masks, graphic masks, and path masks; rendering only consumes published road snapshots.
+- `RoadLaneCell` and `RoadGraphic` choose sidewalk, crosswalk, median, and divider masks during transport resolution. `RoadAtlas` turns the finite mask/glyph combinations into base and arrow textures at renderer startup.
 - Ground road channel 0 is the base glyph, channel 1 is the arrow glyph, channel 2 packs lane graphic masks, and channel 3 packs divider masks.
 - Channel 2 low nibble is sidewalk edges and high nibble is crosswalk edges. These values are produced by `RoadRenderState` from lane-owned transport resolution.
-- Crosswalk policy is not shader-owned. A crosswalk is a pedestrian lane graphic selected only when the lane overlaps a perpendicular car lane and both lane systems continue through the crossing.
+- Crosswalk policy is not shader-owned. A crosswalk is a pedestrian secondary graphic selected from the lane cell's center mask and primary direction masks before the renderer sees the data.
 - `F11` toggles road debug graphics. The renderer switches between marked and clean base-road atlases, and `Basic.shader` hides only arrow glyphs tagged with the debug bit; road surfaces, turn-lane arrows, sidewalks, crosswalks, and lane dividers still render.
 - Elevated road instances carry the same base/arrow glyphs and packed lane-graphic/divider masks as instance attributes.
 - `Basic.shader` unpacks the lane graphic and divider masks in `applyRoadEdgeOverlays`.
@@ -76,7 +77,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Compare the status line at `32`, `64`, `128`, `256`, `512`, `1024`, and `2048` visible-tile zoom.
 - Verify `tileStateChunks`, `tileStateTiles`, and `tileStateBytes` scale with visible chunks.
 - Pan after road or lot edits to confirm deferred chunks update before drawing.
-- Verify local-street crosswalk graphics appear only where pedestrian and car lanes both continue through the crossing, and elevated highways render without pedestrian lane graphics by default.
+- Verify local-street crosswalk graphics match the lane-cell center-mask rule, caps remain sidewalks, and elevated highways render without pedestrian lane graphics by default.
 - Drag local streets and elevated highways before release to confirm the alpha-tinted ghost follows the intended L-shaped stroke and disappears after commit.
 - Hover each lot placement tool over valid terrain to confirm the alpha-tinted lot ghost matches the committed footprint and disappears after placement.
 - Drag `B` across lots and empty/road tiles to confirm selected tiles overlay red, selected buildings tint red, roads/buildings are removed on release, and zoning/empty parcels remain.

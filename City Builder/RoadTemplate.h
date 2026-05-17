@@ -5,6 +5,9 @@
 
 #include "RoadLane.h"
 
+// Stable, tool-facing road template data. A stroke chooses a template kind and
+// direction; the template expands that into tile lane placements and later
+// recreates RoadLaneCells during dirty cleanup.
 struct RoadTemplate {
     RoadTemplateKind templateKind;
     RoadFamily family;
@@ -19,6 +22,8 @@ struct RoadTemplate {
     RoadTemplate();
 };
 
+// Transient brush command. Save data keeps authored tile lanes, not these
+// command objects.
 struct RoadStrokeCommand {
     Int2 startTile;
     Int2 cornerTile;

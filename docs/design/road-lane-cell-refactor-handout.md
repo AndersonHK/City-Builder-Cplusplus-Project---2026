@@ -2,7 +2,7 @@
 
 Snapshot: 2026-05-17
 
-This handout captures the planned simplification for road construction, pathing, and graphics. It is intended as context for a new implementation session.
+This handout captures the planned simplification for road construction, pathing, and graphics. It is historical design context now; use `docs/design/transport-network.md` and `docs/design/renderer.md` for the current implementation contract.
 
 ## Goal
 
@@ -178,4 +178,3 @@ In a four-way corner tile, a primary lane may come from the south and continue e
 The four-lane corner should stop resolving the wide L overlap as fake T/cross blobs. The broad footprint can remain, but individual lanes keep their own center/outer relationship.
 
 The mixed-width crossing should become easier to reason about because crosswalks emerge only where pedestrian secondary lanes actually cross primary lanes, rather than where a tile aggregate happens to contain perpendicular road material.
-

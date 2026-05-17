@@ -19,6 +19,7 @@ enum class ActiveTool {
     HouseLot,
     RoadStreet,
     RoadRoad,
+    RoadOneWay,
     RoadAvenue,
     RoadHighway,
     AddParkModule,

@@ -5,7 +5,7 @@
 
 namespace {
 const float kLaneSpanEpsilon = 0.0001f;
-const std::uint16_t kTravelCostScale = 1000u;
+const std::uint16_t kCostUnitsPerSecond = 1000u;
 }
 
 RoadLane::RoadLane()
@@ -77,17 +77,17 @@ bool RoadLane::usesDirectedFlow() const {
 std::uint16_t RoadLane::traversalCost(RoadFamily family) const {
     switch (element_.laneType) {
         case RoadLaneTypeId::Slow:
-            return kTravelCostScale / 9u;
+            return kCostUnitsPerSecond / 9u;
         case RoadLaneTypeId::Medium:
-            return kTravelCostScale / 11u;
+            return kCostUnitsPerSecond / 11u;
         case RoadLaneTypeId::Fast:
-            return family == RoadFamily::Highway ? kTravelCostScale / 14u : kTravelCostScale / 13u;
+            return family == RoadFamily::Highway ? kCostUnitsPerSecond / 14u : kCostUnitsPerSecond / 13u;
         case RoadLaneTypeId::Pedestrian:
-            return kTravelCostScale / 2u;
+            return kCostUnitsPerSecond / 2u;
         case RoadLaneTypeId::Bike:
-            return kTravelCostScale / 4u;
+            return kCostUnitsPerSecond / 4u;
         case RoadLaneTypeId::Bus:
-            return family == RoadFamily::Highway ? kTravelCostScale / 14u : kTravelCostScale / 8u;
+            return family == RoadFamily::Highway ? kCostUnitsPerSecond / 14u : kCostUnitsPerSecond / 8u;
         case RoadLaneTypeId::Separator:
             return 0;
         default:
@@ -102,7 +102,6 @@ RoadLanePlacement::RoadLanePlacement()
       family(RoadFamily::None),
       layer(TransportLayerId::Ground),
       templateId(0),
-      strokeId(0),
       laneIndex(0),
       axis(RoadAxis::None),
       crossSectionMask(0),

@@ -23,9 +23,9 @@ long long DurationMicros(const std::chrono::steady_clock::time_point& startTime,
     return std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime).count();
 }
 
-const float kTransportCostUnitsPerCommuteTime = 1000.0f;
-const float kMaximumCommuteTime = 300.0f;
-const float kMaximumCommuteCost = kMaximumCommuteTime * kTransportCostUnitsPerCommuteTime;
+const float kTransportCostUnitsPerSecond = 1000.0f;
+const float kMaximumCommuteTime = 360.0f;
+const float kMaximumCommuteCost = kMaximumCommuteTime * kTransportCostUnitsPerSecond;
 const float kLongCommuteComplaintCost = kMaximumCommuteCost * 0.5f;
 const int kRciRedevelopmentGraceDays = 30;
 const int kRciConstructorBlockLimit = 8;

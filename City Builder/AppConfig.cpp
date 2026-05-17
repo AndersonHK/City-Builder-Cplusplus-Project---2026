@@ -221,6 +221,8 @@ void ApplyHotkey(HotkeyConfig& hotkeys, const std::string& key, const std::strin
         hotkeys.roadStreet = keyCode;
     } else if (key == "road_road") {
         hotkeys.roadRoad = keyCode;
+    } else if (key == "road_one_way") {
+        hotkeys.roadOneWay = keyCode;
     } else if (key == "road_avenue") {
         hotkeys.roadAvenue = keyCode;
     } else if (key == "road_highway") {
@@ -282,6 +284,7 @@ HotkeyConfig::HotkeyConfig()
       placeHouse('G'),
       roadStreet('S'),
       roadRoad('R'),
+      roadOneWay('O'),
       roadAvenue('V'),
       roadHighway('H'),
       toggleTrafficOverlay('T'),
@@ -295,7 +298,7 @@ HotkeyConfig::HotkeyConfig()
       decreaseRoadLanes(GLFW_KEY_LEFT_BRACKET),
       increaseRoadLanes(GLFW_KEY_RIGHT_BRACKET),
       toggleRoadTrafficSide('C'),
-      cycleRoadDirection('O') {
+      cycleRoadDirection(GLFW_KEY_UNKNOWN) {
 }
 
 WindowConfig::WindowConfig()

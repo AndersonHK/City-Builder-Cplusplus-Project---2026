@@ -10,6 +10,9 @@ enum class CommuterMode : std::uint8_t {
     Pedestrian
 };
 
+// A template-emitted lane intent. Direction masks are local N/E/S/W road
+// directions; the renderer and cost map consume them without inventing extra
+// topology.
 class Lane {
 public:
     CommuterMode mode;
@@ -26,6 +29,9 @@ public:
     std::uint8_t centerMask() const;
 };
 
+// One primary car-like lane plus an optional deterministic secondary lane
+// such as a sidewalk or median. Road templates emit these cells; transport
+// resolution turns them into costs, access masks, and packed render state.
 class RoadLaneCell {
 public:
     Lane primary;

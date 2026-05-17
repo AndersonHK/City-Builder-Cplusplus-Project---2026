@@ -43,11 +43,13 @@ Default keyboard bindings, startup fullscreen mode, preferred windowed resolutio
 - `F`: place factory lot with a ghost preview
 - `G`: place house lot with a ghost preview
 - `,` / `.`: rotate the active lot placement counter-clockwise / clockwise
-- `R`: drag-place a ground local street with a ghost preview while dragging
+- `S`: drag-place a slow local street with sidewalks
+- `R`: drag-place a medium local road with sidewalks
+- `O`: drag-place a fast one-way road; pressing it again while selected flips forward/reverse direction
+- `V`: drag-place a two-way avenue with outer sidewalks and inner medians
 - `H`: drag-place an elevated highway with a ghost preview while dragging
-- `[` / `]`: decrease / increase road lane count for new road strokes
+- `[` / `]`: decrease / increase the legacy road width value where a compatibility path still reads it
 - `C`: toggle right-hand / left-hand road traffic side
-- `O`: cycle road direction mode between two-way, one-way forward, and one-way reverse
 - `T`: toggle the traffic capacity overlay
 - `L`: toggle the land value overlay
 - `F11`: toggle road debug graphics; off by default
@@ -56,7 +58,7 @@ Default keyboard bindings, startup fullscreen mode, preferred windowed resolutio
 - `B`: drag a rectangular bulldoze area; selected tiles overlay red and selected buildings tint red before release. Bulldozing removes buildings and roads, but zoning and empty parcels remain for the unzone tool.
 - `A`: query hovered tile; queried lots show an in-game detail window plus accepted morning commute routes as green car arrows and pink pedestrian arrows, road tiles summarize morning commuters passing through their lanes, and empty RCI lots show their zoning name
 - Bottom-left `Tools` button: show or hide the left-side tool menu
-- Left-side menu: select bulldoze, road, query, residential zoning, industrial zoning, or unzone
+- Left-side menu: select bulldoze, street, road, one-way, avenue, highway, query, residential zoning, industrial zoning, or unzone
 - Residential / Industrial zoning buttons: drag a rectangle to zone vacant tiles or existing RCI lots. By default the RCI tool previews and commits lots plus surrounding local roads; hold `Shift` for lots only, or hold `Ctrl` for a plain area fill. New parcel lots require an unoccupied footprint, and plain area zoning still tries to fit empty parcels onto any unparcelled RCI tiles, preferring road-facing parcels when roads are already available.
 - Unzone button: drag a rectangle to clear only the selected tile zoning and rebuild affected empty RCI parcel boundaries without bulldozing buildings, roads, adjacent parcel tiles, or zoning beneath live lots.
 - Region mode starts first; the top-left `Exit` button opens the same save-before-exit dialog as `Esc` -> `Exit`.
@@ -107,13 +109,14 @@ msbuild 'City Builder/SaveLoadIntegrationTests.vcxproj' /p:Configuration=Release
 - Tile chunk geometry is static after renderer setup for the current flat-tile presentation.
 - Dynamic scalar tile debug color uploads only visible stale chunks through a compact texture.
 - Lot occupancy lift uploads only visible stale chunks through a small mask texture.
-- Roads live in a separate transport layer with their own published cell snapshot, directional pathfinding cost map, stable base costs/capacities, parallel morning/evening traffic load states, packed ground-road render state, traffic overlay state, and split ground/elevated chunk revisions so `Tile` stays compact for the scalar simulation passes.
+- Roads live in a separate transport layer with their own published cell snapshot, template-emitted lane cells, directional pathfinding cost map, stable base costs/capacities, parallel morning/evening traffic load states, packed ground-road render state, traffic overlay state, and split ground/elevated chunk revisions so `Tile` stays compact for the scalar simulation passes.
+- Road tools paint templates. Templates emit `RoadLaneCell`s with one primary car-like lane and an optional secondary lane such as a sidewalk or median; costs, building access, sidewalks, crosswalks, medians, and packed road render masks all derive from those cells.
 - Committed road edits rebuild pathing costs and traffic overlay pixels for affected dirty tiles only; full transport cost/overlay rebuilds are reserved for full city imports and whole-network resets.
 - Ground-road and elevated-road uploads are dirty visible-chunk only, and stale hidden chunks stay deferred until visible.
 - Traffic overlays use the same visible-dirty chunk upload pattern and draw above roads and lots as a presentation tint.
 - Land value overlays reuse the same tile overlay draw path and tint current land values from red through yellow to green across the city's current min/max land-value range.
 - Road debug graphics start disabled and can be toggled with `F11`; disabling them hides ordinary direction arrows and car-lane connection markers while preserving turn-lane arrows, lane dividers, crosswalks, and road surfaces.
-- Road drag previews are renderer-only transient instances tinted with alpha; committed road topology still arrives through published snapshots.
+- Road drag previews are renderer-only transient instances tinted with alpha; committed road topology still arrives through template-authored transport tile lanes and published snapshots.
 - Lot placement previews are renderer-only transient instances built from the same XML-backed lot candidate geometry used by committed placement.
 - Bulldoze previews are renderer-only transient area overlays; committed destruction still arrives through queued simulation commands and may remove buildings or roads, but does not clear zoning or empty parcels.
 - Unzone previews are renderer-only transient area overlays; committed unzoning clears tile zoning and empty parcel records through a queued simulation command.
@@ -125,7 +128,7 @@ msbuild 'City Builder/SaveLoadIntegrationTests.vcxproj' /p:Configuration=Release
 - Lot/module archetypes load from XML under `City Builder/Data`; lot XML can declare a front, a constructor-facing `zoningType`, explicit mode-specific access tiles, or compact perimeter access. RCI tool definitions and constructor growth rules load from `City Builder/Data/RCI/rci_tools.xml`. Growth rules set per-RCI desirability thresholds and population-interpolated max density per tile, which acts as a hard capacity cap before any RCI lot grows.
 - Transport congestion speed curves load from `City Builder/Data/TransportNetwork/congestion.xml`.
 - App defaults load from `City Builder/Data/config.ini`; the checked-in defaults start fullscreen, use a 2048x2048 preferred windowed size, keep query-value console spam disabled, and expose gameplay hotkeys as editable names.
-- Factory/house XML assets are the first driver-backed lots: low-wealth residents satisfy low-wealth residential demand, low-wealth jobs drive that demand, low-wealth workers drive dirty-industry demand at a 1.05 multiplier, and dirty-industry capacity satisfies dirty-industry demand. Commute assignment writes low-wealth commute and dirty-industry staffing satisfaction from accepted round-trip routes, preserves valid existing routes while forcing invalid source/destination routes, and rebalances a deterministic rolling 1 percent source-lot queue per tick. Morning commutes route workers to jobs, evening commutes route jobs back to workers, and a destination is valid only when both directions are reachable. Commute paths can run up to 300 time units and include mode start costs, currently 2 time units for car starts and 0 for walking starts.
+- Factory/house XML assets are the first driver-backed lots: low-wealth residents satisfy low-wealth residential demand, low-wealth jobs drive that demand, low-wealth workers drive dirty-industry demand at a 1.05 multiplier, and dirty-industry capacity satisfies dirty-industry demand. Commute assignment writes low-wealth commute and dirty-industry staffing satisfaction from accepted round-trip routes, preserves valid existing routes while forcing invalid source/destination routes, and rebalances a deterministic rolling 1 percent source-lot queue per tick. Morning commutes route workers to jobs, evening commutes route jobs back to workers, and a destination is valid only when both directions are reachable. Commute paths can run up to 360 seconds and include mode start costs, currently 60 seconds for car starts and 0 for walking starts.
 - Constructor-built RCI lots grow their module render height from 0 percent to full height over their XML `constructionDays`, converted to stored ticks at load time. Legacy `constructionTicks` remains supported as raw ticks. Construction lots reserve demand budget immediately, but their population/jobs, pollution, land value, and commute demand do not enter city parameters until construction completes. Bulldozed RCI buildings expose their former empty zoning lot again after a 30-day redevelopment grace period converted through `SimulationTime`.
 - Population is derived from the reduced resident wealth parameters (`$`, `$$`, and `$$$`) and published with snapshots rather than recounted from lots.
 - Simulation dates are city-owned and derive from each city's saved tick counter through `SimulationTime`. One logical day is currently two simulation ticks, starting from `SIMULATION_START_YEAR` / `SIMULATION_START_MONTH` / `SIMULATION_START_DAY` in `SimulationDate.h` (default January 1, 1900). `SimulationDateSettings` defaults display to `YYYY/MM/DD` and supports `MM/DD/YYYY` and `DD/MM/YYYY` through `Data/config.ini`.
@@ -136,10 +139,10 @@ msbuild 'City Builder/SaveLoadIntegrationTests.vcxproj' /p:Configuration=Release
 - `RuntimeOptions` defaults city maps to 1024x1024 but can shrink the runtime for non-renderer integration tests such as the 32x32 save/load sandbox.
 
 ## Design guides
-- `docs/design/transport-network.md` - lane-owned road placement, directional cost maps, pathfinding, crosswalk graphic rules, packed road state, and layer revisions. Main code anchors: `TransportTypes.h`, `TransportCostMap.h`, `RoadLane.h`, `Road.h`, `TransportTile.h`, `RoadRenderState.h`, and `TransportNetwork.h`.
+- `docs/design/transport-network.md` - template-owned road placement, lane cells, directional cost maps, pathfinding, crosswalk graphic rules, packed road state, and layer revisions. Main code anchors: `TransportTypes.h`, `TransportCostMap.h`, `RoadLane.h`, `RoadLaneCell.h`, `RoadGraphic.h`, `RoadTemplateDefinition.h`, `Road.h`, `TransportTile.h`, `RoadRenderState.h`, and `TransportNetwork.h`.
 - `docs/design/transport-routing-scalability-plan.md` - plan for persistent route scratch, sparse traffic load deltas, lazy route budgeting, later chunk-owned routing topology caches, and future destination-field reuse.
 - `docs/design/app-config.md` - INI-backed startup preferences, hotkeys, date display settings, and debug console gates.
-- `docs/design/renderer.md` - renderer upload, culling, texture, shader decisions, packed lane graphic masks, shared ground/elevated road render data, placement ghost previews, zoning overlays, and UI draw ordering. Main code anchors: `BuildLotInstance`, `BuildRoadPreviewInstances`, `BuildRoadChunkInstances`, `BuildWindowQuads`, `RendererBuildUiMenuQuads`, `UpdateGroundRoadChunkTexture`, and `applyRoadEdgeOverlays`.
+- `docs/design/renderer.md` - renderer upload, culling, generated road atlases, texture, shader decisions, packed lane graphic masks, shared ground/elevated road render data, placement ghost previews, zoning overlays, and UI draw ordering. Main code anchors: `BuildLotInstance`, `BuildRoadPreviewInstances`, `BuildRoadChunkInstances`, `BuildWindowQuads`, `RendererBuildUiMenuQuads`, `UpdateGroundRoadChunkTexture`, `BuildRoadBaseAtlas`, and `applyRoadEdgeOverlays`.
 - `docs/design/simulation-threading.md` - tile passes, triple buffering, chunk worker rules, and published snapshot ownership.
 - `docs/design/lots.md` - lot/module placement, occupancy, effects, and render snapshots.
 - `docs/design/xml-assets.md` - strict XML archetype loading and validation.

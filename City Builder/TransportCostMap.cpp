@@ -7,9 +7,9 @@
 namespace {
 const float kMinimumCongestedSpeedMultiplier = 0.01f;
 const float kRouteJitterScale = 0.0001f;
-const float kTransportCostUnitsPerCommuteTime = 1000.0f;
-const float kCarStartCost = 2.0f * kTransportCostUnitsPerCommuteTime;
-const float kPedestrianStartCost = 0.0f * kTransportCostUnitsPerCommuteTime;
+const float kTransportCostUnitsPerSecond = 1000.0f;
+const float kCarStartCost = 60.0f * kTransportCostUnitsPerSecond;
+const float kPedestrianStartCost = 0.0f * kTransportCostUnitsPerSecond;
 
 std::uint16_t SaturatingAdd(std::uint16_t left, std::uint16_t right) {
     const unsigned int sum = static_cast<unsigned int>(left) + static_cast<unsigned int>(right);

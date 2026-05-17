@@ -15,7 +15,7 @@ Use this guide when changing `GameSession`, `City`, `Region`, city save export/i
 - `region.bin` stores region/city metadata only; individual `city_X_Y.bin` files store full `CitySaveState` payloads.
 - `City` stores name, unique region coordinates, map dimensions, camera metadata, parameter summaries, dirty state, and optionally one loaded `CitySaveState`. The simulation date belongs to the city through its saved simulation tick; regions do not own date state.
 - Region preview data is loaded/generated on background futures and rendered through the normal city draw passes with a top-down orthographic camera; CPU preview pixels are not kept on `City` after upload. Clean saved/default previews are cached beside the save files as `city_X_Y.preview.bin`, keyed to the matching city save file metadata, so normal startup can upload cached preview pixels instead of re-importing and re-rendering each city. Renderer-owned region preview textures stay resident while a city is open, so returning to region refreshes only stale previews instead of rebuilding the full grid.
-- `SimulationRuntime::exportCitySaveState` writes the current simulation tick, tiles, RCI zoning parcel rectangles and redevelopment availability ticks, reconstructable lot/module placement state, lot construction state, city parameters, authored transport strokes, and authored transport tile lanes.
+- `SimulationRuntime::exportCitySaveState` writes the current simulation tick, tiles, RCI zoning parcel rectangles and redevelopment availability ticks, reconstructable lot/module placement state, lot construction state, city parameters, and authored transport tile lanes.
 - `SimulationRuntime::importCitySaveState` rebuilds live lots, lot occupancy, transport derived state, recovers empty parcels for any saved zoned-but-unparcelled RCI tiles, and refreshes published renderer snapshots from saved authored state.
 - `TransportNetwork` exports/imports authored `RoadLanePlacement` records, then resolves road render/cost data after load.
 
@@ -33,7 +33,7 @@ Use this guide when changing `GameSession`, `City`, `Region`, city save export/i
 - Bump or invalidate renderer upload freshness when moving from region mode into city mode.
 - Reset runtime game speed to paused whenever importing a city for play, including double-click entry from region mode and F2 reload while in city mode.
 - Do not delete existing `Data\Saves` during build, launch, save, or load flows. Saves are still alpha-only and may be rejected when incompatible, but convenient one-time salvage is now preferred over wiping them.
-- City save version 7 adds RCI parcel redevelopment availability and lot construction remaining/total ticks. Current writers also append authored transport tile lanes after the version-7 payload; readers treat that trailing block as optional so existing version-7 saves still load. There is still no general backward-compatibility layer; preserve existing saves on disk and only salvage when a one-time conversion is convenient.
+- City save version 9 stores tile-authored transport lanes directly and intentionally rejects older alpha city saves. There is still no general backward-compatibility layer; preserve files on disk, but prefer a save-version bump and regeneration over carrying stale migration code when the authored model changes.
 
 ## Checks
 - Build `x64 Release`.

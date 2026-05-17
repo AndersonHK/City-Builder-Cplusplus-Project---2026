@@ -3,10 +3,10 @@
 #include <algorithm>
 
 namespace {
-const int kSlowLaneCapacity = 200;
-const int kMediumLaneCapacity = 360;
-const int kFastLaneCapacity = 560;
-const int kPedestrianLaneCapacity = 1200;
+const int kSlowLaneCapacity = 240;
+const int kMediumLaneCapacity = 440;
+const int kFastLaneCapacity = 680;
+const int kPedestrianLaneCapacity = 1500;
 
 RoadDirectionMode DirectionModeFromTemplateId(std::uint16_t templateId) {
     return static_cast<RoadDirectionMode>((templateId >> 6) & 0x3u);

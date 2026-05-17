@@ -5,6 +5,8 @@
 
 #include "TransportTypes.h"
 
+// CPU-generated atlas used by the renderer's road tile shader. Transport
+// publishes compact glyph/mask bytes; the renderer only looks up pixels here.
 struct RoadAtlasImage {
     int columns;
     int rows;
