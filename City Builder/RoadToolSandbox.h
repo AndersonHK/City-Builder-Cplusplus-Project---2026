@@ -27,6 +27,7 @@ struct RoadToolSandboxAction {
     Int2 startTile;
     Int2 cornerTile;
     Int2 endTile;
+    RoadTemplateKind templateKind;
     int laneCount;
     RoadDirectionMode directionMode;
 
@@ -69,7 +70,7 @@ struct RoadToolSandbox {
 
     RoadToolSandbox(int width, int height);
 
-    bool dragStreet(const Int2& startTile, const Int2& cornerTile, const Int2& endTile, int laneCount = 1, RoadDirectionMode directionMode = RoadDirectionMode::TwoWay);
+    bool dragStreet(const Int2& startTile, const Int2& cornerTile, const Int2& endTile, int laneCount = 1, RoadDirectionMode directionMode = RoadDirectionMode::TwoWay, RoadTemplateKind templateKind = RoadTemplateKind::Street);
     bool bulldoze(int tileX, int tileY);
     std::string log() const;
 };

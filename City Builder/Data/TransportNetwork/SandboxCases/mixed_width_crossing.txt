@@ -6,7 +6,7 @@ The middle sidewalk lanes inside the wider avenue must become crosswalks where t
 and no crosswalk may appear where no sidewalk lane exists.
 end
 actions:
-drag 2 7 16 7 lanes=2
+drag 2 7 16 7 tool=avenue
 drag 8 2 8 16 lanes=1
 end
 expect resolved 0 0 19 19:

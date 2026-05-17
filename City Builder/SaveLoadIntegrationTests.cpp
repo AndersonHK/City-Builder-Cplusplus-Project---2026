@@ -378,6 +378,7 @@ bool EqualTransportStroke(const TransportStrokeSaveState& left, const TransportS
         EqualInt2(left.startTile, right.startTile) &&
         EqualInt2(left.cornerTile, right.cornerTile) &&
         EqualInt2(left.endTile, right.endTile) &&
+        left.templateKind == right.templateKind &&
         left.family == right.family &&
         left.layer == right.layer &&
         left.laneCount == right.laneCount &&

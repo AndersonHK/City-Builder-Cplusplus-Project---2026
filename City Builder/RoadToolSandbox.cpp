@@ -28,14 +28,37 @@ Int2 ToolCornerForDrag(const Int2& startTile, const Int2& endTile) {
     return std::abs(deltaX) >= std::abs(deltaY) ? Int2(endTile.x, startTile.y) : Int2(startTile.x, endTile.y);
 }
 
-RoadStrokeCommand MakeCornerStroke(const Int2& startTile, const Int2& cornerTile, const Int2& endTile, RoadDirectionMode directionMode, int laneCount) {
+RoadTemplateKind InferToolKind(RoadTemplateKind templateKind, int laneCount, RoadDirectionMode directionMode) {
+    if (templateKind == RoadTemplateKind::Street && directionMode == RoadDirectionMode::TwoWay && laneCount >= 2) {
+        return RoadTemplateKind::Avenue;
+    }
+
+    return templateKind;
+}
+
+const char* ToolKindName(RoadTemplateKind templateKind) {
+    switch (templateKind) {
+        case RoadTemplateKind::Avenue:
+            return "avenue";
+        case RoadTemplateKind::Highway:
+            return "highway";
+        default:
+            return "street";
+    }
+}
+
+RoadStrokeCommand MakeCornerStroke(const Int2& startTile, const Int2& cornerTile, const Int2& endTile, RoadDirectionMode directionMode, int laneCount, RoadTemplateKind templateKind) {
+    templateKind = InferToolKind(templateKind, laneCount, directionMode);
     RoadStrokeCommand command;
     command.startTile = startTile;
     command.cornerTile = cornerTile;
     command.endTile = endTile;
+    command.templateKind = templateKind;
     command.family = RoadFamily::LocalStreet;
     command.layer = TransportLayerId::Ground;
-    command.roadTemplate = TransportNetwork::makeRoadTemplate(RoadFamily::LocalStreet, TransportLayerId::Ground, laneCount, RoadTrafficSide::RightHand, directionMode);
+    command.roadTemplate = templateKind == RoadTemplateKind::Avenue
+        ? TransportNetwork::makeRoadTemplate(templateKind, RoadTrafficSide::RightHand, RoadDirectionMode::TwoWay)
+        : TransportNetwork::makeRoadTemplate(templateKind, RoadTrafficSide::RightHand, directionMode);
     return command;
 }
 
@@ -462,13 +485,26 @@ RoadDirectionMode ParseDirectionMode(const std::string& token) {
     return RoadDirectionMode::TwoWay;
 }
 
+RoadTemplateKind ParseTemplateKind(const std::string& token) {
+    if (token == "avenue") {
+        return RoadTemplateKind::Avenue;
+    }
+    if (token == "highway") {
+        return RoadTemplateKind::Highway;
+    }
+    return RoadTemplateKind::Street;
+}
+
 RoadToolSandboxAction ParseSandboxAction(const std::string& line) {
     std::istringstream stream(line);
     std::string command;
     stream >> command;
 
     RoadToolSandboxAction action;
-    if (command == "drag") {
+    if (command == "drag" || command == "street" || command == "avenue") {
+        if (command == "avenue") {
+            action.templateKind = RoadTemplateKind::Avenue;
+        }
         int startX = 0;
         int startY = 0;
         int endX = 0;
@@ -484,8 +520,11 @@ RoadToolSandboxAction ParseSandboxAction(const std::string& line) {
                 action.laneCount = std::atoi(token.substr(6).c_str());
             } else if (StartsWith(token, "mode=")) {
                 action.directionMode = ParseDirectionMode(token.substr(5));
+            } else if (StartsWith(token, "tool=")) {
+                action.templateKind = ParseTemplateKind(token.substr(5));
             }
         }
+        action.templateKind = InferToolKind(action.templateKind, action.laneCount, action.directionMode);
     } else if (command == "bulldoze") {
         int tileX = 0;
         int tileY = 0;
@@ -831,6 +870,7 @@ RoadToolSandboxAction::RoadToolSandboxAction()
       startTile(0, 0),
       cornerTile(0, 0),
       endTile(0, 0),
+      templateKind(RoadTemplateKind::Street),
       laneCount(1),
       directionMode(RoadDirectionMode::TwoWay) {
 }
@@ -851,10 +891,10 @@ RoadToolSandbox::RoadToolSandbox(int width, int height)
     network.initialize(width, height, SingleChunkLayout(width, height));
 }
 
-bool RoadToolSandbox::dragStreet(const Int2& startTile, const Int2& cornerTile, const Int2& endTile, int laneCount, RoadDirectionMode directionMode) {
-    const RoadStrokeCommand command = MakeCornerStroke(startTile, cornerTile, endTile, directionMode, laneCount);
+bool RoadToolSandbox::dragStreet(const Int2& startTile, const Int2& cornerTile, const Int2& endTile, int laneCount, RoadDirectionMode directionMode, RoadTemplateKind templateKind) {
+    const RoadStrokeCommand command = MakeCornerStroke(startTile, cornerTile, endTile, directionMode, laneCount, templateKind);
     const bool placed = Place(network, command, lotOccupancy);
-    std::string action = "drag street ";
+    std::string action = std::string("drag ") + ToolKindName(command.templateKind) + " ";
     action += std::to_string(startTile.x) + "," + std::to_string(startTile.y);
     action += " -> " + std::to_string(endTile.x) + "," + std::to_string(endTile.y);
     action += " corner " + std::to_string(command.cornerTile.x) + "," + std::to_string(command.cornerTile.y);
@@ -1076,7 +1116,7 @@ RoadToolSandboxRunResult RunRoadToolSandboxFixture(const std::string& path, int 
         const RoadToolSandboxAction& action = rotatedFixture.actions[actionIndex];
         const bool applied = action.isBulldoze
             ? sandbox.bulldoze(action.startTile.x, action.startTile.y)
-            : sandbox.dragStreet(action.startTile, action.cornerTile, action.endTile, action.laneCount, action.directionMode);
+            : sandbox.dragStreet(action.startTile, action.cornerTile, action.endTile, action.laneCount, action.directionMode, action.templateKind);
         if (!applied) {
             RoadToolSandboxFailure failure;
             failure.message = "sandbox fixture action applies: " + fixture.name + " " + result.rotationName + " action " + std::to_string(actionIndex) + "\nSandbox log:\n" + sandbox.log();

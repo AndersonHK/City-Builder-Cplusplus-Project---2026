@@ -57,6 +57,7 @@ struct TransportStrokeSaveState {
     Int2 startTile;
     Int2 cornerTile;
     Int2 endTile;
+    RoadTemplateKind templateKind;
     RoadFamily family;
     TransportLayerId layer;
     int laneCount;
@@ -68,6 +69,7 @@ struct TransportStrokeSaveState {
           startTile(0, 0),
           cornerTile(0, 0),
           endTile(0, 0),
+          templateKind(RoadTemplateKind::Street),
           family(RoadFamily::LocalStreet),
           layer(TransportLayerId::Ground),
           laneCount(1),

@@ -51,6 +51,7 @@ public:
     static std::size_t layerCount();
     static std::size_t slotIndex(TransportLayerId layer, int tileIndex, std::size_t totalTileCount);
     static RoadTemplate makeRoadTemplate(RoadFamily family, TransportLayerId layer, int laneCount, RoadTrafficSide trafficSide, RoadDirectionMode directionMode);
+    static RoadTemplate makeRoadTemplate(RoadTemplateKind templateKind, RoadTrafficSide trafficSide, RoadDirectionMode directionMode);
 
 private:
     bool isTileInsideMap(int tileX, int tileY) const;
@@ -75,8 +76,6 @@ private:
     void markDirtyTileNeighborhood(const std::vector<int>& tileIndices, std::vector<int>& dirtyTileIndices) const;
     void expandDirtyRoadDependencies(TransportLayerId layer, std::vector<int>& dirtyTileIndices) const;
     void bumpDirtyChunkRevisions(TransportLayerId layer, const std::vector<int>& dirtyTileIndices);
-    void ensurePedestrianCapLanes(TransportLayerId layer, const std::vector<int>& dirtyTileIndices);
-    bool refreshDerivedLaneActivity(TransportLayerId layer, const std::vector<int>& dirtyTileIndices);
 
     const TransportTile* tileAt(TransportLayerId layer, int tileX, int tileY) const;
     TransportTile* tileAt(TransportLayerId layer, int tileX, int tileY);
@@ -85,43 +84,13 @@ private:
     void collectRoadRemovalFootprint(TransportLayerId layer, int tileX, int tileY, std::vector<int>& removalTileIndices) const;
     void collectRoadSliceFootprint(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& referenceLane, std::vector<int>& removalTileIndices) const;
     bool tileHasMatchingRoadSliceLane(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& referenceLane) const;
-    bool tileHasPathLaneBody(TransportLayerId layer, int tileX, int tileY, RoadFamily family, RoadLaneTypeId laneType, RoadAxis axis, bool includeInactiveLanes = false) const;
-    bool tileHasPathLaneTravel(TransportLayerId layer, int tileX, int tileY, RoadFamily family, RoadLaneTypeId laneType, RoadAxis axis, std::uint8_t roadDirection) const;
-    bool intersectionGroupBounds(TransportLayerId layer, int tileX, int tileY, RoadFamily family, int& minTileX, int& minTileY, int& maxTileX, int& maxTileY) const;
-    bool intersectionGroupHasThroughStroke(TransportLayerId layer, int tileX, int tileY, RoadFamily family, RoadAxis axis) const;
-    bool authoredStrokeCoversMovementEdge(TransportLayerId layer, int tileX, int tileY, RoadFamily family, std::uint8_t roadDirection) const;
-    std::uint8_t liveCapReturnDirectionForLane(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const;
-    std::uint8_t carCapLoopMovementMask(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) const;
-    std::uint8_t intersectionBodyLaneMovementMask(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) const;
-    std::uint8_t livePathLaneMovementMask(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) const;
-    bool pathLaneCanMove(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const;
+    std::uint8_t capReturnDirectionForLane(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const;
+    bool laneHasAuthoredContinuation(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const;
     std::uint8_t pathLaneMovementMask(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) const;
+    std::uint8_t laneGraphicDirectionMask(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) const;
+    std::uint8_t laneCenterTravelDirectionMask(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) const;
     bool tileHasCarBodyAxis(TransportLayerId layer, int tileX, int tileY, RoadAxis axis, RoadFamily family) const;
     bool tileHasAnyCarBody(TransportLayerId layer, int tileX, int tileY, RoadFamily family) const;
-    bool tileIsIntersectionGroupBody(TransportLayerId layer, int tileX, int tileY, RoadFamily family) const;
-    bool roadSegmentHasFourWayIntersection(TransportLayerId layer, int tileX, int tileY, RoadAxis axis, RoadFamily family) const;
-    std::uint8_t buildIntersectionGroupApproachMask(TransportLayerId layer, int tileX, int tileY, RoadFamily family) const;
-    bool roadAxisHasTerminalEnd(TransportLayerId layer, int tileX, int tileY, RoadAxis axis, RoadFamily family) const;
-    bool separatorLaneIsCrossedByCarLane(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) const;
-    bool separatorLaneShouldBeActive(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) const;
-    std::uint8_t separatorDividerMaskForLane(const RoadLanePlacement& lanePlacement) const;
-    bool tileHasActiveSeparatorEdge(TransportLayerId layer, int tileX, int tileY, RoadAxis separatorAxis, std::uint8_t edgeDirection, RoadFamily family) const;
-    bool pedestrianConnectionCrossesSeparator(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const;
-    bool pedestrianLaneBordersEmptyTile(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& pedestrianLane) const;
-    bool pedestrianLaneShouldBeActive(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& pedestrianLane) const;
-    std::uint8_t pedestrianLaneGraphicMask(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& pedestrianLane) const;
-    std::uint8_t pedestrianLaneCrosswalkMask(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& pedestrianLane, const TransportTile& tile) const;
-    bool isSingleAxisDeadEndCapMask(const TransportTile& tile, std::uint8_t junctionMask) const;
-    RoadRenderVariant chooseRenderVariantForTile(const TransportTile& tile, std::uint8_t junctionMask) const;
-    std::uint8_t baseGlyphJunctionMaskForTile(const TransportTile& tile, RoadRenderVariant renderVariant, std::uint8_t junctionMask) const;
-    bool isCarIntersectionNode(TransportLayerId layer, int tileX, int tileY) const;
-    bool isCarIntersectionCollectionTile(TransportLayerId layer, int tileX, int tileY) const;
-    std::uint8_t buildTurnExitMaskThroughIntersection(TransportLayerId layer, int entryTileX, int entryTileY, std::uint8_t travelDirection) const;
-    std::uint8_t buildTurnArrowIntentMask(TransportLayerId layer, int tileX, int tileY, const TransportTile& tile) const;
-    std::uint8_t buildCarExitMask(TransportLayerId layer, int tileX, int tileY, const TransportTile& tile) const;
-    std::uint8_t buildPedestrianExitMask(TransportLayerId layer, int tileX, int tileY, const TransportTile& tile) const;
-    std::uint8_t buildExitMask(TransportLayerId layer, int tileX, int tileY, const TransportTile& tile) const;
-    std::uint8_t buildJunctionMask(TransportLayerId layer, int tileX, int tileY, const TransportTile& tile, std::uint8_t exitMask) const;
 
     int width_;
     int height_;

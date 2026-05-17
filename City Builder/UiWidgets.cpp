@@ -494,19 +494,20 @@ void UiLayout::setFallbackDefinition() {
     UiMenu sideMenu;
     sideMenu.setDefinition("side_tools", 16, 16, 72, 132, 0, 132, 38, 8, UiAnchor::BottomLeft, UiFlow::Down, true, UiColor(0.0f, 0.0f, 0.0f, 0.0f));
 
-    const char* buttonIds[] = {"bulldozer", "road", "query", "rci_residential", "rci_industrial", "rci_unzone"};
-    const char* buttonTexts[] = {"Bulldoze", "Road", "Query", "Residence", "Industry", "Unzone"};
-    const char* buttonActions[] = {"select_bulldozer", "select_road_street", "select_query", "select_rci_residential", "select_rci_industrial", "select_rci_unzone"};
+    const char* buttonIds[] = {"bulldozer", "road", "avenue", "query", "rci_residential", "rci_industrial", "rci_unzone"};
+    const char* buttonTexts[] = {"Bulldoze", "Road", "Avenue", "Query", "Residence", "Industry", "Unzone"};
+    const char* buttonActions[] = {"select_bulldozer", "select_road_street", "select_road_avenue", "select_query", "select_rci_residential", "select_rci_industrial", "select_rci_unzone"};
     const UiColor colors[] = {
         UiColor(0.34f, 0.12f, 0.11f, 0.90f),
         UiColor(0.14f, 0.22f, 0.30f, 0.90f),
+        UiColor(0.18f, 0.26f, 0.31f, 0.90f),
         UiColor(0.16f, 0.24f, 0.22f, 0.90f),
         UiColor(0.12f, 0.34f, 0.18f, 0.90f),
         UiColor(0.42f, 0.35f, 0.10f, 0.90f),
         UiColor(0.24f, 0.24f, 0.27f, 0.90f)
     };
 
-    for (std::size_t index = 0; index < 6u; ++index) {
+    for (std::size_t index = 0; index < 7u; ++index) {
         UiButton button;
         button.setDefinition(buttonIds[index], buttonTexts[index], buttonActions[index], 0, 0, 132, 38, false, false, false, false, colors[index], UiColor(0.52f, 0.66f, 0.47f, 0.96f));
         sideMenu.addButton(button);

@@ -219,6 +219,8 @@ void ApplyHotkey(HotkeyConfig& hotkeys, const std::string& key, const std::strin
         hotkeys.placeHouse = keyCode;
     } else if (key == "road_street") {
         hotkeys.roadStreet = keyCode;
+    } else if (key == "road_avenue") {
+        hotkeys.roadAvenue = keyCode;
     } else if (key == "road_highway") {
         hotkeys.roadHighway = keyCode;
     } else if (key == "toggle_traffic_overlay") {
@@ -277,6 +279,7 @@ HotkeyConfig::HotkeyConfig()
       placeFactory('F'),
       placeHouse('G'),
       roadStreet('R'),
+      roadAvenue('V'),
       roadHighway('H'),
       toggleTrafficOverlay('T'),
       toggleLandValueOverlay('L'),

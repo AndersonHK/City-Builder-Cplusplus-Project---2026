@@ -6,7 +6,7 @@ This case is seeded with the current constructor output so it can be revised man
 The wide corner should eventually resolve deterministically under rotation and should not invent T/cross graphics at the bend.
 end
 actions:
-drag 2 6 8 12 lanes=2
+drag 2 6 8 12 tool=avenue
 end
 expect active_car_axes 0 0 15 15:
 ................

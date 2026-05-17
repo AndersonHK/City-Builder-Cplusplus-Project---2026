@@ -146,7 +146,10 @@ copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\
     <ClCompile Include="ChunkConfig.cpp" />
     <ClCompile Include="Lot.cpp" />
     <ClCompile Include="Road.cpp" />
+    <ClCompile Include="RoadAtlas.cpp" />
+    <ClCompile Include="RoadGraphic.cpp" />
     <ClCompile Include="RoadLane.cpp" />
+    <ClCompile Include="RoadLaneCell.cpp" />
     <ClCompile Include="RoadRenderState.cpp" />
     <ClCompile Include="RciTool.cpp" />
     <ClCompile Include="RendererAlgorithms.cpp" />
@@ -248,7 +251,10 @@ copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\
     <ClInclude Include="Lot.h" />
     <ClInclude Include="LotModule.h" />
     <ClInclude Include="Road.h" />
+    <ClInclude Include="RoadAtlas.h" />
+    <ClInclude Include="RoadGraphic.h" />
     <ClInclude Include="RoadLane.h" />
+    <ClInclude Include="RoadLaneCell.h" />
     <ClInclude Include="RoadRenderState.h" />
     <ClInclude Include="RciTool.h" />
     <ClInclude Include="RendererAlgorithms.h" />

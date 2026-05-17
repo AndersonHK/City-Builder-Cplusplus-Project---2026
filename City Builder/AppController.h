@@ -18,6 +18,7 @@ enum class ActiveTool {
     FactoryLot,
     HouseLot,
     RoadStreet,
+    RoadAvenue,
     RoadHighway,
     AddParkModule,
     RemoveModule,

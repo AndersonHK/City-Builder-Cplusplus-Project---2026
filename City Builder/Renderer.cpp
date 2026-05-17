@@ -21,6 +21,7 @@
 #include "CrashLogger.h"
 #include "InGameWindow.h"
 #include "RendererAlgorithms.h"
+#include "RoadAtlas.h"
 #include "RoadRenderState.h"
 #include "ShaderProgram.h"
 #include "SimulationDate.h"
@@ -28,9 +29,6 @@
 
 namespace {
 const float kPi = 3.14159265358979323846f;
-const int kRoadAtlasColumns = 8;
-const int kRoadAtlasRows = 8;
-const int kRoadAtlasTileSize = 32;
 const float kTileStateScalarScale = 640000.0f;
 const float kRoadGhostAlpha = 0.46f;
 const float kLotGhostAlpha = 0.42f;
@@ -847,313 +845,8 @@ float Clamp01(float value) {
     return std::max(0.0f, std::min(value, 1.0f));
 }
 
-// Recovers the road family represented by an atlas base glyph.
-RoadFamily BaseGlyphFamily(RoadBaseGlyph baseGlyph) {
-    switch (baseGlyph) {
-        case RoadBaseGlyph::LocalIsolated:
-        case RoadBaseGlyph::LocalDeadEndNorth:
-        case RoadBaseGlyph::LocalDeadEndEast:
-        case RoadBaseGlyph::LocalDeadEndSouth:
-        case RoadBaseGlyph::LocalDeadEndWest:
-        case RoadBaseGlyph::LocalStraightVertical:
-        case RoadBaseGlyph::LocalStraightHorizontal:
-        case RoadBaseGlyph::LocalCornerNorthEast:
-        case RoadBaseGlyph::LocalCornerSouthEast:
-        case RoadBaseGlyph::LocalCornerSouthWest:
-        case RoadBaseGlyph::LocalCornerNorthWest:
-        case RoadBaseGlyph::LocalTeeMissingNorth:
-        case RoadBaseGlyph::LocalTeeMissingEast:
-        case RoadBaseGlyph::LocalTeeMissingSouth:
-        case RoadBaseGlyph::LocalTeeMissingWest:
-        case RoadBaseGlyph::LocalCross:
-            return RoadFamily::LocalStreet;
-
-        case RoadBaseGlyph::HighwayIsolated:
-        case RoadBaseGlyph::HighwayDeadEndNorth:
-        case RoadBaseGlyph::HighwayDeadEndEast:
-        case RoadBaseGlyph::HighwayDeadEndSouth:
-        case RoadBaseGlyph::HighwayDeadEndWest:
-        case RoadBaseGlyph::HighwayStraightVertical:
-        case RoadBaseGlyph::HighwayStraightHorizontal:
-        case RoadBaseGlyph::HighwayCornerNorthEast:
-        case RoadBaseGlyph::HighwayCornerSouthEast:
-        case RoadBaseGlyph::HighwayCornerSouthWest:
-        case RoadBaseGlyph::HighwayCornerNorthWest:
-        case RoadBaseGlyph::HighwayTeeMissingNorth:
-        case RoadBaseGlyph::HighwayTeeMissingEast:
-        case RoadBaseGlyph::HighwayTeeMissingSouth:
-        case RoadBaseGlyph::HighwayTeeMissingWest:
-        case RoadBaseGlyph::HighwayCross:
-            return RoadFamily::Highway;
-
-        default:
-            return RoadFamily::None;
-    }
-}
-
-// Recovers the cardinal exit mask represented by an atlas base glyph.
-std::uint8_t BaseGlyphJunctionMask(RoadBaseGlyph baseGlyph) {
-    switch (baseGlyph) {
-        case RoadBaseGlyph::LocalDeadEndNorth:
-        case RoadBaseGlyph::HighwayDeadEndNorth:
-            return kRoadDirectionNorth;
-        case RoadBaseGlyph::LocalDeadEndEast:
-        case RoadBaseGlyph::HighwayDeadEndEast:
-            return kRoadDirectionEast;
-        case RoadBaseGlyph::LocalDeadEndSouth:
-        case RoadBaseGlyph::HighwayDeadEndSouth:
-            return kRoadDirectionSouth;
-        case RoadBaseGlyph::LocalDeadEndWest:
-        case RoadBaseGlyph::HighwayDeadEndWest:
-            return kRoadDirectionWest;
-        case RoadBaseGlyph::LocalStraightVertical:
-        case RoadBaseGlyph::HighwayStraightVertical:
-            return kRoadDirectionNorth | kRoadDirectionSouth;
-        case RoadBaseGlyph::LocalStraightHorizontal:
-        case RoadBaseGlyph::HighwayStraightHorizontal:
-            return kRoadDirectionEast | kRoadDirectionWest;
-        case RoadBaseGlyph::LocalCornerNorthEast:
-        case RoadBaseGlyph::HighwayCornerNorthEast:
-            return kRoadDirectionNorth | kRoadDirectionEast;
-        case RoadBaseGlyph::LocalCornerSouthEast:
-        case RoadBaseGlyph::HighwayCornerSouthEast:
-            return kRoadDirectionSouth | kRoadDirectionEast;
-        case RoadBaseGlyph::LocalCornerSouthWest:
-        case RoadBaseGlyph::HighwayCornerSouthWest:
-            return kRoadDirectionSouth | kRoadDirectionWest;
-        case RoadBaseGlyph::LocalCornerNorthWest:
-        case RoadBaseGlyph::HighwayCornerNorthWest:
-            return kRoadDirectionNorth | kRoadDirectionWest;
-        case RoadBaseGlyph::LocalTeeMissingNorth:
-        case RoadBaseGlyph::HighwayTeeMissingNorth:
-            return kRoadDirectionEast | kRoadDirectionSouth | kRoadDirectionWest;
-        case RoadBaseGlyph::LocalTeeMissingEast:
-        case RoadBaseGlyph::HighwayTeeMissingEast:
-            return kRoadDirectionNorth | kRoadDirectionSouth | kRoadDirectionWest;
-        case RoadBaseGlyph::LocalTeeMissingSouth:
-        case RoadBaseGlyph::HighwayTeeMissingSouth:
-            return kRoadDirectionNorth | kRoadDirectionEast | kRoadDirectionWest;
-        case RoadBaseGlyph::LocalTeeMissingWest:
-        case RoadBaseGlyph::HighwayTeeMissingWest:
-            return kRoadDirectionNorth | kRoadDirectionEast | kRoadDirectionSouth;
-        case RoadBaseGlyph::LocalCross:
-        case RoadBaseGlyph::HighwayCross:
-            return kRoadDirectionNorth | kRoadDirectionEast | kRoadDirectionSouth | kRoadDirectionWest;
-        default:
-            return 0;
-    }
-}
-
-// Measures distance from an atlas sample point to a line segment.
-float DistanceToSegment(const Vec2& point, const Vec2& startPoint, const Vec2& endPoint) {
-    const Vec2 pointOffset(point.x - startPoint.x, point.y - startPoint.y);
-    const Vec2 lineOffset(endPoint.x - startPoint.x, endPoint.y - startPoint.y);
-    const float lineLengthSquared = (lineOffset.x * lineOffset.x) + (lineOffset.y * lineOffset.y);
-    const float projection = lineLengthSquared <= 0.000001f
-        ? 0.0f
-        : Clamp01(((pointOffset.x * lineOffset.x) + (pointOffset.y * lineOffset.y)) / lineLengthSquared);
-    const Vec2 closestPoint(startPoint.x + (lineOffset.x * projection), startPoint.y + (lineOffset.y * projection));
-    const float dx = point.x - closestPoint.x;
-    const float dy = point.y - closestPoint.y;
-    return std::sqrt((dx * dx) + (dy * dy));
-}
-
-// Generates an antialiased line mask for procedural road atlas glyphs.
-float CpuLineMask(const Vec2& point, const Vec2& startPoint, const Vec2& endPoint, float thickness) {
-    const float distance = DistanceToSegment(point, startPoint, endPoint);
-    return 1.0f - Clamp01((distance - thickness) / 0.02f);
-}
-
-// Generates an antialiased arrow mask for directional road overlays.
-float CpuArrowMask(const Vec2& point, const Vec2& direction) {
-    const float length = std::sqrt((direction.x * direction.x) + (direction.y * direction.y));
-    if (length <= 0.000001f) {
-        return 0.0f;
-    }
-
-    const Vec2 normalizedDirection(direction.x / length, direction.y / length);
-    const Vec2 perpendicular(-normalizedDirection.y, normalizedDirection.x);
-    const Vec2 centerPoint(0.5f, 0.5f);
-    const Vec2 tipPoint(centerPoint.x + normalizedDirection.x * 0.24f, centerPoint.y + normalizedDirection.y * 0.24f);
-    const float shaft = CpuLineMask(point,
-        Vec2(centerPoint.x - normalizedDirection.x * 0.10f, centerPoint.y - normalizedDirection.y * 0.10f),
-        Vec2(tipPoint.x - normalizedDirection.x * 0.05f, tipPoint.y - normalizedDirection.y * 0.05f),
-        0.028f);
-    const float leftHead = CpuLineMask(point,
-        Vec2(tipPoint.x - normalizedDirection.x * 0.10f + perpendicular.x * 0.06f, tipPoint.y - normalizedDirection.y * 0.10f + perpendicular.y * 0.06f),
-        tipPoint,
-        0.024f);
-    const float rightHead = CpuLineMask(point,
-        Vec2(tipPoint.x - normalizedDirection.x * 0.10f - perpendicular.x * 0.06f, tipPoint.y - normalizedDirection.y * 0.10f - perpendicular.y * 0.06f),
-        tipPoint,
-        0.024f);
-    return std::max(shaft, std::max(leftHead, rightHead));
-}
-
-// Alpha-blends one generated atlas pixel into an RGBA buffer.
-void BlendPixel(std::vector<std::uint8_t>& pixels, int textureWidth, int pixelX, int pixelY, const Vec4& colorValue) {
-    const std::size_t pixelOffset = (static_cast<std::size_t>(pixelY) * static_cast<std::size_t>(textureWidth) + static_cast<std::size_t>(pixelX)) * 4u;
-    const float srcAlpha = Clamp01(colorValue.w);
-    const float dstAlpha = static_cast<float>(pixels[pixelOffset + 3u]) / 255.0f;
-    const float outAlpha = srcAlpha + (dstAlpha * (1.0f - srcAlpha));
-    if (outAlpha <= 0.000001f) {
-        pixels[pixelOffset + 0u] = 0;
-        pixels[pixelOffset + 1u] = 0;
-        pixels[pixelOffset + 2u] = 0;
-        pixels[pixelOffset + 3u] = 0;
-        return;
-    }
-
-    const float dstR = static_cast<float>(pixels[pixelOffset + 0u]) / 255.0f;
-    const float dstG = static_cast<float>(pixels[pixelOffset + 1u]) / 255.0f;
-    const float dstB = static_cast<float>(pixels[pixelOffset + 2u]) / 255.0f;
-    const float outR = ((colorValue.x * srcAlpha) + (dstR * dstAlpha * (1.0f - srcAlpha))) / outAlpha;
-    const float outG = ((colorValue.y * srcAlpha) + (dstG * dstAlpha * (1.0f - srcAlpha))) / outAlpha;
-    const float outB = ((colorValue.z * srcAlpha) + (dstB * dstAlpha * (1.0f - srcAlpha))) / outAlpha;
-
-    pixels[pixelOffset + 0u] = static_cast<std::uint8_t>(Clamp01(outR) * 255.0f + 0.5f);
-    pixels[pixelOffset + 1u] = static_cast<std::uint8_t>(Clamp01(outG) * 255.0f + 0.5f);
-    pixels[pixelOffset + 2u] = static_cast<std::uint8_t>(Clamp01(outB) * 255.0f + 0.5f);
-    pixels[pixelOffset + 3u] = static_cast<std::uint8_t>(Clamp01(outAlpha) * 255.0f + 0.5f);
-}
-
-// Paints one road surface glyph into the generated road atlas.
-void PaintRoadBaseGlyph(std::vector<std::uint8_t>& pixels, int textureWidth, int cellX, int cellY, RoadBaseGlyph glyph, bool includeDebugMarkings) {
-    const RoadFamily family = BaseGlyphFamily(glyph);
-    if (family == RoadFamily::None) {
-        return;
-    }
-
-    const std::uint8_t junctionMask = BaseGlyphJunctionMask(glyph);
-    const std::uint8_t surfaceEdgeMask = 0;
-    const Vec4 roadColor = family == RoadFamily::LocalStreet ? Vec4(0.22f, 0.23f, 0.24f, 1.0f) : Vec4(0.16f, 0.19f, 0.25f, 1.0f);
-    const Vec4 sidewalkColor(0.74f, 0.72f, 0.66f, 1.0f);
-    const Vec4 markingColor = family == RoadFamily::LocalStreet ? Vec4(0.88f, 0.84f, 0.74f, 1.0f) : Vec4(0.93f, 0.86f, 0.32f, 1.0f);
-
-    int localY = 0;
-    for (; localY < kRoadAtlasTileSize; ++localY) {
-        int localX = 0;
-        for (; localX < kRoadAtlasTileSize; ++localX) {
-            const int pixelX = cellX * kRoadAtlasTileSize + localX;
-            const int pixelY = cellY * kRoadAtlasTileSize + localY;
-            const float u = (static_cast<float>(localX) + 0.5f) / static_cast<float>(kRoadAtlasTileSize);
-            const float v = (static_cast<float>(localY) + 0.5f) / static_cast<float>(kRoadAtlasTileSize);
-
-            Vec4 pixelColor = roadColor;
-            if (family == RoadFamily::LocalStreet) {
-                if ((surfaceEdgeMask & kRoadDirectionNorth) != 0 && v < 0.16f) {
-                    pixelColor = sidewalkColor;
-                } else if ((surfaceEdgeMask & kRoadDirectionEast) != 0 && u > 0.84f) {
-                    pixelColor = sidewalkColor;
-                } else if ((surfaceEdgeMask & kRoadDirectionSouth) != 0 && v > 0.84f) {
-                    pixelColor = sidewalkColor;
-                } else if ((surfaceEdgeMask & kRoadDirectionWest) != 0 && u < 0.16f) {
-                    pixelColor = sidewalkColor;
-                }
-            }
-
-            const Vec2 point(u, v);
-            float markingMask = 0.0f;
-            if (glyph == RoadBaseGlyph::LocalIsolated || glyph == RoadBaseGlyph::HighwayIsolated) {
-                markingMask = CpuLineMask(point, Vec2(0.34f, 0.50f), Vec2(0.66f, 0.50f), 0.03f);
-            } else {
-                const Vec2 center(0.5f, 0.5f);
-                if ((junctionMask & kRoadDirectionNorth) != 0) {
-                    markingMask = std::max(markingMask, CpuLineMask(point, center, Vec2(0.5f, 0.08f), 0.028f));
-                }
-                if ((junctionMask & kRoadDirectionEast) != 0) {
-                    markingMask = std::max(markingMask, CpuLineMask(point, center, Vec2(0.92f, 0.5f), 0.028f));
-                }
-                if ((junctionMask & kRoadDirectionSouth) != 0) {
-                    markingMask = std::max(markingMask, CpuLineMask(point, center, Vec2(0.5f, 0.92f), 0.028f));
-                }
-                if ((junctionMask & kRoadDirectionWest) != 0) {
-                    markingMask = std::max(markingMask, CpuLineMask(point, center, Vec2(0.08f, 0.5f), 0.028f));
-                }
-            }
-
-            if (includeDebugMarkings && markingMask > 0.0f) {
-                BlendPixel(pixels, textureWidth, pixelX, pixelY, pixelColor);
-                BlendPixel(pixels, textureWidth, pixelX, pixelY, Vec4(markingColor.x, markingColor.y, markingColor.z, markingMask));
-            } else {
-                BlendPixel(pixels, textureWidth, pixelX, pixelY, pixelColor);
-            }
-        }
-    }
-}
-
-// Converts one lane intent bit to its atlas-space direction vector.
-Vec2 ArrowIntentDirection(std::uint8_t laneIntent) {
-    switch (laneIntent) {
-        case kLaneIntentNorth:
-            return Vec2(0.0f, -1.0f);
-        case kLaneIntentEast:
-            return Vec2(1.0f, 0.0f);
-        case kLaneIntentSouth:
-            return Vec2(0.0f, 1.0f);
-        case kLaneIntentWest:
-            return Vec2(-1.0f, 0.0f);
-        default:
-            return Vec2(0.0f, 0.0f);
-    }
-}
-
-// Paints one road directional overlay glyph into the generated atlas.
-void PaintRoadArrowGlyph(std::vector<std::uint8_t>& pixels, int textureWidth, int cellX, int cellY, RoadArrowGlyph glyph) {
-    const std::uint8_t laneIntentMask = static_cast<std::uint8_t>(glyph) & (kLaneIntentNorth | kLaneIntentEast | kLaneIntentSouth | kLaneIntentWest);
-    if (laneIntentMask == 0) {
-        return;
-    }
-
-    const Vec4 arrowColor(0.93f, 0.86f, 0.32f, 1.0f);
-
-    int localY = 0;
-    for (; localY < kRoadAtlasTileSize; ++localY) {
-        int localX = 0;
-        for (; localX < kRoadAtlasTileSize; ++localX) {
-            const float u = (static_cast<float>(localX) + 0.5f) / static_cast<float>(kRoadAtlasTileSize);
-            const float v = (static_cast<float>(localY) + 0.5f) / static_cast<float>(kRoadAtlasTileSize);
-            float alpha = 0.0f;
-            const std::uint8_t laneIntents[] = {
-                kLaneIntentNorth,
-                kLaneIntentEast,
-                kLaneIntentSouth,
-                kLaneIntentWest
-            };
-            for (std::size_t intentIndex = 0; intentIndex < sizeof(laneIntents) / sizeof(laneIntents[0]); ++intentIndex) {
-                if ((laneIntentMask & laneIntents[intentIndex]) != 0) {
-                    alpha = std::max(alpha, CpuArrowMask(Vec2(u, v), ArrowIntentDirection(laneIntents[intentIndex])));
-                }
-            }
-            if (alpha <= 0.0f) {
-                continue;
-            }
-
-            const int pixelX = cellX * kRoadAtlasTileSize + localX;
-            const int pixelY = cellY * kRoadAtlasTileSize + localY;
-            BlendPixel(pixels, textureWidth, pixelX, pixelY, Vec4(arrowColor.x, arrowColor.y, arrowColor.z, alpha));
-        }
-    }
-}
-
-// Builds a CPU-generated road atlas and uploads it once to OpenGL.
-GLuint CreateRoadAtlasTexture(bool arrowAtlas, bool includeDebugMarkings) {
-    const int textureWidth = kRoadAtlasColumns * kRoadAtlasTileSize;
-    const int textureHeight = kRoadAtlasRows * kRoadAtlasTileSize;
-    std::vector<std::uint8_t> pixels(static_cast<std::size_t>(textureWidth) * static_cast<std::size_t>(textureHeight) * 4u, 0);
-
-    const int glyphCount = arrowAtlas ? 16 : static_cast<int>(RoadBaseGlyph::HighwayCross) + 1;
-    int glyphIndex = 0;
-    for (; glyphIndex < glyphCount; ++glyphIndex) {
-        const int cellX = glyphIndex % kRoadAtlasColumns;
-        const int cellY = glyphIndex / kRoadAtlasColumns;
-        if (arrowAtlas) {
-            PaintRoadArrowGlyph(pixels, textureWidth, cellX, cellY, static_cast<RoadArrowGlyph>(glyphIndex));
-        } else {
-            PaintRoadBaseGlyph(pixels, textureWidth, cellX, cellY, static_cast<RoadBaseGlyph>(glyphIndex), includeDebugMarkings);
-        }
-    }
-
+// Uploads one generated road atlas image into an OpenGL texture.
+GLuint CreateRoadAtlasTexture(const RoadAtlasImage& image) {
     GLuint textureId = 0;
     glGenTextures(1, &textureId);
     glBindTexture(GL_TEXTURE_2D, textureId);
@@ -1162,7 +855,7 @@ GLuint CreateRoadAtlasTexture(bool arrowAtlas, bool includeDebugMarkings) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, textureWidth, textureHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.empty() ? 0 : &pixels[0]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, image.width, image.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.pixels.empty() ? 0 : &image.pixels[0]);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
     return textureId;
 }
@@ -1604,12 +1297,11 @@ RoadStrokeCommand BuildRciRoadStrokeCommand(const RciRoadPlan& roadPlan) {
     roadStrokeCommand.startTile = Int2(roadPlan.startTileX, roadPlan.startTileY);
     roadStrokeCommand.cornerTile = Int2(roadPlan.endTileX, roadPlan.endTileY);
     roadStrokeCommand.endTile = Int2(roadPlan.endTileX, roadPlan.endTileY);
+    roadStrokeCommand.templateKind = RoadTemplateKind::Street;
     roadStrokeCommand.family = RoadFamily::LocalStreet;
     roadStrokeCommand.layer = TransportLayerId::Ground;
     roadStrokeCommand.roadTemplate = TransportNetwork::makeRoadTemplate(
-        roadStrokeCommand.family,
-        roadStrokeCommand.layer,
-        1,
+        roadStrokeCommand.templateKind,
         RoadTrafficSide::RightHand,
         RoadDirectionMode::TwoWay);
     return roadStrokeCommand;
@@ -2586,9 +2278,9 @@ int Renderer::run() {
         GL_UNSIGNED_BYTE,
         0);
 
-    const GLuint roadBaseAtlasTextureId = CreateRoadAtlasTexture(false, true);
-    const GLuint roadBaseCleanAtlasTextureId = CreateRoadAtlasTexture(false, false);
-    const GLuint roadArrowAtlasTextureId = CreateRoadAtlasTexture(true, true);
+    const GLuint roadBaseAtlasTextureId = CreateRoadAtlasTexture(BuildRoadBaseAtlas(true));
+    const GLuint roadBaseCleanAtlasTextureId = CreateRoadAtlasTexture(BuildRoadBaseAtlas(false));
+    const GLuint roadArrowAtlasTextureId = CreateRoadAtlasTexture(BuildRoadArrowAtlas());
 
     std::vector<TileChunkRenderCache> chunkCaches(simulationRuntime.chunkLayout().size());
     std::size_t chunkIndex = 0;

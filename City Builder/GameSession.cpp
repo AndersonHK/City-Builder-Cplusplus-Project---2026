@@ -21,7 +21,7 @@ namespace {
 const std::uint32_t kRegionSaveMagic = 0x52424743u; // CBGR
 const std::uint32_t kRegionSaveVersion = 3u;
 const std::uint32_t kCitySaveMagic = 0x59544243u; // CBTY
-const std::uint32_t kCitySaveVersion = 7u;
+const std::uint32_t kCitySaveVersion = 8u;
 const std::uint32_t kCityPreviewSaveMagic = 0x56504243u; // CBPV
 const std::uint32_t kCityPreviewSaveVersion = 1u;
 const int kMaximumPreviewBuildsInFlight = 2;
@@ -256,6 +256,7 @@ void WriteTransportStrokeSaveState(std::ostream& stream, const TransportStrokeSa
     WriteInt2(stream, stroke.startTile);
     WriteInt2(stream, stroke.cornerTile);
     WriteInt2(stream, stroke.endTile);
+    WriteValue(stream, static_cast<std::uint8_t>(stroke.templateKind));
     WriteValue(stream, static_cast<std::uint8_t>(stroke.family));
     WriteValue(stream, static_cast<std::uint8_t>(stroke.layer));
     WriteValue(stream, stroke.laneCount);
@@ -270,6 +271,8 @@ TransportStrokeSaveState ReadTransportStrokeSaveState(std::istream& stream) {
     stroke.startTile = ReadInt2(stream);
     stroke.cornerTile = ReadInt2(stream);
     stroke.endTile = ReadInt2(stream);
+    ReadValue(stream, value);
+    stroke.templateKind = static_cast<RoadTemplateKind>(value);
     ReadValue(stream, value);
     stroke.family = static_cast<RoadFamily>(value);
     ReadValue(stream, value);

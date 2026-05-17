@@ -587,9 +587,10 @@ void SimulationRuntime::queuePlaceStreetRoad(const Int2& startTile, const Int2& 
     roadStrokeCommand.startTile = startTile;
     roadStrokeCommand.cornerTile = cornerTile;
     roadStrokeCommand.endTile = endTile;
+    roadStrokeCommand.templateKind = RoadTemplateKind::Street;
     roadStrokeCommand.family = RoadFamily::LocalStreet;
     roadStrokeCommand.layer = TransportLayerId::Ground;
-    roadStrokeCommand.roadTemplate = TransportNetwork::makeRoadTemplate(roadStrokeCommand.family, roadStrokeCommand.layer, 1, RoadTrafficSide::RightHand, RoadDirectionMode::TwoWay);
+    roadStrokeCommand.roadTemplate = TransportNetwork::makeRoadTemplate(roadStrokeCommand.templateKind, RoadTrafficSide::RightHand, RoadDirectionMode::TwoWay);
     queuePlaceRoadStroke(roadStrokeCommand);
 }
 
@@ -599,6 +600,7 @@ void SimulationRuntime::queuePlaceHighwayRoad(const Int2& startTile, const Int2&
     roadStrokeCommand.startTile = startTile;
     roadStrokeCommand.cornerTile = cornerTile;
     roadStrokeCommand.endTile = endTile;
+    roadStrokeCommand.templateKind = RoadTemplateKind::Highway;
     roadStrokeCommand.family = RoadFamily::Highway;
     roadStrokeCommand.layer = TransportLayerId::Elevated;
     roadStrokeCommand.roadTemplate = TransportNetwork::makeRoadTemplate(roadStrokeCommand.family, roadStrokeCommand.layer, 1, RoadTrafficSide::RightHand, RoadDirectionMode::TwoWay);
@@ -4137,10 +4139,15 @@ bool SimulationRuntime::removeZoningLotsIntersectingRect(const RciRect& rect) {
 
 void SimulationRuntime::clearZoningForRoadStroke(const RoadStrokeCommand& roadStrokeCommand, TileBuffer& writeBuffer) {
     RoadTemplate roadTemplate = roadStrokeCommand.roadTemplate;
-    roadTemplate.family = roadStrokeCommand.family;
-    roadTemplate.layer = roadStrokeCommand.layer;
     if (roadTemplate.elements.empty()) {
-        roadTemplate = Road::makeTemplate(roadStrokeCommand.family, roadStrokeCommand.layer, 1, RoadTrafficSide::RightHand, RoadDirectionMode::TwoWay);
+        RoadTemplateKind templateKind = roadStrokeCommand.templateKind;
+        if (roadStrokeCommand.family == RoadFamily::Highway || roadStrokeCommand.layer == TransportLayerId::Elevated) {
+            templateKind = RoadTemplateKind::Highway;
+        }
+        roadTemplate = Road::makeTemplate(templateKind, RoadTrafficSide::RightHand, RoadDirectionMode::TwoWay);
+    } else {
+        roadTemplate.family = roadStrokeCommand.family;
+        roadTemplate.layer = roadStrokeCommand.layer;
     }
 
     std::vector<RoadTilePlacement> placements;

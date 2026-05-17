@@ -4,8 +4,10 @@
 #include <vector>
 
 #include "RoadLane.h"
+#include "RoadLaneCell.h"
 
 struct RoadTemplate {
+    RoadTemplateKind templateKind;
     RoadFamily family;
     TransportLayerId layer;
     RoadTrafficSide trafficSide;
@@ -22,6 +24,7 @@ struct RoadStrokeCommand {
     Int2 startTile;
     Int2 cornerTile;
     Int2 endTile;
+    RoadTemplateKind templateKind;
     RoadFamily family;
     TransportLayerId layer;
     RoadStrokeOperation operation;
@@ -47,8 +50,12 @@ public:
     bool appendStrokePlacements(const Int2& startTile, const Int2& cornerTile, const Int2& endTile, int mapWidth, int mapHeight, std::vector<RoadTilePlacement>& placements) const;
 
     static RoadTemplate makeTemplate(RoadFamily family, TransportLayerId layer, int laneCount, RoadTrafficSide trafficSide, RoadDirectionMode directionMode);
+    static RoadTemplate makeTemplate(RoadTemplateKind templateKind, RoadTrafficSide trafficSide, RoadDirectionMode directionMode);
+    static RoadTemplateKind inferTemplateKind(RoadFamily family, TransportLayerId layer, int laneCount, RoadDirectionMode directionMode);
     static std::uint16_t makeTemplateId(RoadFamily family, TransportLayerId layer, int laneCount, RoadTrafficSide trafficSide, RoadDirectionMode directionMode);
+    static std::uint16_t makeTemplateId(RoadTemplateKind templateKind, RoadFamily family, TransportLayerId layer, int laneCount, RoadTrafficSide trafficSide, RoadDirectionMode directionMode);
     static int chooseTemplateFootprint(const RoadTemplate& roadTemplate);
+    static RoadLaneCell makeLaneCell(const RoadLanePlacement& lanePlacement, std::uint8_t directionMask, std::uint8_t travelDirectionMask = 0);
 
 private:
     struct LayoutLane {

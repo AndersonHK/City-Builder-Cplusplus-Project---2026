@@ -45,6 +45,9 @@
     <ClCompile Include="Road.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="RoadAtlas.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="RoadLane.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -335,6 +338,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Road.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RoadAtlas.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="RoadLane.h">

@@ -76,7 +76,9 @@
     <ClCompile Include="CrashLogger.cpp" />
     <ClCompile Include="Lot.cpp" />
     <ClCompile Include="Road.cpp" />
+    <ClCompile Include="RoadGraphic.cpp" />
     <ClCompile Include="RoadLane.cpp" />
+    <ClCompile Include="RoadLaneCell.cpp" />
     <ClCompile Include="RoadRenderState.cpp" />
     <ClCompile Include="RoadToolSandbox.cpp" />
     <ClCompile Include="TestAssetXml.cpp" />
@@ -95,7 +97,9 @@
     <ClInclude Include="Lot.h" />
     <ClInclude Include="LotModule.h" />
     <ClInclude Include="Road.h" />
+    <ClInclude Include="RoadGraphic.h" />
     <ClInclude Include="RoadLane.h" />
+    <ClInclude Include="RoadLaneCell.h" />
     <ClInclude Include="RoadRenderState.h" />
     <ClInclude Include="RoadToolSandbox.h" />
     <ClInclude Include="SimulationTime.h" />

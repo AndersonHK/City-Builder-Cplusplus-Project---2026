@@ -86,7 +86,9 @@
     <ClCompile Include="Lot.cpp" />
     <ClCompile Include="RciTool.cpp" />
     <ClCompile Include="Road.cpp" />
+    <ClCompile Include="RoadGraphic.cpp" />
     <ClCompile Include="RoadLane.cpp" />
+    <ClCompile Include="RoadLaneCell.cpp" />
     <ClCompile Include="RoadRenderState.cpp" />
     <ClCompile Include="SaveLoadIntegrationTests.cpp" />
     <ClCompile Include="SimulationRuntime.cpp" />
@@ -107,7 +109,9 @@
     <ClInclude Include="LotModule.h" />
     <ClInclude Include="RciTool.h" />
     <ClInclude Include="Road.h" />
+    <ClInclude Include="RoadGraphic.h" />
     <ClInclude Include="RoadLane.h" />
+    <ClInclude Include="RoadLaneCell.h" />
     <ClInclude Include="RoadRenderState.h" />
     <ClInclude Include="SimulationRuntime.h" />
     <ClInclude Include="SimulationTime.h" />

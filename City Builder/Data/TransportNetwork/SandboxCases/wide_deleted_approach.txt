@@ -6,8 +6,8 @@ After deleting the north approach slice, the remaining center must become a part
 no crosswalks that imply a through north-south road, and no north-going corrected-through junction leg anywhere in the four-by-four body.
 end
 actions:
-drag 2 6 13 6 lanes=2
-drag 6 1 6 13 lanes=2
+drag 2 6 13 6 tool=avenue
+drag 6 1 6 13 tool=avenue
 bulldoze 6 5
 end
 expect active_car_axes 0 0 15 15:

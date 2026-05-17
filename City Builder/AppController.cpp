@@ -23,12 +23,26 @@ void RoadTemplateControlContext(const ViewState& viewState, RoadFamily& family, 
     layer = TransportLayerId::Ground;
 }
 
+RoadTemplateKind RoadTemplateKindForTool(ActiveTool activeTool) {
+    if (activeTool == ActiveTool::RoadAvenue) {
+        return RoadTemplateKind::Avenue;
+    }
+    if (activeTool == ActiveTool::RoadHighway) {
+        return RoadTemplateKind::Highway;
+    }
+    return RoadTemplateKind::Street;
+}
+
 void NormalizeRoadTemplateSelection(ViewState& viewState) {
     RoadFamily family = RoadFamily::LocalStreet;
     TransportLayerId layer = TransportLayerId::Ground;
     RoadTemplateControlContext(viewState, family, layer);
-    const RoadTemplate roadTemplate = TransportNetwork::makeRoadTemplate(family, layer, viewState.roadLaneCount, viewState.roadTrafficSide, viewState.roadDirectionMode);
+    const RoadTemplateKind templateKind = RoadTemplateKindForTool(viewState.activeTool);
+    const RoadTemplate roadTemplate = templateKind == RoadTemplateKind::Highway
+        ? TransportNetwork::makeRoadTemplate(family, layer, viewState.roadLaneCount, viewState.roadTrafficSide, viewState.roadDirectionMode)
+        : TransportNetwork::makeRoadTemplate(templateKind, viewState.roadTrafficSide, viewState.roadDirectionMode);
     viewState.roadLaneCount = roadTemplate.laneCount;
+    viewState.roadDirectionMode = roadTemplate.directionMode;
 }
 
 const char* OverlayModeName(OverlayMode overlayMode) {
@@ -137,6 +151,9 @@ const char* ActiveToolName(ActiveTool activeTool) {
         case ActiveTool::RoadStreet:
             return "place local street";
 
+        case ActiveTool::RoadAvenue:
+            return "place avenue";
+
         case ActiveTool::RoadHighway:
             return "place elevated highway";
 
@@ -191,10 +208,9 @@ RoadStrokeCommand BuildRciRoadStrokeCommand(const RciRoadPlan& roadPlan) {
     roadStrokeCommand.endTile = Int2(roadPlan.endTileX, roadPlan.endTileY);
     roadStrokeCommand.family = RoadFamily::LocalStreet;
     roadStrokeCommand.layer = TransportLayerId::Ground;
+    roadStrokeCommand.templateKind = RoadTemplateKind::Street;
     roadStrokeCommand.roadTemplate = TransportNetwork::makeRoadTemplate(
-        roadStrokeCommand.family,
-        roadStrokeCommand.layer,
-        1,
+        roadStrokeCommand.templateKind,
         RoadTrafficSide::RightHand,
         RoadDirectionMode::TwoWay);
     return roadStrokeCommand;
@@ -594,6 +610,7 @@ void AppController::onLeftMouseButtonPressed() {
             break;
 
         case ActiveTool::RoadStreet:
+        case ActiveTool::RoadAvenue:
         case ActiveTool::RoadHighway:
             beginRoadDrag(tileX, tileY);
             break;
@@ -772,6 +789,11 @@ void AppController::onKeyPressed(int key, int action) {
         printRoadTemplate();
         return;
     }
+    if (key == hotkeys.roadAvenue) {
+        setActiveTool(ActiveTool::RoadAvenue);
+        printRoadTemplate();
+        return;
+    }
     if (key == hotkeys.roadHighway) {
         setActiveTool(ActiveTool::RoadHighway);
         printRoadTemplate();
@@ -827,6 +849,12 @@ void AppController::onKeyPressed(int key, int action) {
         return;
     }
     if (key == hotkeys.cycleRoadDirection) {
+        if (viewState_.activeTool == ActiveTool::RoadAvenue) {
+            viewState_.roadDirectionMode = RoadDirectionMode::TwoWay;
+            NormalizeRoadTemplateSelection(viewState_);
+            printRoadTemplate();
+            return;
+        }
         if (viewState_.roadDirectionMode == RoadDirectionMode::TwoWay) {
             viewState_.roadDirectionMode = RoadDirectionMode::OneWayForward;
         } else if (viewState_.roadDirectionMode == RoadDirectionMode::OneWayForward) {
@@ -919,12 +947,14 @@ bool AppController::roadPreviewStroke(RoadStrokeCommand& roadStrokeCommand) cons
     roadStrokeCommand.cornerTile = cornerTile;
     roadStrokeCommand.endTile = endTile;
 
-    if (viewState_.activeTool == ActiveTool::RoadStreet) {
+    if (viewState_.activeTool == ActiveTool::RoadStreet || viewState_.activeTool == ActiveTool::RoadAvenue) {
         roadStrokeCommand.family = RoadFamily::LocalStreet;
         roadStrokeCommand.layer = TransportLayerId::Ground;
+        roadStrokeCommand.templateKind = RoadTemplateKindForTool(viewState_.activeTool);
     } else {
         roadStrokeCommand.family = RoadFamily::Highway;
         roadStrokeCommand.layer = TransportLayerId::Elevated;
+        roadStrokeCommand.templateKind = RoadTemplateKind::Highway;
     }
 
     roadStrokeCommand.roadTemplate = currentRoadTemplate(roadStrokeCommand.family, roadStrokeCommand.layer);
@@ -996,6 +1026,9 @@ std::string AppController::activeUiAction() const {
     switch (viewState_.activeTool) {
         case ActiveTool::RoadStreet:
             return "select_road_street";
+
+        case ActiveTool::RoadAvenue:
+            return "select_road_avenue";
 
         case ActiveTool::Bulldozer:
             return "select_bulldozer";
@@ -1124,7 +1157,9 @@ void AppController::rotatePlacement(int deltaSteps) {
 
 // Reports whether the active tool uses the road drag workflow.
 bool AppController::activeToolIsRoad() const {
-    return viewState_.activeTool == ActiveTool::RoadStreet || viewState_.activeTool == ActiveTool::RoadHighway;
+    return viewState_.activeTool == ActiveTool::RoadStreet ||
+        viewState_.activeTool == ActiveTool::RoadAvenue ||
+        viewState_.activeTool == ActiveTool::RoadHighway;
 }
 
 bool AppController::activeToolIsZoning() const {
@@ -1273,6 +1308,9 @@ void AppController::invokeUiAction(const std::string& action) {
     } else if (action == "select_road_street") {
         setActiveTool(ActiveTool::RoadStreet);
         printRoadTemplate();
+    } else if (action == "select_road_avenue") {
+        setActiveTool(ActiveTool::RoadAvenue);
+        printRoadTemplate();
     } else if (action == "select_query") {
         setActiveTool(ActiveTool::Query);
     } else if (action == "select_rci_residential") {
@@ -1387,11 +1425,12 @@ void AppController::commitRoadDrag(int tileX, int tileY) {
     const int deltaY = endTile.y - startTile.y;
     Int2 cornerTile = std::abs(deltaX) >= std::abs(deltaY) ? Int2(endTile.x, startTile.y) : Int2(startTile.x, endTile.y);
 
-    if (viewState_.activeTool == ActiveTool::RoadStreet) {
+    if (viewState_.activeTool == ActiveTool::RoadStreet || viewState_.activeTool == ActiveTool::RoadAvenue) {
         RoadStrokeCommand roadStrokeCommand;
         roadStrokeCommand.startTile = startTile;
         roadStrokeCommand.cornerTile = cornerTile;
         roadStrokeCommand.endTile = endTile;
+        roadStrokeCommand.templateKind = RoadTemplateKindForTool(viewState_.activeTool);
         roadStrokeCommand.family = RoadFamily::LocalStreet;
         roadStrokeCommand.layer = TransportLayerId::Ground;
         roadStrokeCommand.roadTemplate = currentRoadTemplate(roadStrokeCommand.family, roadStrokeCommand.layer);
@@ -1401,6 +1440,7 @@ void AppController::commitRoadDrag(int tileX, int tileY) {
         roadStrokeCommand.startTile = startTile;
         roadStrokeCommand.cornerTile = cornerTile;
         roadStrokeCommand.endTile = endTile;
+        roadStrokeCommand.templateKind = RoadTemplateKind::Highway;
         roadStrokeCommand.family = RoadFamily::Highway;
         roadStrokeCommand.layer = TransportLayerId::Elevated;
         roadStrokeCommand.roadTemplate = currentRoadTemplate(roadStrokeCommand.family, roadStrokeCommand.layer);
@@ -1482,7 +1522,12 @@ void AppController::commitZoneDrag(int tileX, int tileY) {
 
 // Builds the currently selected modular road template for a placement command.
 RoadTemplate AppController::currentRoadTemplate(RoadFamily family, TransportLayerId layer) const {
-    return TransportNetwork::makeRoadTemplate(family, layer, viewState_.roadLaneCount, viewState_.roadTrafficSide, viewState_.roadDirectionMode);
+    const RoadTemplateKind templateKind = RoadTemplateKindForTool(viewState_.activeTool);
+    if (templateKind == RoadTemplateKind::Highway) {
+        return TransportNetwork::makeRoadTemplate(family, layer, viewState_.roadLaneCount, viewState_.roadTrafficSide, viewState_.roadDirectionMode);
+    }
+
+    return TransportNetwork::makeRoadTemplate(templateKind, viewState_.roadTrafficSide, viewState_.roadDirectionMode);
 }
 
 // Prints active road-template settings whenever the lightweight controls change.
@@ -1491,9 +1536,12 @@ void AppController::printRoadTemplate() const {
     TransportLayerId layer = TransportLayerId::Ground;
     RoadTemplateControlContext(viewState_, family, layer);
     const RoadTemplate roadTemplate = currentRoadTemplate(family, layer);
-    std::cout << "Road template: lanes=" << roadTemplate.laneCount
+    const char* templateName = roadTemplate.templateKind == RoadTemplateKind::Avenue ? "avenue" :
+        (roadTemplate.templateKind == RoadTemplateKind::Highway ? "highway" : "street");
+    std::cout << "Road template: tool=" << templateName
+        << " lanes=" << roadTemplate.laneCount
         << " traffic=" << RoadTrafficSideName(viewState_.roadTrafficSide)
-        << " mode=" << RoadDirectionModeName(viewState_.roadDirectionMode)
+        << " mode=" << RoadDirectionModeName(roadTemplate.directionMode)
         << std::endl;
 }
 

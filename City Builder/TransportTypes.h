@@ -46,6 +46,12 @@ enum class RoadDirectionMode : std::uint8_t {
     OneWayReverse
 };
 
+enum class RoadTemplateKind : std::uint8_t {
+    Street = 0,
+    Avenue,
+    Highway
+};
+
 enum class RoadLaneTypeId : std::uint8_t {
     Car = 0,
     Pedestrian,
