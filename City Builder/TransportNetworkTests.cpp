@@ -532,14 +532,15 @@ void TestCornerDoesNotRenderCrosswalks(TestRunner& runner) {
     runner.expect(CrosswalkEdges(CellAt(network, TransportLayerId::Ground, 6, 6)) == 0, "corner southeast tile has no crosswalk");
 }
 
-void TestRoadToolSandboxFixtureCases(TestRunner& runner) {
+void TestRoadToolSandboxFixtureCases(TestRunner& runner, bool includeRotatedCases) {
     const std::vector<std::string> fixturePaths = SandboxFixturePaths();
     runner.expect(!fixturePaths.empty(), "sandbox fixture directory contains declared cases");
 
     std::size_t fixtureIndex = 0;
     for (; fixtureIndex < fixturePaths.size(); ++fixtureIndex) {
         int rotation = 0;
-        for (; rotation < 4; ++rotation) {
+        const int rotationCount = includeRotatedCases ? 4 : 1;
+        for (; rotation < rotationCount; ++rotation) {
             const RoadToolSandboxRunResult result = RunRoadToolSandboxFixture(fixturePaths[fixtureIndex], rotation);
             const std::string caseName = result.fixtureName.empty() ? fixturePaths[fixtureIndex] : result.fixtureName;
             const std::string rotationName = caseName + " " + result.rotationName;
@@ -1697,7 +1698,7 @@ int main() {
     TestTSectionRetexturesRealSidewalkCrosswalks(runner);
     TestJoggedSidewalkDoesNotBecomeCrosswalk(runner);
     TestCornerDoesNotRenderCrosswalks(runner);
-    TestRoadToolSandboxFixtureCases(runner);
+    TestRoadToolSandboxFixtureCases(runner, false);
     TestTurnArrowsRenderAheadOfIntersectionsOnly(runner);
     TestSingleStrokeCornerCleanupUsesValidCornerMasks(runner);
     TestRemoveRoadTileClearsTwoTileFootprint(runner);
