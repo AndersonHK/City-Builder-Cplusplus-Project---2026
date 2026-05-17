@@ -232,6 +232,33 @@ TransportStrokeSaveState ReadTransportStrokeSaveState(std::istream& stream) {
     return stroke;
 }
 
+void WriteTransportTileSaveState(std::ostream& stream, const TransportTileSaveState& tile) {
+    WriteValue(stream, static_cast<std::uint8_t>(tile.layer));
+    WriteValue(stream, tile.tileIndex);
+    const std::uint32_t laneCount = static_cast<std::uint32_t>(tile.lanes.size());
+    WriteValue(stream, laneCount);
+    std::size_t laneIndex = 0;
+    for (; laneIndex < tile.lanes.size(); ++laneIndex) {
+        WriteRoadLanePlacement(stream, tile.lanes[laneIndex]);
+    }
+}
+
+TransportTileSaveState ReadTransportTileSaveState(std::istream& stream) {
+    TransportTileSaveState tile;
+    std::uint8_t value = 0u;
+    ReadValue(stream, value);
+    tile.layer = static_cast<TransportLayerId>(value);
+    ReadValue(stream, tile.tileIndex);
+    std::uint32_t laneCount = 0u;
+    ReadValue(stream, laneCount);
+    tile.lanes.resize(laneCount);
+    std::size_t laneIndex = 0;
+    for (; laneIndex < tile.lanes.size(); ++laneIndex) {
+        tile.lanes[laneIndex] = ReadRoadLanePlacement(stream);
+    }
+    return tile;
+}
+
 void WriteTransportTileEraseSaveState(std::ostream& stream, const TransportTileEraseSaveState& erasure) {
     WriteValue(stream, static_cast<std::uint8_t>(erasure.layer));
     WriteValue(stream, erasure.tileIndex);
@@ -347,6 +374,13 @@ void WriteCityState(std::ostream& stream, const CitySaveState& state) {
     for (; erasureIndex < state.transport.erasures.size(); ++erasureIndex) {
         WriteTransportTileEraseSaveState(stream, state.transport.erasures[erasureIndex]);
     }
+
+    count = static_cast<std::uint32_t>(state.transport.tiles.size());
+    WriteValue(stream, count);
+    std::size_t transportTileIndex = 0;
+    for (; transportTileIndex < state.transport.tiles.size(); ++transportTileIndex) {
+        WriteTransportTileSaveState(stream, state.transport.tiles[transportTileIndex]);
+    }
 }
 
 CitySaveState ReadCityState(std::istream& stream) {
@@ -424,6 +458,15 @@ CitySaveState ReadCityState(std::istream& stream) {
         state.transport.erasures[erasureIndex] = ReadTransportTileEraseSaveState(stream);
     }
 
+    if (stream.peek() != std::char_traits<char>::eof()) {
+        ReadValue(stream, count);
+        state.transport.tiles.resize(count);
+        std::size_t transportTileIndex = 0;
+        for (; transportTileIndex < state.transport.tiles.size(); ++transportTileIndex) {
+            state.transport.tiles[transportTileIndex] = ReadTransportTileSaveState(stream);
+        }
+    }
+
     return state;
 }
 }
@@ -433,7 +476,9 @@ GameSession::GameSession(const RuntimeOptions& runtimeOptions)
       runtime_(new SimulationRuntime(runtimeOptions)),
       mode_(GameMode::Region),
       activeCity_(0),
-      isLoading_(false),
+      loadingStatus_(),
+      loadingPresenter_(),
+      saveDirectoryOverride_(),
       renderStateRevision_(0) {
 }
 
@@ -444,10 +489,15 @@ GameSession::~GameSession() {
 void GameSession::loadOrCreateRegion() {
     CrashScope crashScope("GameSession::loadOrCreateRegion");
 
+    beginLoadingStage("Loading region", 0.10f);
     if (!loadRegionFromDisk()) {
+        updateLoadingStage("Creating region", 0.72f);
         region_.createDefault();
         std::cout << "Created default 3x3 region." << std::endl;
+    } else {
+        updateLoadingStage("Preparing region", 0.82f);
     }
+    finishLoadingStage(false);
 }
 
 void GameSession::shutdown() {
@@ -484,6 +534,14 @@ const SimulationRuntime& GameSession::runtime() const {
     return *runtime_;
 }
 
+void GameSession::setGameSpeed(GameSpeed gameSpeed) {
+    runtime_->setGameSpeed(gameSpeed);
+}
+
+GameSpeed GameSession::gameSpeed() const {
+    return runtime_->gameSpeed();
+}
+
 City* GameSession::activeCity() {
     return activeCity_;
 }
@@ -492,8 +550,30 @@ const City* GameSession::activeCity() const {
     return activeCity_;
 }
 
+bool GameSession::activeCityHasUnsavedChanges() const {
+    return activeCity_ != 0 &&
+        activeCity_->hasSaveState() &&
+        activeCity_->isSaveStateDirty();
+}
+
 bool GameSession::isLoading() const {
-    return isLoading_;
+    return loadingStatus_.active;
+}
+
+const LoadingStatus& GameSession::loadingStatus() const {
+    return loadingStatus_;
+}
+
+void GameSession::setLoadingPresenter(const LoadingPresenter& loadingPresenter) {
+    loadingPresenter_ = loadingPresenter;
+}
+
+void GameSession::clearLoadingPresenter() {
+    loadingPresenter_ = LoadingPresenter();
+}
+
+void GameSession::setSaveDirectoryOverride(const std::string& saveDirectoryOverride) {
+    saveDirectoryOverride_ = saveDirectoryOverride;
 }
 
 std::uint64_t GameSession::renderStateRevision() const {
@@ -514,20 +594,36 @@ bool GameSession::enterCity(int regionX, int regionY) {
         return false;
     }
 
-    beginLoadingStage();
+    if (mode_ == GameMode::Region && activeCity_ != 0 && activeCity_ != city &&
+        activeCity_->hasSaveState() && activeCity_->isSaveStateDirty()) {
+        std::cout << "Active city has unsaved changes; enterCity needs an explicit save or discard decision." << std::endl;
+        return false;
+    }
+
+    beginLoadingStage("Loading city", 0.08f);
     try {
         if (mode_ == GameMode::City) {
+            updateLoadingStage("Packing active city", 0.20f);
             runtime_->stop();
             exportActiveCity();
         }
 
+        if (mode_ == GameMode::Region && activeCity_ != 0 && activeCity_ != city) {
+            updateLoadingStage("Unloading previous city", 0.30f);
+            activeCity_->unloadCleanSaveState();
+        }
+
+        updateLoadingStage("Reading city save", 0.46f);
         runtime_->stop();
         CitySaveState saveState = loadCitySaveState(*city);
+        updateLoadingStage("Preparing simulation", 0.70f);
         runtime_->importCitySaveState(saveState);
         city->setMetadataFromSaveState(saveState);
         city->unloadCleanSaveState();
         activeCity_ = city;
         mode_ = GameMode::City;
+        runtime_->setGameSpeed(GameSpeed::Paused);
+        updateLoadingStage("Starting city", 0.92f);
         runtime_->start();
         finishLoadingStage(true);
         std::cout << "Entered city at region " << regionX << ", " << regionY << ": " << city->name() << std::endl;
@@ -548,32 +644,99 @@ void GameSession::exitToRegion() {
         return;
     }
 
-    runtime_->stop();
-    exportActiveCity();
-    activeCity_ = 0;
-    mode_ = GameMode::Region;
-    std::cout << "Returned to region." << std::endl;
+    beginLoadingStage("Loading region", 0.08f);
+    try {
+        updateLoadingStage("Packing active city", 0.24f);
+        runtime_->stop();
+        exportActiveCity();
+        updateLoadingStage("Preparing region", 0.82f);
+        mode_ = GameMode::Region;
+        finishLoadingStage(false);
+        std::cout << "Returned to region." << std::endl;
+    } catch (const std::exception& error) {
+        LogException("GameSession::exitToRegion", error);
+        finishLoadingStage(false);
+        throw;
+    } catch (...) {
+        LogError("GameSession::exitToRegion", "unknown exception.");
+        finishLoadingStage(false);
+        throw;
+    }
+}
+
+bool GameSession::discardActiveCityChanges() {
+    if (activeCity_ == 0) {
+        return true;
+    }
+
+    beginLoadingStage("Reloading city save", 0.12f);
+    try {
+        runtime_->stop();
+        updateLoadingStage("Reading city save", 0.45f);
+        CitySaveState saveState = loadCitySaveStateFromDiskOrDefault(*activeCity_);
+        updateLoadingStage("Restoring city metadata", 0.82f);
+        activeCity_->setMetadataFromSaveState(saveState);
+        activeCity_->unloadSaveState();
+        activeCity_->clearPreview();
+        region_.recalculateRegionParameters();
+        finishLoadingStage(false);
+        std::cout << "Discarded unsaved city changes for " << activeCity_->name() << "." << std::endl;
+        return true;
+    } catch (const std::exception& error) {
+        std::cout << "Could not discard city changes: " << error.what() << std::endl;
+        LogException("GameSession::discardActiveCityChanges", error);
+    } catch (...) {
+        std::cout << "Could not discard city changes: unknown error." << std::endl;
+        LogError("GameSession::discardActiveCityChanges", "unknown exception.");
+    }
+
+    finishLoadingStage(false);
+    return false;
 }
 
 bool GameSession::saveAutoslot() {
+    beginLoadingStage(mode_ == GameMode::City ? "Saving city" : "Saving region", 0.08f);
+    bool shouldRestartRuntime = false;
     if (mode_ == GameMode::City) {
-        const bool wasRunning = true;
-        runtime_->stop();
-        exportActiveCity();
-        const bool saved = saveRegionToDisk();
-        if (wasRunning) {
-            runtime_->start();
+        try {
+            updateLoadingStage("Packing active city", 0.18f);
+            runtime_->stop();
+            shouldRestartRuntime = true;
+            exportActiveCity();
+            updateLoadingStage("Writing autoslot", 0.32f);
+            const bool saved = saveRegionToDisk(0.34f, 0.94f);
+            if (shouldRestartRuntime) {
+                runtime_->start();
+            }
+            finishLoadingStage(false);
+            return saved;
+        } catch (...) {
+            if (shouldRestartRuntime) {
+                runtime_->start();
+            }
+            finishLoadingStage(false);
+            throw;
         }
-        return saved;
     }
 
-    return saveRegionToDisk();
+    try {
+        updateLoadingStage("Writing autoslot", 0.20f);
+        const bool saved = saveRegionToDisk(0.22f, 0.94f);
+        finishLoadingStage(false);
+        return saved;
+    } catch (...) {
+        if (shouldRestartRuntime) {
+            runtime_->start();
+        }
+        finishLoadingStage(false);
+        throw;
+    }
 }
 
 bool GameSession::loadAutoslot() {
     CrashScope crashScope("GameSession::loadAutoslot");
 
-    beginLoadingStage();
+    beginLoadingStage("Loading autoslot", 0.08f);
     const bool reloadActiveCity = mode_ == GameMode::City && activeCity_ != 0;
     int activeRegionX = 0;
     int activeRegionY = 0;
@@ -583,12 +746,14 @@ bool GameSession::loadAutoslot() {
     }
 
     try {
+        updateLoadingStage("Reading region save", 0.22f);
         runtime_->stop();
         activeCity_ = 0;
         mode_ = GameMode::Region;
 
         const bool loaded = loadRegionFromDisk();
         if (!loaded) {
+            updateLoadingStage("Creating region", 0.52f);
             region_.createDefault();
             std::cout << "Load failed; created a new default region." << std::endl;
         }
@@ -597,13 +762,17 @@ bool GameSession::loadAutoslot() {
         if (reloadActiveCity) {
             City* city = region_.cityAt(activeRegionX, activeRegionY);
             if (city != 0) {
+                updateLoadingStage("Reading city save", 0.56f);
                 CitySaveState saveState = loadCitySaveState(*city);
+                updateLoadingStage("Preparing simulation", 0.78f);
                 runtime_->importCitySaveState(saveState);
                 city->setMetadataFromSaveState(saveState);
                 city->unloadCleanSaveState();
                 activeCity_ = city;
                 mode_ = GameMode::City;
                 importedCity = true;
+                runtime_->setGameSpeed(GameSpeed::Paused);
+                updateLoadingStage("Starting city", 0.92f);
                 runtime_->start();
                 finishLoadingStage(true);
                 std::cout << "Reloaded city at region " << activeRegionX << ", " << activeRegionY << ": " << city->name() << std::endl;
@@ -695,12 +864,16 @@ bool GameSession::loadRegionFromDisk() {
     return false;
 }
 
-bool GameSession::saveRegionToDisk() {
+bool GameSession::saveRegionToDisk(float progressStart, float progressEnd) {
     try {
         ensureSaveDirectory();
+        const float progressSpan = std::max(0.0f, progressEnd - progressStart);
+        const std::size_t progressCityCount = std::max<std::size_t>(region_.cities().size(), 1u);
         std::size_t cityIndex = 0;
         for (; cityIndex < region_.cities().size(); ++cityIndex) {
             City& city = *region_.cities()[cityIndex];
+            const float cityProgress = progressStart + progressSpan * (static_cast<float>(cityIndex) / static_cast<float>(progressCityCount + 1u));
+            updateLoadingStage("Saving city data", cityProgress);
             CitySaveState cityState = loadCitySaveState(city);
             if (!saveCityStateToDisk(city, cityState)) {
                 return false;
@@ -710,6 +883,7 @@ bool GameSession::saveRegionToDisk() {
             city.unloadCleanSaveState();
         }
 
+        updateLoadingStage("Saving region index", progressStart + progressSpan * (static_cast<float>(progressCityCount) / static_cast<float>(progressCityCount + 1u)));
         std::ofstream stream(saveFilePath().c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
         if (!stream) {
             std::cout << "Could not open region save for writing." << std::endl;
@@ -761,6 +935,10 @@ CitySaveState GameSession::loadCitySaveState(City& city) {
         return city.saveState();
     }
 
+    return loadCitySaveStateFromDiskOrDefault(city);
+}
+
+CitySaveState GameSession::loadCitySaveStateFromDiskOrDefault(City& city) {
     std::ifstream stream(citySaveFilePath(city).c_str(), std::ios::in | std::ios::binary);
     if (stream) {
         try {
@@ -880,21 +1058,49 @@ void GameSession::exportActiveCity() {
     region_.recalculateRegionParameters();
 }
 
-void GameSession::beginLoadingStage() {
-    isLoading_ = true;
+void GameSession::beginLoadingStage(const std::string& label, float progress) {
+    loadingStatus_.active = true;
+    loadingStatus_.label = label;
+    loadingStatus_.progress = std::max(0.0f, std::min(progress, 1.0f));
+    presentLoadingStage();
+}
+
+void GameSession::updateLoadingStage(const std::string& label, float progress) {
+    if (!loadingStatus_.active) {
+        return;
+    }
+
+    loadingStatus_.label = label;
+    loadingStatus_.progress = std::max(0.0f, std::min(progress, 1.0f));
+    presentLoadingStage();
 }
 
 void GameSession::finishLoadingStage(bool invalidatesRenderState) {
+    if (loadingStatus_.active) {
+        loadingStatus_.progress = 1.0f;
+        presentLoadingStage();
+    }
+
     if (invalidatesRenderState) {
         ++renderStateRevision_;
         if (renderStateRevision_ == 0) {
             renderStateRevision_ = 1;
         }
     }
-    isLoading_ = false;
+    loadingStatus_.active = false;
+}
+
+void GameSession::presentLoadingStage() const {
+    if (loadingPresenter_) {
+        loadingPresenter_(loadingStatus_);
+    }
 }
 
 std::string GameSession::saveDirectory() const {
+    if (!saveDirectoryOverride_.empty()) {
+        return saveDirectoryOverride_;
+    }
+
     return GetExecutableDirectory() + "\\Data\\Saves";
 }
 
@@ -909,6 +1115,11 @@ std::string GameSession::citySaveFilePath(const City& city) const {
 }
 
 void GameSession::ensureSaveDirectory() const {
+    if (!saveDirectoryOverride_.empty()) {
+        _mkdir(saveDirectoryOverride_.c_str());
+        return;
+    }
+
     const std::string dataDirectory = GetExecutableDirectory() + "\\Data";
     _mkdir(dataDirectory.c_str());
     _mkdir(saveDirectory().c_str());

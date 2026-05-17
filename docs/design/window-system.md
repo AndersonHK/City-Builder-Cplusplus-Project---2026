@@ -10,7 +10,7 @@ Use this guide when changing `InGameWindow`, `UiWidgets`, UI XML under `Data/UI`
 
 ## Current Shape
 - `InGameWindow` loads one `<window>` root and a flat list of `<textField>` elements from XML.
-- `UiLayout` loads flat `<menu>` containers with `<button>` children from XML. It falls back to a built-in city tool menu when XML is absent.
+- `UiLayout` loads flat `<menu>` containers with `<button>` children from XML. It supports top-left, bottom-left, and center anchors, and falls back to a built-in city tool menu when XML is absent.
 - The renderer loads the lot query window from `Data/UI/lot_query.xml` through `BuildDataPath("UI\\lot_query.xml")`.
 - The renderer loads the city tool buttons from `Data/UI/city_tools.xml` through `BuildDataPath("UI\\city_tools.xml")`.
 - If the file is missing, malformed, or contains no text fields, `InGameWindow::setFallbackDefinition` creates a built-in `lot_query` layout.
@@ -19,10 +19,15 @@ Use this guide when changing `InGameWindow`, `UiWidgets`, UI XML under `Data/UI`
 - `hugElements="true"` makes the window height shrink to visible content plus margins. Otherwise the declared `height` is used.
 - Missing `x`/`y` on a text field opts it into flow layout. Missing `width` makes it use the window content width.
 - UI drawing is screen-space and renderer-owned. `BuildWindowQuads` and `RendererBuildUiMenuQuads` emit background, border, button, and text quads into a dynamic `UiQuadInstanceData` buffer.
+- The startup/foreground save/load screen is also screen-space and renderer-owned, but it is code-built rather than XML-backed because it must be available before UI XML has loaded. Its progress bar is horizontally centered near three-quarters screen height.
 - `Basic.shader` render mode `6` draws UI quads with `vUiColor` through an orthographic screen-space projection.
 - Text is drawn as 5x7 bitmap glyph quads scaled by the renderer. The decoder advances through UTF-8 codepoints; supported lowercase ASCII maps to uppercase, and unsupported codepoints fall back to `?`.
 - Text clips to the field rectangle. There is no wrapping, measuring pass, caret, input editing, or rich text yet.
 - Button hit testing is controller-owned through resolved screen-space rectangles. Button actions are simple strings mapped by `AppController`, keeping UI XML declarative.
+- Buttons may declare a named `icon`; the renderer draws supported icons as bitmap quad glyphs and falls back to button text for unknown or absent icons.
+- The city date widget adds four icon-only speed buttons through the UI layout: paused, play, fast, and fast-forward.
+- The region view has a top-left `Exit` menu button that opens the same save-before-exit dialog as the centered escape menu.
+- The centered escape menu, save-before-exit dialog, and save-before-leaving-city dialog are ordinary hidden UI menus. `AppController` toggles their visibility from the `escape_menu`, `open_exit_confirm`, `exit_save_yes`, `exit_save_no`, `city_switch_save_yes`, and `city_switch_save_no` actions. The city-switch dialog is only used when the clicked region city would replace a different dirty cached city.
 - RCI button actions select XML-backed RCI tools; the tool details live in `Data/RCI/rci_tools.xml` so menus stay concerned only with presentation and intent.
 - Keyboard shortcuts are not stored in UI XML. They live in `Data/config.ini` and are dispatched through `AppController`, so menu button actions and hotkeys can point at the same tool intent without coupling the UI schema to physical keys.
 
@@ -68,7 +73,7 @@ Supported `<menu>` attributes:
 - `width`, `height`: menu bounds. Missing or zero height uses the flowed button height.
 - `buttonWidth`, `buttonHeight`: fallback button size.
 - `spacing`: space between flowed buttons.
-- `anchor`: `topLeft` or `bottomLeft`.
+- `anchor`: `topLeft`, `bottomLeft`, or `center`.
 - `flow`: `down` or `up`.
 - `visible`: `true`, `1`, or `yes` keeps the menu active at load.
 - `backgroundR/G/B/A`: menu background color.
@@ -77,6 +82,7 @@ Supported `<button>` attributes:
 
 - `id`: button identifier.
 - `text`: visible button label.
+- `icon`: optional named icon rendered instead of text when supported. Current gameplay icons are `pause`, `play`, `fast`, and `fastForward`.
 - `action`: controller action string.
 - `x`, `y`, `width`, `height`: optional overrides relative to the menu.
 - `colorR/G/B/A`: default button color.
@@ -105,7 +111,11 @@ Supported `<button>` attributes:
 - Temporarily rename `Data/UI/lot_query.xml` in the output folder and confirm the fallback query window still renders.
 - Add a long query line and confirm text clips inside its text field rather than spilling outside the window.
 - Toggle the bottom-left `Tools` button and confirm the side menu hides, shows, and does not block world clicks while hidden.
-- Select each tool button and confirm active-tool highlighting follows bulldoze, road, query, and zoning tools.
+- In region mode, click the top-left `Exit` button and confirm the centered save-before-exit dialog shows `Yes` and `No`.
+- Return to region after editing a city, double-click the same city, and confirm no save-before-leaving-city dialog appears. Then double-click another city and confirm the centered save-before-leaving-city dialog can save or discard the cached city before loading the selected city.
+- Select each tool button and confirm active-tool highlighting follows bulldoze, road, query, zoning, and unzone tools.
+- Click the date widget speed buttons and confirm active highlighting follows paused, play, fast, and fast-forward.
+- Press `Esc`, click `Exit`, and confirm the centered save-before-exit dialog shows `Yes` and `No` choices.
 
 ## Related Guides
 - `docs/design/renderer.md` owns UI draw ordering, shader mode `6`, dynamic UI quad upload, and zoning overlay draw ordering.

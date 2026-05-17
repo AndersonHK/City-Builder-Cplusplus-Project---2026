@@ -1,10 +1,33 @@
 <ui>
+  <menu id="date_speed" anchor="topLeft" x="16" y="48" width="140" height="28" buttonWidth="32" buttonHeight="28" spacing="4" visible="true" backgroundA="0">
+    <button id="speed_pause" text="" icon="pause" action="set_speed_paused" x="0" y="0" colorR="0.08" colorG="0.12" colorB="0.13" colorA="0.94" activeR="0.22" activeG="0.43" activeB="0.35" activeA="0.96" />
+    <button id="speed_play" text="" icon="play" action="set_speed_play" x="36" y="0" colorR="0.08" colorG="0.12" colorB="0.13" colorA="0.94" activeR="0.22" activeG="0.43" activeB="0.35" activeA="0.96" />
+    <button id="speed_fast" text="" icon="fast" action="set_speed_fast" x="72" y="0" colorR="0.08" colorG="0.12" colorB="0.13" colorA="0.94" activeR="0.22" activeG="0.43" activeB="0.35" activeA="0.96" />
+    <button id="speed_fast_forward" text="" icon="fastForward" action="set_speed_fast_forward" x="108" y="0" colorR="0.08" colorG="0.12" colorB="0.13" colorA="0.94" activeR="0.22" activeG="0.43" activeB="0.35" activeA="0.96" />
+  </menu>
   <menu id="side_tools" anchor="bottomLeft" x="16" bottom="72" width="132" buttonWidth="132" buttonHeight="38" spacing="8" visible="true" backgroundA="0">
     <button id="bulldozer" text="Bulldoze" action="select_bulldozer" colorR="0.34" colorG="0.12" colorB="0.11" colorA="0.90" activeR="0.58" activeG="0.22" activeB="0.18" activeA="0.96" />
     <button id="road" text="Road" action="select_road_street" colorR="0.14" colorG="0.22" colorB="0.30" colorA="0.90" activeR="0.24" activeG="0.42" activeB="0.54" activeA="0.96" />
     <button id="query" text="Query" action="select_query" colorR="0.16" colorG="0.24" colorB="0.22" colorA="0.90" activeR="0.28" activeG="0.44" activeB="0.38" activeA="0.96" />
     <button id="rci_residential" text="Residence" action="select_rci_residential" colorR="0.12" colorG="0.34" colorB="0.18" colorA="0.90" activeR="0.18" activeG="0.58" activeB="0.26" activeA="0.96" />
     <button id="rci_industrial" text="Industry" action="select_rci_industrial" colorR="0.42" colorG="0.35" colorB="0.10" colorA="0.90" activeR="0.68" activeG="0.55" activeB="0.12" activeA="0.96" />
+    <button id="rci_unzone" text="Unzone" action="select_rci_unzone" colorR="0.24" colorG="0.24" colorB="0.27" colorA="0.90" activeR="0.44" activeG="0.44" activeB="0.48" activeA="0.96" />
+  </menu>
+  <menu id="region_exit" anchor="topLeft" x="16" y="16" width="92" height="40" buttonWidth="92" buttonHeight="40" spacing="0" visible="true" backgroundA="0">
+    <button id="region_exit_game" text="Exit" action="open_exit_confirm" x="0" y="0" width="92" height="40" colorR="0.08" colorG="0.12" colorB="0.13" colorA="0.94" activeR="0.08" activeG="0.12" activeB="0.13" activeA="0.94" />
+  </menu>
+  <menu id="escape_menu" anchor="center" x="0" y="0" width="220" height="56" buttonWidth="180" buttonHeight="40" spacing="0" visible="false" backgroundR="0.035" backgroundG="0.047" backgroundB="0.058" backgroundA="0.94">
+    <button id="exit_game" text="Exit" action="open_exit_confirm" x="20" y="8" width="180" height="40" colorR="0.22" colorG="0.10" colorB="0.10" colorA="0.94" activeR="0.46" activeG="0.17" activeB="0.14" activeA="0.96" />
+  </menu>
+  <menu id="exit_confirm_dialog" anchor="center" x="0" y="0" width="340" height="116" buttonWidth="132" buttonHeight="36" spacing="8" visible="false" backgroundR="0.035" backgroundG="0.047" backgroundB="0.058" backgroundA="0.96">
+    <button id="exit_prompt" text="Save before exiting?" action="" x="18" y="14" width="304" height="34" colorR="0.035" colorG="0.047" colorB="0.058" colorA="0.0" activeR="0.035" activeG="0.047" activeB="0.058" activeA="0.0" />
+    <button id="exit_save_yes" text="Yes" action="exit_save_yes" x="34" y="66" width="122" height="36" colorR="0.14" colorG="0.30" colorB="0.20" colorA="0.94" activeR="0.22" activeG="0.48" activeB="0.32" activeA="0.96" />
+    <button id="exit_save_no" text="No" action="exit_save_no" x="184" y="66" width="122" height="36" colorR="0.30" colorG="0.12" colorB="0.11" colorA="0.94" activeR="0.52" activeG="0.20" activeB="0.18" activeA="0.96" />
+  </menu>
+  <menu id="city_switch_confirm_dialog" anchor="center" x="0" y="0" width="340" height="116" buttonWidth="132" buttonHeight="36" spacing="8" visible="false" backgroundR="0.035" backgroundG="0.047" backgroundB="0.058" backgroundA="0.96">
+    <button id="city_switch_prompt" text="Save city before leaving?" action="" x="18" y="14" width="304" height="34" colorR="0.035" colorG="0.047" colorB="0.058" colorA="0.0" activeR="0.035" activeG="0.047" activeB="0.058" activeA="0.0" />
+    <button id="city_switch_save_yes" text="Yes" action="city_switch_save_yes" x="34" y="66" width="122" height="36" colorR="0.14" colorG="0.30" colorB="0.20" colorA="0.94" activeR="0.22" activeG="0.48" activeB="0.32" activeA="0.96" />
+    <button id="city_switch_save_no" text="No" action="city_switch_save_no" x="184" y="66" width="122" height="36" colorR="0.30" colorG="0.12" colorB="0.11" colorA="0.94" activeR="0.52" activeG="0.20" activeB="0.18" activeA="0.96" />
   </menu>
   <menu id="menu_toggle" anchor="bottomLeft" x="16" bottom="16" width="92" buttonWidth="92" buttonHeight="40" spacing="0" visible="true" backgroundA="0">
     <button id="toggle_tools" text="Tools" action="toggle_side_menu" colorR="0.08" colorG="0.12" colorB="0.13" colorA="0.94" activeR="0.08" activeG="0.12" activeB="0.13" activeA="0.94" />

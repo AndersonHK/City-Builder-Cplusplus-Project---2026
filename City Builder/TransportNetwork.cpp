@@ -279,7 +279,7 @@ bool TransportNetwork::placeRoadStroke(const RoadStrokeCommand& roadStrokeComman
     }
 
     bumpDirtyChunkRevisions(roadStrokeCommand.layer, dirtyTileIndices);
-    rebuildCostMapAndTrafficOverlay();
+    rebuildCostMapAndTrafficOverlayForTiles(dirtyTileIndices);
     ++revision_;
     return true;
 }
@@ -344,12 +344,44 @@ bool TransportNetwork::removeRoadAtTile(int tileX, int tileY) {
         return false;
     }
 
+    std::vector<int> tileIndices(1, tileIndex(tileX, tileY));
+    return removeRoadsAtTiles(tileIndices);
+}
+
+bool TransportNetwork::removeRoadsAtTiles(const std::vector<int>& tileIndices) {
+    if (tileIndices.empty()) {
+        return false;
+    }
+
+    std::vector<int> candidateTileIndices;
+    candidateTileIndices.reserve(tileIndices.size());
+    std::size_t tileListIndex = 0;
+    for (; tileListIndex < tileIndices.size(); ++tileListIndex) {
+        const int candidateTileIndex = tileIndices[tileListIndex];
+        if (candidateTileIndex >= 0 && candidateTileIndex < static_cast<int>(totalTileCount_)) {
+            candidateTileIndices.push_back(candidateTileIndex);
+        }
+    }
+
+    if (candidateTileIndices.empty()) {
+        return false;
+    }
+
+    std::sort(candidateTileIndices.begin(), candidateTileIndices.end());
+    candidateTileIndices.erase(std::unique(candidateTileIndices.begin(), candidateTileIndices.end()), candidateTileIndices.end());
+
     bool removedAnyRoad = false;
+    std::vector<int> costMapDirtyTileIndices;
     std::size_t layerIndex = 0;
     for (; layerIndex < layerCount(); ++layerIndex) {
         const TransportLayerId layer = static_cast<TransportLayerId>(layerIndex);
         std::vector<int> removalTileIndices;
-        collectRoadRemovalFootprint(layer, tileX, tileY, removalTileIndices);
+        for (tileListIndex = 0; tileListIndex < candidateTileIndices.size(); ++tileListIndex) {
+            const int candidateTileIndex = candidateTileIndices[tileListIndex];
+            const int tileY = candidateTileIndex / width_;
+            const int tileX = candidateTileIndex - (tileY * width_);
+            collectRoadRemovalFootprint(layer, tileX, tileY, removalTileIndices);
+        }
         if (removalTileIndices.empty()) {
             continue;
         }
@@ -405,13 +437,16 @@ bool TransportNetwork::removeRoadAtTile(int tileX, int tileY) {
         }
 
         bumpDirtyChunkRevisions(layer, dirtyTileIndices);
+        costMapDirtyTileIndices.insert(costMapDirtyTileIndices.end(), dirtyTileIndices.begin(), dirtyTileIndices.end());
     }
 
     if (!removedAnyRoad) {
         return false;
     }
 
-    rebuildCostMapAndTrafficOverlay();
+    std::sort(costMapDirtyTileIndices.begin(), costMapDirtyTileIndices.end());
+    costMapDirtyTileIndices.erase(std::unique(costMapDirtyTileIndices.begin(), costMapDirtyTileIndices.end()), costMapDirtyTileIndices.end());
+    rebuildCostMapAndTrafficOverlayForTiles(costMapDirtyTileIndices);
     ++revision_;
     return true;
 }
@@ -1092,6 +1127,63 @@ void TransportNetwork::rebuildCostMapAndTrafficOverlay() {
     ++trafficOverlayRevision_;
 }
 
+void TransportNetwork::rebuildCostMapAndTrafficOverlayForTiles(const std::vector<int>& dirtyTileIndices) {
+    if (dirtyTileIndices.empty()) {
+        return;
+    }
+
+    std::vector<int> validTileIndices;
+    validTileIndices.reserve(dirtyTileIndices.size());
+    std::size_t dirtyIndex = 0;
+    for (; dirtyIndex < dirtyTileIndices.size(); ++dirtyIndex) {
+        const int dirtyTileIndex = dirtyTileIndices[dirtyIndex];
+        if (dirtyTileIndex >= 0 && dirtyTileIndex < static_cast<int>(totalTileCount_)) {
+            validTileIndices.push_back(dirtyTileIndex);
+        }
+    }
+
+    if (validTileIndices.empty()) {
+        return;
+    }
+
+    std::sort(validTileIndices.begin(), validTileIndices.end());
+    validTileIndices.erase(std::unique(validTileIndices.begin(), validTileIndices.end()), validTileIndices.end());
+
+    for (dirtyIndex = 0; dirtyIndex < validTileIndices.size(); ++dirtyIndex) {
+        std::size_t layerIndex = 0;
+        for (; layerIndex < layerCount(); ++layerIndex) {
+            costMap_.clearCostsForTile(static_cast<TransportLayerId>(layerIndex), validTileIndices[dirtyIndex]);
+        }
+    }
+
+    for (dirtyIndex = 0; dirtyIndex < validTileIndices.size(); ++dirtyIndex) {
+        const int dirtyTileIndex = validTileIndices[dirtyIndex];
+        const int tileY = dirtyTileIndex / width_;
+        const int tileX = dirtyTileIndex - (tileY * width_);
+
+        std::size_t layerIndex = 0;
+        for (; layerIndex < layerCount(); ++layerIndex) {
+            const TransportLayerId layer = static_cast<TransportLayerId>(layerIndex);
+            const TransportTile* tile = tileAt(layer, tileX, tileY);
+            if (tile == 0 || tile->empty()) {
+                continue;
+            }
+
+            const std::vector<RoadLanePlacement>& lanes = tile->lanes();
+            std::size_t laneIndex = 0;
+            for (; laneIndex < lanes.size(); ++laneIndex) {
+                if (lanes[laneIndex].active) {
+                    addLaneToCostMap(layer, tileX, tileY, lanes[laneIndex]);
+                }
+            }
+        }
+    }
+
+    costMap_.buildTrafficOverlayForTiles(validTileIndices, trafficOverlayState_);
+    bumpTrafficOverlayChunkRevisionsForTiles(validTileIndices);
+    ++trafficOverlayRevision_;
+}
+
 void TransportNetwork::addLaneToCostMap(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) {
     TransportMode mode = TransportMode::Car;
     if (!LaneModeForPathing(lanePlacement, mode)) {
@@ -1133,6 +1225,37 @@ void TransportNetwork::bumpAllTrafficOverlayChunkRevisions() {
     std::size_t chunkIndex = 0;
     for (; chunkIndex < trafficOverlayChunkRevisions_.size(); ++chunkIndex) {
         ++trafficOverlayChunkRevisions_[chunkIndex];
+    }
+}
+
+void TransportNetwork::bumpTrafficOverlayChunkRevisionsForTiles(const std::vector<int>& dirtyTileIndices) {
+    std::vector<int> dirtyChunkIndices;
+    dirtyChunkIndices.reserve(dirtyTileIndices.size());
+
+    std::size_t dirtyIndex = 0;
+    for (; dirtyIndex < dirtyTileIndices.size(); ++dirtyIndex) {
+        const int dirtyTileIndex = dirtyTileIndices[dirtyIndex];
+        if (dirtyTileIndex < 0 || dirtyTileIndex >= static_cast<int>(totalTileCount_)) {
+            continue;
+        }
+
+        const int tileY = dirtyTileIndex / width_;
+        const int tileX = dirtyTileIndex - (tileY * width_);
+        const int dirtyChunkIndex = chunkIndexForTile(tileX, tileY);
+        if (dirtyChunkIndex >= 0) {
+            dirtyChunkIndices.push_back(dirtyChunkIndex);
+        }
+    }
+
+    std::sort(dirtyChunkIndices.begin(), dirtyChunkIndices.end());
+    dirtyChunkIndices.erase(std::unique(dirtyChunkIndices.begin(), dirtyChunkIndices.end()), dirtyChunkIndices.end());
+
+    std::size_t chunkIndex = 0;
+    for (; chunkIndex < dirtyChunkIndices.size(); ++chunkIndex) {
+        const int dirtyChunkIndex = dirtyChunkIndices[chunkIndex];
+        if (dirtyChunkIndex >= 0 && dirtyChunkIndex < static_cast<int>(trafficOverlayChunkRevisions_.size())) {
+            ++trafficOverlayChunkRevisions_[static_cast<std::size_t>(dirtyChunkIndex)];
+        }
     }
 }
 

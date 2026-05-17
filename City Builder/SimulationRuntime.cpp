@@ -26,6 +26,15 @@ const float kMaximumCommuteTime = 300.0f;
 const float kMaximumCommuteCost = kMaximumCommuteTime * kTransportCostUnitsPerCommuteTime;
 const float kLongCommuteComplaintCost = kMaximumCommuteCost * 0.5f;
 const int kRciRedevelopmentGraceTicks = 30;
+const int kRciRoadFacingNorth = 0;
+const int kRciRoadFacingSouth = 1;
+const int kRciRoadFacingWest = 2;
+const int kRciRoadFacingEast = 3;
+
+bool IsRciZoningType(std::uint16_t zoningType) {
+    return zoningType == TileZoningResidential ||
+        zoningType == TileZoningIndustrial;
+}
 
 const char* RciNameForZoningType(std::uint16_t zoningType) {
     if (zoningType == TileZoningResidential) {
@@ -174,7 +183,10 @@ void RotatedRectangleDimensions(const Int2& localOrigin, int width, int height, 
 
 // Allocates the triple-buffered world and derives chunk/work scheduling config.
 SimulationRuntime::SimulationRuntime(const RuntimeOptions& runtimeOptions)
-    : simulationReadBufferIndex_(0),
+    : runtimeOptions_(runtimeOptions),
+      mapWidth_(std::max(1, runtimeOptions.mapWidth)),
+      mapHeight_(std::max(1, runtimeOptions.mapHeight)),
+      simulationReadBufferIndex_(0),
       simulationWriteBufferIndex_(1),
       publishedBufferIndex_(0),
       publishedGeneration_(0),
@@ -191,6 +203,7 @@ SimulationRuntime::SimulationRuntime(const RuntimeOptions& runtimeOptions)
       commutesDirty_(true),
       commuteRebalanceCursor_(0),
       keepRunning_(false),
+      gameSpeed_(runtimeOptions.fastForward ? GameSpeed::FastForward : GameSpeed::Fast),
       nextChunkIndex_(0),
       workersRemaining_(0),
       chunkTaskReady_(false),
@@ -206,18 +219,16 @@ SimulationRuntime::SimulationRuntime(const RuntimeOptions& runtimeOptions)
       localPassMicros_(0),
       publishMicros_(0),
       writeBufferWaitMicros_(0) {
-    runtimeOptions_ = runtimeOptions;
-
     const unsigned int hardwareThreads = std::thread::hardware_concurrency();
     const int workerThreadCount = hardwareThreads > 2u ? static_cast<int>(hardwareThreads) - 2 : 1;
-    chunkConfig_ = CalculateChunkConfig(kMapWidth, kMapHeight, sizeof(Tile), workerThreadCount, runtimeOptions_.manualL2BytesPerLogicalThread, runtimeOptions_.detectL2CacheSize, runtimeOptions_.usableL2Fraction, kMinimumJobsPerWorkerMultiplier);
-    chunkLayout_ = BuildChunkLayout(kMapWidth, kMapHeight, chunkConfig_.chunkWidth, chunkConfig_.chunkHeight);
-    transportNetwork_.initialize(kMapWidth, kMapHeight, chunkLayout_);
+    chunkConfig_ = CalculateChunkConfig(mapWidth_, mapHeight_, sizeof(Tile), workerThreadCount, runtimeOptions_.manualL2BytesPerLogicalThread, runtimeOptions_.detectL2CacheSize, runtimeOptions_.usableL2Fraction, kMinimumJobsPerWorkerMultiplier);
+    chunkLayout_ = BuildChunkLayout(mapWidth_, mapHeight_, chunkConfig_.chunkWidth, chunkConfig_.chunkHeight);
+    transportNetwork_.initialize(mapWidth_, mapHeight_, chunkLayout_);
 
     loadAssets();
 
     tileBuffers_.resize(3);
-    const std::size_t totalTileCount = static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight);
+    const std::size_t totalTileCount = static_cast<std::size_t>(mapWidth_) * static_cast<std::size_t>(mapHeight_);
     const std::size_t chunkCount = chunkLayout_.size();
     lotOccupancy_.assign(totalTileCount, kInvalidLotId);
     oldCityParameters_.assign(cityParameterRegistry_.count(), 0.0f);
@@ -288,6 +299,7 @@ void SimulationRuntime::stop() {
         std::lock_guard<std::mutex> renderLock(renderMutex_);
         renderCv_.notify_all();
     }
+    speedCv_.notify_all();
 
     {
         std::lock_guard<std::mutex> workerLock(workerMutex_);
@@ -300,6 +312,19 @@ void SimulationRuntime::stop() {
     }
 
     stopWorkers();
+}
+
+void SimulationRuntime::setGameSpeed(GameSpeed gameSpeed) {
+    gameSpeed_.store(gameSpeed);
+    if (gameSpeed == GameSpeed::Paused) {
+        updatesPerSecond_.store(0);
+    }
+    speedCv_.notify_all();
+    renderCv_.notify_all();
+}
+
+GameSpeed SimulationRuntime::gameSpeed() const {
+    return gameSpeed_.load();
 }
 
 // Queues a pollution brush write for the next command boundary.
@@ -378,28 +403,24 @@ void SimulationRuntime::queueBulldozeArea(int startTileX, int startTileY, int en
 
     PlayerCommand playerCommand;
     playerCommand.type = PlayerCommandType::BulldozeArea;
-    playerCommand.tileX = std::max(0, std::min(startTileX, kMapWidth - 1));
-    playerCommand.tileY = std::max(0, std::min(startTileY, kMapHeight - 1));
-    playerCommand.endTileX = std::max(0, std::min(endTileX, kMapWidth - 1));
-    playerCommand.endTileY = std::max(0, std::min(endTileY, kMapHeight - 1));
+    playerCommand.tileX = std::max(0, std::min(startTileX, mapWidth_ - 1));
+    playerCommand.tileY = std::max(0, std::min(startTileY, mapHeight_ - 1));
+    playerCommand.endTileX = std::max(0, std::min(endTileX, mapWidth_ - 1));
+    playerCommand.endTileY = std::max(0, std::min(endTileY, mapHeight_ - 1));
     enqueueCommand(playerCommand);
 }
 
 void SimulationRuntime::queueZoneArea(int startTileX, int startTileY, int endTileX, int endTileY, std::uint16_t zoningType) {
-    if (zoningType == TileZoningNone) {
-        return;
-    }
-
     if (!isTileInsideMap(startTileX, startTileY) && !isTileInsideMap(endTileX, endTileY)) {
         return;
     }
 
     PlayerCommand playerCommand;
     playerCommand.type = PlayerCommandType::ZoneArea;
-    playerCommand.tileX = std::max(0, std::min(startTileX, kMapWidth - 1));
-    playerCommand.tileY = std::max(0, std::min(startTileY, kMapHeight - 1));
-    playerCommand.endTileX = std::max(0, std::min(endTileX, kMapWidth - 1));
-    playerCommand.endTileY = std::max(0, std::min(endTileY, kMapHeight - 1));
+    playerCommand.tileX = std::max(0, std::min(startTileX, mapWidth_ - 1));
+    playerCommand.tileY = std::max(0, std::min(startTileY, mapHeight_ - 1));
+    playerCommand.endTileX = std::max(0, std::min(endTileX, mapWidth_ - 1));
+    playerCommand.endTileY = std::max(0, std::min(endTileY, mapHeight_ - 1));
     playerCommand.zoningType = zoningType;
     enqueueCommand(playerCommand);
 }
@@ -416,10 +437,10 @@ void SimulationRuntime::queueZoneLot(const RciLot& zoningLot) {
 
     PlayerCommand playerCommand;
     playerCommand.type = PlayerCommandType::ZoneLot;
-    playerCommand.tileX = std::max(0, std::min(zoningLot.rect.minTileX, kMapWidth - 1));
-    playerCommand.tileY = std::max(0, std::min(zoningLot.rect.minTileY, kMapHeight - 1));
-    playerCommand.endTileX = std::max(0, std::min(zoningLot.rect.maxTileX, kMapWidth - 1));
-    playerCommand.endTileY = std::max(0, std::min(zoningLot.rect.maxTileY, kMapHeight - 1));
+    playerCommand.tileX = std::max(0, std::min(zoningLot.rect.minTileX, mapWidth_ - 1));
+    playerCommand.tileY = std::max(0, std::min(zoningLot.rect.minTileY, mapHeight_ - 1));
+    playerCommand.endTileX = std::max(0, std::min(zoningLot.rect.maxTileX, mapWidth_ - 1));
+    playerCommand.endTileY = std::max(0, std::min(zoningLot.rect.maxTileY, mapHeight_ - 1));
     playerCommand.zoningLot = zoningLot;
     playerCommand.zoningLot.rect = RciRect(playerCommand.tileX, playerCommand.tileY, playerCommand.endTileX, playerCommand.endTileY);
     enqueueCommand(playerCommand);
@@ -515,6 +536,7 @@ bool SimulationRuntime::buildLotPreviewInstances(const std::string& lotAssetId, 
     const int minimumY = candidateLot.minimumTileY();
     const int maximumX = minimumX + candidateLot.footprintWidth() - 1;
     const int maximumY = minimumY + candidateLot.footprintHeight() - 1;
+    std::lock_guard<std::mutex> liveStateLock(liveStateMutex_);
     isPlacementValid = isTileInsideMap(minimumX, minimumY) &&
         isTileInsideMap(maximumX, maximumY) &&
         canPlaceLot(candidateLot);
@@ -529,6 +551,7 @@ bool SimulationRuntime::canPlaceRoadStroke(const RoadStrokeCommand& roadStrokeCo
         return false;
     }
 
+    std::lock_guard<std::mutex> liveStateLock(liveStateMutex_);
     return transportNetwork_.canPlaceRoadStroke(roadStrokeCommand, lotOccupancy_, kInvalidLotId);
 }
 
@@ -604,7 +627,7 @@ TileQueryResult SimulationRuntime::queryTile(int tileX, int tileY) const {
     if (!publishedBuffer.publishedRoads.empty()) {
         std::size_t layerIndex = 0;
         for (; layerIndex < TransportNetwork::layerCount(); ++layerIndex) {
-            const std::size_t slot = TransportNetwork::slotIndex(static_cast<TransportLayerId>(layerIndex), queriedTileIndex, static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight));
+            const std::size_t slot = TransportNetwork::slotIndex(static_cast<TransportLayerId>(layerIndex), queriedTileIndex, static_cast<std::size_t>(mapWidth_) * static_cast<std::size_t>(mapHeight_));
             const ResolvedRoadCell& roadCell = publishedBuffer.publishedRoads[slot];
             if (roadCell.family == static_cast<std::uint8_t>(RoadFamily::None)) {
                 continue;
@@ -629,9 +652,10 @@ TileQueryResult SimulationRuntime::queryTile(int tileX, int tileY) const {
 }
 
 CitySaveState SimulationRuntime::exportCitySaveState() const {
+    std::lock_guard<std::mutex> liveStateLock(liveStateMutex_);
     CitySaveState saveState;
-    saveState.width = kMapWidth;
-    saveState.height = kMapHeight;
+    saveState.width = mapWidth_;
+    saveState.height = mapHeight_;
     saveState.nextLotId = nextLotId_;
     saveState.simulationTick = simulationTick_;
     saveState.tiles = tileBuffers_[simulationReadBufferIndex_].tiles;
@@ -675,8 +699,9 @@ CitySaveState SimulationRuntime::exportCitySaveState() const {
 
 void SimulationRuntime::importCitySaveState(const CitySaveState& saveState) {
     CrashScope crashScope("SimulationRuntime::importCitySaveState");
-    const std::size_t totalTileCount = static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight);
-    if (saveState.width != kMapWidth || saveState.height != kMapHeight || saveState.tiles.size() != totalTileCount) {
+    std::lock_guard<std::mutex> liveStateLock(liveStateMutex_);
+    const std::size_t totalTileCount = static_cast<std::size_t>(mapWidth_) * static_cast<std::size_t>(mapHeight_);
+    if (saveState.width != mapWidth_ || saveState.height != mapHeight_ || saveState.tiles.size() != totalTileCount) {
         LogError("SimulationRuntime::importCitySaveState", "City save dimensions do not match the current runtime.");
         throw std::runtime_error("City save dimensions do not match the current runtime.");
     }
@@ -709,7 +734,7 @@ void SimulationRuntime::importCitySaveState(const CitySaveState& saveState) {
                 footprintMinimum,
                 footprintMaximum.x - footprintMinimum.x + 1,
                 footprintMaximum.y - footprintMinimum.y + 1,
-                kMapWidth);
+                mapWidth_);
         }
 
         std::size_t moduleIndex = 0;
@@ -719,10 +744,10 @@ void SimulationRuntime::importCitySaveState(const CitySaveState& saveState) {
                 int rotatedModuleWidth = 0;
                 int rotatedModuleHeight = 0;
                 RotatedRectangleDimensions(Int2(0, 0), moduleAsset->width, moduleAsset->height, lotSaveState.rotationSteps, rotatedModuleWidth, rotatedModuleHeight);
-                lot.addModule(*moduleAsset, lotSaveState.modules[moduleIndex].localOrigin, kMapWidth, rotatedModuleWidth, rotatedModuleHeight);
+                lot.addModule(*moduleAsset, lotSaveState.modules[moduleIndex].localOrigin, mapWidth_, rotatedModuleWidth, rotatedModuleHeight);
             }
         }
-        lot.setConstructionState(lotSaveState.constructionTotalTicks, lotSaveState.constructionRemainingTicks, kMapWidth);
+        lot.setConstructionState(lotSaveState.constructionTotalTicks, lotSaveState.constructionRemainingTicks, mapWidth_);
 
         bool isInsideMap = true;
         const std::vector<int>& occupiedTileIndices = lot.occupiedTileIndices();
@@ -779,14 +804,16 @@ void SimulationRuntime::importCitySaveState(const CitySaveState& saveState) {
         bufferUseCounts_[bufferIndex].store(0);
     }
 
+    simulationReadBufferIndex_ = 0;
+    simulationWriteBufferIndex_ = 1;
+    parcelizeAllUnparcelledRciTiles(tileBuffers_[simulationReadBufferIndex_]);
+
     ++lotsRevision_;
     ++zoningLotsRevision_;
     ++commuteRevision_;
     commutesDirty_ = true;
     forcedCommuteLotIds_.clear();
     commuteRebalanceCursor_ = 0u;
-    simulationReadBufferIndex_ = 0;
-    simulationWriteBufferIndex_ = 1;
     refreshPublishedLotSnapshot(tileBuffers_[simulationReadBufferIndex_]);
     refreshPublishedZoningLotSnapshot(tileBuffers_[simulationReadBufferIndex_]);
     refreshPublishedRoadSnapshot(tileBuffers_[simulationReadBufferIndex_]);
@@ -823,8 +850,8 @@ PublishedWorldSnapshot SimulationRuntime::acquirePublishedSnapshot() {
     snapshot.groundRoadChunkRevisions = &tileBuffers_[publishedBufferIndex_].publishedGroundRoadChunkRevisions;
     snapshot.elevatedRoadChunkRevisions = &tileBuffers_[publishedBufferIndex_].publishedElevatedRoadChunkRevisions;
     snapshot.tileOverlayChunkRevisions = &tileBuffers_[publishedBufferIndex_].publishedTileOverlayChunkRevisions;
-    snapshot.width = kMapWidth;
-    snapshot.height = kMapHeight;
+    snapshot.width = mapWidth_;
+    snapshot.height = mapHeight_;
     snapshot.generation = publishedGeneration_;
     snapshot.simulationTick = publishedSimulationTick_;
     snapshot.lotRevision = tileBuffers_[publishedBufferIndex_].lotRenderRevision;
@@ -859,12 +886,12 @@ void SimulationRuntime::releasePublishedSnapshot(const PublishedWorldSnapshot& s
 
 // Returns the fixed map width for this milestone.
 int SimulationRuntime::mapWidth() const {
-    return kMapWidth;
+    return mapWidth_;
 }
 
 // Returns the fixed map height for this milestone.
 int SimulationRuntime::mapHeight() const {
-    return kMapHeight;
+    return mapHeight_;
 }
 
 // Returns the most recent simulation throughput counter.
@@ -912,6 +939,7 @@ void SimulationRuntime::loadAssets() {
     }
     rciConstructorAttemptsPerTick_ = std::max(1, loadedAssets.rciConstructorAttemptsPerTick);
     rciConstructorOverbuildMultiplier_ = std::max(0.0f, loadedAssets.rciConstructorOverbuildMultiplier);
+    rciTools_.loadFromXmlFile(GetExecutableDirectory() + "\\Data\\RCI\\rci_tools.xml");
     transportNetwork_.setCongestionCurve(loadedAssets.congestionCurve);
 
     moduleAssetIndexById_.clear();
@@ -934,9 +962,9 @@ void SimulationRuntime::initializeWorld() {
 
     std::vector<Tile>& bootstrapBuffer = tileBuffers_[simulationReadBufferIndex_].tiles;
     int tileY = 0;
-    for (; tileY < kMapHeight; ++tileY) {
+    for (; tileY < mapHeight_; ++tileY) {
         int tileX = 0;
-        for (; tileX < kMapWidth; ++tileX) {
+        for (; tileX < mapWidth_; ++tileX) {
             Tile& tile = bootstrapBuffer[tileIndex(tileX, tileY)];
             tile.landValue = baseDistribution(randomEngine);
             tile.airPollution = baseDistribution(randomEngine);
@@ -955,10 +983,10 @@ void SimulationRuntime::initializeWorld() {
         tileBuffers_[bufferIndex].publishedLotInfos.clear();
         tileBuffers_[bufferIndex].publishedZoningLots.clear();
         tileBuffers_[bufferIndex].publishedCommuteRouteSegments.clear();
-        tileBuffers_[bufferIndex].publishedLotOccupancy.assign(static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight), kInvalidLotId);
-        tileBuffers_[bufferIndex].publishedRoads.assign(static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight) * TransportNetwork::layerCount(), ResolvedRoadCell());
-        tileBuffers_[bufferIndex].publishedGroundRoadRenderState.assign(static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight) * kGroundRoadRenderChannelsPerTile, 0);
-        tileBuffers_[bufferIndex].publishedTileOverlayState.assign(static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight) * 4u, 0);
+        tileBuffers_[bufferIndex].publishedLotOccupancy.assign(static_cast<std::size_t>(mapWidth_) * static_cast<std::size_t>(mapHeight_), kInvalidLotId);
+        tileBuffers_[bufferIndex].publishedRoads.assign(static_cast<std::size_t>(mapWidth_) * static_cast<std::size_t>(mapHeight_) * TransportNetwork::layerCount(), ResolvedRoadCell());
+        tileBuffers_[bufferIndex].publishedGroundRoadRenderState.assign(static_cast<std::size_t>(mapWidth_) * static_cast<std::size_t>(mapHeight_) * kGroundRoadRenderChannelsPerTile, 0);
+        tileBuffers_[bufferIndex].publishedTileOverlayState.assign(static_cast<std::size_t>(mapWidth_) * static_cast<std::size_t>(mapHeight_) * 4u, 0);
         tileBuffers_[bufferIndex].publishedGroundRoadChunkRevisions.assign(chunkLayout_.size(), 1);
         tileBuffers_[bufferIndex].publishedElevatedRoadChunkRevisions.assign(chunkLayout_.size(), 1);
         tileBuffers_[bufferIndex].publishedTileOverlayChunkRevisions.assign(chunkLayout_.size(), 1);
@@ -969,7 +997,7 @@ void SimulationRuntime::initializeWorld() {
         tileBuffers_[bufferIndex].commuteRenderRevision = 0;
     }
 
-    lotOccupancy_.assign(static_cast<std::size_t>(kMapWidth) * static_cast<std::size_t>(kMapHeight), kInvalidLotId);
+    lotOccupancy_.assign(static_cast<std::size_t>(mapWidth_) * static_cast<std::size_t>(mapHeight_), kInvalidLotId);
     lots_.clear();
     zoningLots_.clear();
     nextLotId_ = 1;
@@ -995,38 +1023,131 @@ void SimulationRuntime::initializeWorld() {
     publishedGeneration_ = 0;
 }
 
+bool SimulationRuntime::waitForTickPermission(GameSpeed& activeGameSpeed, std::chrono::steady_clock::time_point& nextPlayTick, bool& commandOnlyFrame) {
+    commandOnlyFrame = false;
+    for (;;) {
+        if (!keepRunning_.load()) {
+            return false;
+        }
+
+        activeGameSpeed = gameSpeed_.load();
+        if (activeGameSpeed == GameSpeed::Paused) {
+            updatesPerSecond_.store(0);
+            std::unique_lock<std::mutex> speedLock(speedMutex_);
+            speedCv_.wait(speedLock, [this]() {
+                return !keepRunning_.load() ||
+                    gameSpeed_.load() != GameSpeed::Paused ||
+                    hasPendingCommands();
+            });
+            nextPlayTick = std::chrono::steady_clock::now();
+            if (keepRunning_.load() && gameSpeed_.load() == GameSpeed::Paused && hasPendingCommands()) {
+                commandOnlyFrame = true;
+                return true;
+            }
+            continue;
+        }
+
+        if (activeGameSpeed == GameSpeed::Play) {
+            const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+            if (now < nextPlayTick) {
+                std::unique_lock<std::mutex> speedLock(speedMutex_);
+                speedCv_.wait_until(speedLock, nextPlayTick, [this]() {
+                    return !keepRunning_.load() ||
+                        gameSpeed_.load() != GameSpeed::Play ||
+                        hasPendingCommands();
+                });
+                if (keepRunning_.load() && gameSpeed_.load() == GameSpeed::Play && hasPendingCommands()) {
+                    commandOnlyFrame = true;
+                    return true;
+                }
+                continue;
+            }
+        } else {
+            nextPlayTick = std::chrono::steady_clock::now();
+        }
+
+        return true;
+    }
+}
+
+bool SimulationRuntime::hasPendingCommands() const {
+    std::lock_guard<std::mutex> commandLock(commandMutex_);
+    return !pendingCommands_.empty();
+}
+
+void SimulationRuntime::publishPausedCommandFrame() {
+    std::lock_guard<std::mutex> liveStateLock(liveStateMutex_);
+    copyChunkRevisionsForWriteBuffer();
+    TileBuffer& writeBuffer = tileBuffers_[simulationWriteBufferIndex_];
+    writeBuffer.tiles = tileBuffers_[simulationReadBufferIndex_].tiles;
+
+    const std::chrono::steady_clock::time_point commandStart = std::chrono::steady_clock::now();
+    applyQueuedCommands(writeBuffer);
+    commandPassMicros_.store(DurationMicros(commandStart, std::chrono::steady_clock::now()));
+
+    std::chrono::steady_clock::time_point publishStart = std::chrono::steady_clock::now();
+    publishCompletedBuffer();
+    const long long commandPublishMicros = DurationMicros(publishStart, std::chrono::steady_clock::now());
+
+    copyChunkRevisionsForWriteBuffer();
+    TileBuffer& commuteWriteBuffer = tileBuffers_[simulationWriteBufferIndex_];
+    commuteWriteBuffer.tiles = tileBuffers_[simulationReadBufferIndex_].tiles;
+
+    const std::chrono::steady_clock::time_point lotEffectsStart = std::chrono::steady_clock::now();
+    runCommuteAssignment();
+    lotEffectsMicros_.store(DurationMicros(lotEffectsStart, std::chrono::steady_clock::now()));
+
+    publishStart = std::chrono::steady_clock::now();
+    publishCompletedBuffer();
+    publishMicros_.store(commandPublishMicros + DurationMicros(publishStart, std::chrono::steady_clock::now()));
+}
+
 // Runs the ordered simulation passes and publishes completed write buffers.
 void SimulationRuntime::simulationLoop() {
     int updatesThisSecond = 0;
     std::chrono::steady_clock::time_point secondWindowStart = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point nextPlayTick = secondWindowStart;
 
     while (keepRunning_.load()) {
-        copyChunkRevisionsForWriteBuffer();
+        GameSpeed activeGameSpeed = GameSpeed::Paused;
+        bool commandOnlyFrame = false;
+        if (!waitForTickPermission(activeGameSpeed, nextPlayTick, commandOnlyFrame)) {
+            break;
+        }
+        if (commandOnlyFrame) {
+            publishPausedCommandFrame();
+            continue;
+        }
 
-        const std::chrono::steady_clock::time_point neighborStart = std::chrono::steady_clock::now();
-        runNeighborPass(tileBuffers_[simulationReadBufferIndex_].tiles, tileBuffers_[simulationWriteBufferIndex_].tiles);
-        neighborPassMicros_.store(DurationMicros(neighborStart, std::chrono::steady_clock::now()));
+        {
+            std::lock_guard<std::mutex> liveStateLock(liveStateMutex_);
+            copyChunkRevisionsForWriteBuffer();
 
-        const std::chrono::steady_clock::time_point commandStart = std::chrono::steady_clock::now();
-        applyQueuedCommands(tileBuffers_[simulationWriteBufferIndex_]);
-        advanceLotConstruction(tileBuffers_[simulationWriteBufferIndex_]);
-        commandPassMicros_.store(DurationMicros(commandStart, std::chrono::steady_clock::now()));
+            const std::chrono::steady_clock::time_point neighborStart = std::chrono::steady_clock::now();
+            runNeighborPass(tileBuffers_[simulationReadBufferIndex_].tiles, tileBuffers_[simulationWriteBufferIndex_].tiles);
+            neighborPassMicros_.store(DurationMicros(neighborStart, std::chrono::steady_clock::now()));
 
-        const std::chrono::steady_clock::time_point lotEffectsStart = std::chrono::steady_clock::now();
-        applyLotEffects(tileBuffers_[simulationWriteBufferIndex_].tiles);
-        runCommuteAssignment();
-        runRciConstructor(tileBuffers_[simulationWriteBufferIndex_]);
-        lotEffectsMicros_.store(DurationMicros(lotEffectsStart, std::chrono::steady_clock::now()));
+            const std::chrono::steady_clock::time_point commandStart = std::chrono::steady_clock::now();
+            applyQueuedCommands(tileBuffers_[simulationWriteBufferIndex_]);
+            advanceLotConstruction(tileBuffers_[simulationWriteBufferIndex_]);
+            commandPassMicros_.store(DurationMicros(commandStart, std::chrono::steady_clock::now()));
 
-        const std::chrono::steady_clock::time_point localStart = std::chrono::steady_clock::now();
-        runLocalTilePass(tileBuffers_[simulationWriteBufferIndex_].tiles);
-        localPassMicros_.store(DurationMicros(localStart, std::chrono::steady_clock::now()));
+            const std::chrono::steady_clock::time_point lotEffectsStart = std::chrono::steady_clock::now();
+            applyLotEffects(tileBuffers_[simulationWriteBufferIndex_].tiles);
+            runCommuteAssignment();
+            runRciConstructor(tileBuffers_[simulationWriteBufferIndex_]);
+            lotEffectsMicros_.store(DurationMicros(lotEffectsStart, std::chrono::steady_clock::now()));
 
-        ++simulationTick_;
+            const std::chrono::steady_clock::time_point localStart = std::chrono::steady_clock::now();
+            runLocalTilePass(tileBuffers_[simulationWriteBufferIndex_].tiles);
+            localPassMicros_.store(DurationMicros(localStart, std::chrono::steady_clock::now()));
 
-        const std::chrono::steady_clock::time_point publishStart = std::chrono::steady_clock::now();
-        publishCompletedBuffer();
-        publishMicros_.store(DurationMicros(publishStart, std::chrono::steady_clock::now()));
+            ++simulationTick_;
+
+            const std::chrono::steady_clock::time_point publishStart = std::chrono::steady_clock::now();
+            publishCompletedBuffer();
+            publishMicros_.store(DurationMicros(publishStart, std::chrono::steady_clock::now()));
+        }
 
         ++updatesThisSecond;
         const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
@@ -1036,11 +1157,21 @@ void SimulationRuntime::simulationLoop() {
             secondWindowStart = now;
         }
 
-        if (!runtimeOptions_.fastForward) {
+        if (activeGameSpeed == GameSpeed::Play) {
+            nextPlayTick += std::chrono::seconds(1);
+            const std::chrono::steady_clock::time_point tickFinished = std::chrono::steady_clock::now();
+            if (nextPlayTick < tickFinished) {
+                nextPlayTick = tickFinished + std::chrono::seconds(1);
+            }
+        }
+
+        if (activeGameSpeed == GameSpeed::Fast) {
             std::unique_lock<std::mutex> renderLock(renderMutex_);
             const std::uint64_t generationToWaitFor = publishedGeneration_;
             renderCv_.wait(renderLock, [this, generationToWaitFor]() {
-                return !keepRunning_.load() || lastRenderedGeneration_.load() >= generationToWaitFor;
+                return !keepRunning_.load() ||
+                    gameSpeed_.load() != GameSpeed::Fast ||
+                    lastRenderedGeneration_.load() >= generationToWaitFor;
             });
         }
     }
@@ -1201,7 +1332,7 @@ void SimulationRuntime::runNeighborChunk(const ChunkRect& chunkRect) {
             int airPollutionDelta = 0;
             int landValueDelta = 0;
 
-            if (tileX < kMapWidth - 1) {
+            if (tileX < mapWidth_ - 1) {
                 const Tile& neighborTile = readTiles[tileIndex(tileX + 1, tileY)];
                 airPollutionDelta += (neighborTile.airPollution - sourceTile.airPollution) / kPollutionSpreadRate;
                 landValueDelta += (neighborTile.landValue - sourceTile.landValue) / kPollutionSpreadRate;
@@ -1213,7 +1344,7 @@ void SimulationRuntime::runNeighborChunk(const ChunkRect& chunkRect) {
                 landValueDelta += (neighborTile.landValue - sourceTile.landValue) / kPollutionSpreadRate;
             }
 
-            if (tileY < kMapHeight - 1) {
+            if (tileY < mapHeight_ - 1) {
                 const Tile& neighborTile = readTiles[tileIndex(tileX, tileY + 1)];
                 airPollutionDelta += (neighborTile.airPollution - sourceTile.airPollution) / kPollutionSpreadRate;
                 landValueDelta += (neighborTile.landValue - sourceTile.landValue) / kPollutionSpreadRate;
@@ -1343,7 +1474,7 @@ void SimulationRuntime::advanceLotConstruction(TileBuffer& writeBuffer) {
     for (; lotIndex < lots_.size(); ++lotIndex) {
         Lot& lot = lots_[lotIndex];
         const bool wasUnderConstruction = lot.isUnderConstruction();
-        if (!lot.advanceConstructionTick(kMapWidth)) {
+        if (!lot.advanceConstructionTick(mapWidth_)) {
             continue;
         }
 
@@ -1690,8 +1821,6 @@ void SimulationRuntime::runCommuteAssignment() {
         destination.remainingCapacity = std::max(0, destination.remainingCapacity - filledJobsByLot[destination.lotIndex]);
     }
 
-    TransportPathScratch scratch;
-
     std::size_t selectedIndex = 0;
     for (; selectedIndex < selectedSourceIndices.size(); ++selectedIndex) {
         CommuteSource& source = sources[selectedSourceIndices[selectedIndex]];
@@ -1728,7 +1857,7 @@ void SimulationRuntime::runCommuteAssignment() {
             }
 
             TransportPathResult pathResult;
-            if (!costMap.findPath(request, scratch, pathResult)) {
+            if (!costMap.findPath(request, commutePathScratch_, pathResult)) {
                 break;
             }
 
@@ -1789,8 +1918,11 @@ void SimulationRuntime::runLocalTilePass(std::vector<Tile>& writeTiles) {
 
 // Adds a command to the thread-safe pending input queue.
 void SimulationRuntime::enqueueCommand(const PlayerCommand& playerCommand) {
-    std::lock_guard<std::mutex> commandLock(commandMutex_);
-    pendingCommands_.push_back(playerCommand);
+    {
+        std::lock_guard<std::mutex> commandLock(commandMutex_);
+        pendingCommands_.push_back(playerCommand);
+    }
+    speedCv_.notify_all();
 }
 
 // Publishes the completed write buffer and advances triple-buffer ownership.
@@ -1966,8 +2098,8 @@ void SimulationRuntime::markChunksDirtyByTileIndices(std::vector<std::uint64_t>&
     std::size_t tileIndexValue = 0;
     for (; tileIndexValue < tileIndices.size(); ++tileIndexValue) {
         const int tileLinearIndex = tileIndices[tileIndexValue];
-        const int tileY = tileLinearIndex / kMapWidth;
-        const int tileX = tileLinearIndex - (tileY * kMapWidth);
+        const int tileY = tileLinearIndex / mapWidth_;
+        const int tileX = tileLinearIndex - (tileY * mapWidth_);
         touchedChunkIndices.push_back(chunkIndexForTile(tileX, tileY));
     }
 
@@ -1991,7 +2123,7 @@ int SimulationRuntime::chunkIndexForTile(int tileX, int tileY) const {
         return -1;
     }
 
-    const int chunkColumnCount = kMapWidth / chunkConfig_.chunkWidth;
+    const int chunkColumnCount = mapWidth_ / chunkConfig_.chunkWidth;
     const int chunkX = tileX / chunkConfig_.chunkWidth;
     const int chunkY = tileY / chunkConfig_.chunkHeight;
     return (chunkY * chunkColumnCount) + chunkX;
@@ -2053,7 +2185,7 @@ bool SimulationRuntime::buildLotCandidate(const LotAsset& lotAsset, int clickedT
         footprintMinimum,
         footprintMaximum.x - footprintMinimum.x + 1,
         footprintMaximum.y - footprintMinimum.y + 1,
-        kMapWidth);
+        mapWidth_);
 
     std::size_t placementIndex = 0;
     for (; placementIndex < lotAsset.initialModules.size(); ++placementIndex) {
@@ -2070,7 +2202,7 @@ bool SimulationRuntime::buildLotCandidate(const LotAsset& lotAsset, int clickedT
         int rotatedModuleWidth = 0;
         int rotatedModuleHeight = 0;
         RotatedRectangleDimensions(Int2(0, 0), moduleAsset->width, moduleAsset->height, normalizedRotation, rotatedModuleWidth, rotatedModuleHeight);
-        candidateLot.addModule(*moduleAsset, rotatedModuleOrigin, kMapWidth, rotatedModuleWidth, rotatedModuleHeight);
+        candidateLot.addModule(*moduleAsset, rotatedModuleOrigin, mapWidth_, rotatedModuleWidth, rotatedModuleHeight);
     }
 
     return true;
@@ -2199,7 +2331,7 @@ bool SimulationRuntime::tryConstructRciLotAtIndex(std::size_t zoningLotIndex, fl
         return false;
     }
 
-    candidateLot.startConstruction(lotAsset->constructionTicks, kMapWidth);
+    candidateLot.startConstruction(lotAsset->constructionTicks, mapWidth_);
     lots_.push_back(candidateLot);
     setLotOccupancy(candidateLot.id(), candidateLot.occupiedTileIndices());
     markChunksDirtyByTileIndices(writeBuffer.chunkRevisions, candidateLot.occupiedTileIndices());
@@ -2254,6 +2386,380 @@ const LotAsset* SimulationRuntime::findRciConstructorLotAsset(std::uint16_t zoni
         rotationSteps = bestRotationSteps;
     }
     return bestMatch;
+}
+
+const RciTool* SimulationRuntime::findRciToolByZoningType(std::uint16_t zoningType) const {
+    const std::vector<RciTool>& tools = rciTools_.tools();
+    std::size_t toolIndex = 0;
+    for (; toolIndex < tools.size(); ++toolIndex) {
+        if (tools[toolIndex].zoningType() == zoningType) {
+            return &tools[toolIndex];
+        }
+    }
+
+    return 0;
+}
+
+bool SimulationRuntime::hasRciConstructorLotAsset(std::uint16_t zoningType, int width, int height) const {
+    int rotationSteps = 0;
+    float capacity = 0.0f;
+    return findRciConstructorLotAsset(zoningType, width, height, 1000000000.0f, rotationSteps, capacity) != 0;
+}
+
+bool SimulationRuntime::rciParcelTileIsAvailable(int tileX, int tileY, std::uint16_t zoningType, const TileBuffer& writeBuffer, const std::vector<std::uint8_t>& blockedTiles) const {
+    if (!isTileInsideMap(tileX, tileY)) {
+        return false;
+    }
+
+    const int tileLinearIndex = tileIndex(tileX, tileY);
+    if (tileLinearIndex < 0 ||
+        tileLinearIndex >= static_cast<int>(writeBuffer.tiles.size()) ||
+        tileLinearIndex >= static_cast<int>(lotOccupancy_.size()) ||
+        tileLinearIndex >= static_cast<int>(blockedTiles.size()) ||
+        blockedTiles[static_cast<std::size_t>(tileLinearIndex)] != 0) {
+        return false;
+    }
+
+    const Tile& tile = writeBuffer.tiles[static_cast<std::size_t>(tileLinearIndex)];
+    if (tile.zoningType != zoningType || lotOccupancy_[static_cast<std::size_t>(tileLinearIndex)] != kInvalidLotId) {
+        return false;
+    }
+
+    return isTileZoneableForRci(tileLinearIndex, tile);
+}
+
+bool SimulationRuntime::rciParcelRectIsAvailable(const RciRect& rect, std::uint16_t zoningType, const TileBuffer& writeBuffer, const std::vector<std::uint8_t>& blockedTiles) const {
+    if (!rect.isValid()) {
+        return false;
+    }
+
+    int tileY = rect.minTileY;
+    for (; tileY <= rect.maxTileY; ++tileY) {
+        int tileX = rect.minTileX;
+        for (; tileX <= rect.maxTileX; ++tileX) {
+            if (!rciParcelTileIsAvailable(tileX, tileY, zoningType, writeBuffer, blockedTiles)) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+void SimulationRuntime::markRciParcelBlocked(const RciRect& rect, std::vector<std::uint8_t>& blockedTiles) const {
+    if (!rect.isValid()) {
+        return;
+    }
+
+    const int minTileX = std::max(0, rect.minTileX);
+    const int minTileY = std::max(0, rect.minTileY);
+    const int maxTileX = std::min(mapWidth_ - 1, rect.maxTileX);
+    const int maxTileY = std::min(mapHeight_ - 1, rect.maxTileY);
+    int tileY = minTileY;
+    for (; tileY <= maxTileY; ++tileY) {
+        int tileX = minTileX;
+        for (; tileX <= maxTileX; ++tileX) {
+            const int tileLinearIndex = tileIndex(tileX, tileY);
+            if (tileLinearIndex >= 0 && tileLinearIndex < static_cast<int>(blockedTiles.size())) {
+                blockedTiles[static_cast<std::size_t>(tileLinearIndex)] = 1u;
+            }
+        }
+    }
+}
+
+bool SimulationRuntime::tryAddRciParcel(const RciTool& tool, const RciRect& rect, TileBuffer& writeBuffer, std::vector<std::uint8_t>& blockedTiles) {
+    if (!rect.isValid() ||
+        !rciParcelRectIsAvailable(rect, tool.zoningType(), writeBuffer, blockedTiles) ||
+        !hasRciConstructorLotAsset(tool.zoningType(), rect.width(), rect.height())) {
+        return false;
+    }
+
+    RciLot zoningLot;
+    zoningLot.toolId = tool.id();
+    zoningLot.name = tool.name();
+    zoningLot.zoningType = tool.zoningType();
+    zoningLot.color = tool.color();
+    zoningLot.rect = rect;
+    zoningLots_.push_back(zoningLot);
+    markRciParcelBlocked(rect, blockedTiles);
+    return true;
+}
+
+int SimulationRuntime::rciRoadFacingDepthAtTile(int tileX, int tileY, int deltaX, int deltaY, std::uint16_t zoningType, const TileBuffer& writeBuffer, const std::vector<std::uint8_t>& blockedTiles, int maximumDepth) const {
+    int depth = 0;
+    while (depth < maximumDepth) {
+        const int testTileX = tileX + (deltaX * depth);
+        const int testTileY = tileY + (deltaY * depth);
+        if (!rciParcelTileIsAvailable(testTileX, testTileY, zoningType, writeBuffer, blockedTiles)) {
+            break;
+        }
+
+        ++depth;
+    }
+
+    return depth;
+}
+
+RciRect SimulationRuntime::mapRoadFacingRciLotRect(int roadFacingDirection, int frontageStartX, int frontageStartY, const RciRect& localRect) const {
+    if (roadFacingDirection == kRciRoadFacingSouth) {
+        return RciRect(
+            frontageStartX + localRect.minTileX,
+            frontageStartY - localRect.maxTileY,
+            frontageStartX + localRect.maxTileX,
+            frontageStartY - localRect.minTileY);
+    }
+
+    if (roadFacingDirection == kRciRoadFacingWest) {
+        return RciRect(
+            frontageStartX + localRect.minTileY,
+            frontageStartY + localRect.minTileX,
+            frontageStartX + localRect.maxTileY,
+            frontageStartY + localRect.maxTileX);
+    }
+
+    if (roadFacingDirection == kRciRoadFacingEast) {
+        return RciRect(
+            frontageStartX - localRect.maxTileY,
+            frontageStartY + localRect.minTileX,
+            frontageStartX - localRect.minTileY,
+            frontageStartY + localRect.maxTileX);
+    }
+
+    return RciRect(
+        frontageStartX + localRect.minTileX,
+        frontageStartY + localRect.minTileY,
+        frontageStartX + localRect.maxTileX,
+        frontageStartY + localRect.maxTileY);
+}
+
+std::size_t SimulationRuntime::parcelizeRoadFacingRciRun(const RciTool& tool, int roadFacingDirection, int frontageStartX, int frontageStartY, const std::vector<int>& frontageDepths, TileBuffer& writeBuffer, std::vector<std::uint8_t>& blockedTiles) {
+    std::size_t addedParcels = 0u;
+    int cursor = 0;
+    while (cursor < static_cast<int>(frontageDepths.size())) {
+        while (cursor < static_cast<int>(frontageDepths.size()) && frontageDepths[static_cast<std::size_t>(cursor)] < tool.minDepth()) {
+            ++cursor;
+        }
+        if (cursor >= static_cast<int>(frontageDepths.size())) {
+            break;
+        }
+
+        const int availableDepth = std::min(frontageDepths[static_cast<std::size_t>(cursor)], tool.maxDepth());
+        int targetDepth = availableDepth >= tool.preferredDepth() ? tool.preferredDepth() : availableDepth;
+        targetDepth = std::max(tool.minDepth(), targetDepth);
+
+        int segmentEnd = cursor;
+        while (segmentEnd < static_cast<int>(frontageDepths.size()) && frontageDepths[static_cast<std::size_t>(segmentEnd)] >= targetDepth) {
+            ++segmentEnd;
+        }
+
+        if (segmentEnd - cursor < tool.minWidth() && targetDepth > tool.minDepth()) {
+            targetDepth = tool.minDepth();
+            segmentEnd = cursor;
+            while (segmentEnd < static_cast<int>(frontageDepths.size()) && frontageDepths[static_cast<std::size_t>(segmentEnd)] >= targetDepth) {
+                ++segmentEnd;
+            }
+        }
+
+        const int frontageWidth = segmentEnd - cursor;
+        if (frontageWidth >= tool.minWidth() && targetDepth >= tool.minDepth()) {
+            RciPlan localPlan;
+            if (tool.buildPlan(0, 0, frontageWidth - 1, targetDepth - 1, RciPlanMode::Lots, frontageWidth, targetDepth, localPlan)) {
+                std::size_t lotIndex = 0;
+                for (; lotIndex < localPlan.lots.size(); ++lotIndex) {
+                    const RciRect localRect(
+                        localPlan.lots[lotIndex].rect.minTileX + cursor,
+                        localPlan.lots[lotIndex].rect.minTileY,
+                        localPlan.lots[lotIndex].rect.maxTileX + cursor,
+                        localPlan.lots[lotIndex].rect.maxTileY);
+                    const RciRect worldRect = mapRoadFacingRciLotRect(roadFacingDirection, frontageStartX, frontageStartY, localRect);
+                    if (tryAddRciParcel(tool, worldRect, writeBuffer, blockedTiles)) {
+                        ++addedParcels;
+                    }
+                }
+            }
+        }
+
+        cursor = std::max(cursor + 1, segmentEnd);
+    }
+
+    return addedParcels;
+}
+
+std::size_t SimulationRuntime::parcelizeRoadFacingRciTiles(std::uint16_t zoningType, const RciTool& tool, TileBuffer& writeBuffer, std::vector<std::uint8_t>& blockedTiles) {
+    const auto hasGroundRoad = [this](int tileX, int tileY) -> bool {
+        return isTileInsideMap(tileX, tileY) &&
+            transportNetwork_.hasGroundOccupancy(tileIndex(tileX, tileY));
+    };
+
+    std::size_t addedParcels = 0u;
+    int tileY = 0;
+    for (; tileY < mapHeight_; ++tileY) {
+        int tileX = 0;
+        while (tileX < mapWidth_) {
+            if (!rciParcelTileIsAvailable(tileX, tileY, zoningType, writeBuffer, blockedTiles) || !hasGroundRoad(tileX, tileY - 1)) {
+                ++tileX;
+                continue;
+            }
+
+            const int runStartX = tileX;
+            std::vector<int> frontageDepths;
+            while (tileX < mapWidth_ &&
+                rciParcelTileIsAvailable(tileX, tileY, zoningType, writeBuffer, blockedTiles) &&
+                hasGroundRoad(tileX, tileY - 1)) {
+                frontageDepths.push_back(rciRoadFacingDepthAtTile(tileX, tileY, 0, 1, zoningType, writeBuffer, blockedTiles, tool.maxDepth()));
+                ++tileX;
+            }
+            addedParcels += parcelizeRoadFacingRciRun(tool, kRciRoadFacingNorth, runStartX, tileY, frontageDepths, writeBuffer, blockedTiles);
+        }
+    }
+
+    for (tileY = mapHeight_ - 1; tileY >= 0; --tileY) {
+        int tileX = 0;
+        while (tileX < mapWidth_) {
+            if (!rciParcelTileIsAvailable(tileX, tileY, zoningType, writeBuffer, blockedTiles) || !hasGroundRoad(tileX, tileY + 1)) {
+                ++tileX;
+                continue;
+            }
+
+            const int runStartX = tileX;
+            std::vector<int> frontageDepths;
+            while (tileX < mapWidth_ &&
+                rciParcelTileIsAvailable(tileX, tileY, zoningType, writeBuffer, blockedTiles) &&
+                hasGroundRoad(tileX, tileY + 1)) {
+                frontageDepths.push_back(rciRoadFacingDepthAtTile(tileX, tileY, 0, -1, zoningType, writeBuffer, blockedTiles, tool.maxDepth()));
+                ++tileX;
+            }
+            addedParcels += parcelizeRoadFacingRciRun(tool, kRciRoadFacingSouth, runStartX, tileY, frontageDepths, writeBuffer, blockedTiles);
+        }
+    }
+
+    int tileX = 0;
+    for (; tileX < mapWidth_; ++tileX) {
+        tileY = 0;
+        while (tileY < mapHeight_) {
+            if (!rciParcelTileIsAvailable(tileX, tileY, zoningType, writeBuffer, blockedTiles) || !hasGroundRoad(tileX - 1, tileY)) {
+                ++tileY;
+                continue;
+            }
+
+            const int runStartY = tileY;
+            std::vector<int> frontageDepths;
+            while (tileY < mapHeight_ &&
+                rciParcelTileIsAvailable(tileX, tileY, zoningType, writeBuffer, blockedTiles) &&
+                hasGroundRoad(tileX - 1, tileY)) {
+                frontageDepths.push_back(rciRoadFacingDepthAtTile(tileX, tileY, 1, 0, zoningType, writeBuffer, blockedTiles, tool.maxDepth()));
+                ++tileY;
+            }
+            addedParcels += parcelizeRoadFacingRciRun(tool, kRciRoadFacingWest, tileX, runStartY, frontageDepths, writeBuffer, blockedTiles);
+        }
+    }
+
+    for (tileX = mapWidth_ - 1; tileX >= 0; --tileX) {
+        tileY = 0;
+        while (tileY < mapHeight_) {
+            if (!rciParcelTileIsAvailable(tileX, tileY, zoningType, writeBuffer, blockedTiles) || !hasGroundRoad(tileX + 1, tileY)) {
+                ++tileY;
+                continue;
+            }
+
+            const int runStartY = tileY;
+            std::vector<int> frontageDepths;
+            while (tileY < mapHeight_ &&
+                rciParcelTileIsAvailable(tileX, tileY, zoningType, writeBuffer, blockedTiles) &&
+                hasGroundRoad(tileX + 1, tileY)) {
+                frontageDepths.push_back(rciRoadFacingDepthAtTile(tileX, tileY, -1, 0, zoningType, writeBuffer, blockedTiles, tool.maxDepth()));
+                ++tileY;
+            }
+            addedParcels += parcelizeRoadFacingRciRun(tool, kRciRoadFacingEast, tileX, runStartY, frontageDepths, writeBuffer, blockedTiles);
+        }
+    }
+
+    return addedParcels;
+}
+
+std::size_t SimulationRuntime::parcelizeRemainingRciTiles(std::uint16_t zoningType, const RciTool& tool, TileBuffer& writeBuffer, std::vector<std::uint8_t>& blockedTiles) {
+    std::size_t addedParcels = 0u;
+    int tileY = 0;
+    for (; tileY < mapHeight_; ++tileY) {
+        int tileX = 0;
+        for (; tileX < mapWidth_; ++tileX) {
+            if (!rciParcelTileIsAvailable(tileX, tileY, zoningType, writeBuffer, blockedTiles)) {
+                continue;
+            }
+
+            int rectangleWidth = 0;
+            while (tileX + rectangleWidth < mapWidth_ &&
+                rciParcelTileIsAvailable(tileX + rectangleWidth, tileY, zoningType, writeBuffer, blockedTiles)) {
+                ++rectangleWidth;
+            }
+
+            int rectangleHeight = 0;
+            bool rowIsAvailable = true;
+            while (tileY + rectangleHeight < mapHeight_ && rowIsAvailable) {
+                int offsetX = 0;
+                for (; offsetX < rectangleWidth; ++offsetX) {
+                    if (!rciParcelTileIsAvailable(tileX + offsetX, tileY + rectangleHeight, zoningType, writeBuffer, blockedTiles)) {
+                        rowIsAvailable = false;
+                        break;
+                    }
+                }
+
+                if (rowIsAvailable) {
+                    ++rectangleHeight;
+                }
+            }
+
+            if (rectangleWidth < tool.minWidth() || rectangleHeight < tool.minDepth()) {
+                continue;
+            }
+
+            RciPlan plan;
+            if (!tool.buildPlan(tileX, tileY, tileX + rectangleWidth - 1, tileY + rectangleHeight - 1, RciPlanMode::Lots, mapWidth_, mapHeight_, plan)) {
+                continue;
+            }
+
+            std::size_t lotIndex = 0;
+            for (; lotIndex < plan.lots.size(); ++lotIndex) {
+                if (tryAddRciParcel(tool, plan.lots[lotIndex].rect, writeBuffer, blockedTiles)) {
+                    ++addedParcels;
+                }
+            }
+        }
+    }
+
+    return addedParcels;
+}
+
+std::size_t SimulationRuntime::parcelizeUnparcelledRciTiles(std::uint16_t zoningType, TileBuffer& writeBuffer) {
+    if (!IsRciZoningType(zoningType)) {
+        return 0u;
+    }
+
+    const RciTool* tool = findRciToolByZoningType(zoningType);
+    if (tool == 0) {
+        return 0u;
+    }
+
+    const std::size_t totalTileCount = static_cast<std::size_t>(mapWidth_) * static_cast<std::size_t>(mapHeight_);
+    std::vector<std::uint8_t> blockedTiles(totalTileCount, 0u);
+    std::size_t zoningLotIndex = 0;
+    for (; zoningLotIndex < zoningLots_.size(); ++zoningLotIndex) {
+        markRciParcelBlocked(zoningLots_[zoningLotIndex].rect, blockedTiles);
+    }
+
+    const std::size_t addedParcels =
+        parcelizeRoadFacingRciTiles(zoningType, *tool, writeBuffer, blockedTiles) +
+        parcelizeRemainingRciTiles(zoningType, *tool, writeBuffer, blockedTiles);
+    if (addedParcels > 0u) {
+        ++zoningLotsRevision_;
+    }
+
+    return addedParcels;
+}
+
+std::size_t SimulationRuntime::parcelizeAllUnparcelledRciTiles(TileBuffer& writeBuffer) {
+    return parcelizeUnparcelledRciTiles(TileZoningResidential, writeBuffer) +
+        parcelizeUnparcelledRciTiles(TileZoningIndustrial, writeBuffer);
 }
 
 float SimulationRuntime::rciDemandForZoningType(std::uint16_t zoningType) const {
@@ -2411,7 +2917,7 @@ bool SimulationRuntime::tryAddModuleAtTile(const LotModule& moduleAsset, int cli
     int rotatedModuleWidth = 0;
     int rotatedModuleHeight = 0;
     RotatedRectangleDimensions(Int2(0, 0), moduleAsset.width, moduleAsset.height, targetLot->rotationSteps(), rotatedModuleWidth, rotatedModuleHeight);
-    targetLot->addModule(moduleAsset, localOrigin, kMapWidth, rotatedModuleWidth, rotatedModuleHeight);
+    targetLot->addModule(moduleAsset, localOrigin, mapWidth_, rotatedModuleWidth, rotatedModuleHeight);
 
     std::vector<int> newlyOccupiedTiles;
     const std::vector<int>& occupiedTileIndices = targetLot->occupiedTileIndices();
@@ -2450,7 +2956,7 @@ bool SimulationRuntime::tryRemoveModuleAtTile(int clickedTileX, int clickedTileY
         return false;
     }
 
-    if (!targetLot->removeModule(moduleInstanceId, kMapWidth)) {
+    if (!targetLot->removeModule(moduleInstanceId, mapWidth_)) {
         return false;
     }
 
@@ -2484,7 +2990,7 @@ bool SimulationRuntime::tryRemoveModuleAtTile(int clickedTileX, int clickedTileY
         }
     } else {
         clearLotOccupancy(oldOccupiedTiles);
-        targetLot->rebaseAnchorToMinimumTile(kMapWidth);
+        targetLot->rebaseAnchorToMinimumTile(mapWidth_);
         setLotOccupancy(lotId, targetLot->occupiedTileIndices());
         dirtyTiles.insert(dirtyTiles.end(), targetLot->occupiedTileIndices().begin(), targetLot->occupiedTileIndices().end());
     }
@@ -2540,17 +3046,29 @@ bool SimulationRuntime::tryBulldozeAtTile(int clickedTileX, int clickedTileY, Ti
 
 bool SimulationRuntime::tryBulldozeArea(int startTileX, int startTileY, int endTileX, int endTileY, TileBuffer& writeBuffer) {
     const int minTileX = std::max(0, std::min(startTileX, endTileX));
-    const int maxTileX = std::min(kMapWidth - 1, std::max(startTileX, endTileX));
+    const int maxTileX = std::min(mapWidth_ - 1, std::max(startTileX, endTileX));
     const int minTileY = std::max(0, std::min(startTileY, endTileY));
-    const int maxTileY = std::min(kMapHeight - 1, std::max(startTileY, endTileY));
+    const int maxTileY = std::min(mapHeight_ - 1, std::max(startTileY, endTileY));
 
     bool removedAny = false;
+    std::vector<int> roadTileIndices;
+    roadTileIndices.reserve(static_cast<std::size_t>(maxTileX - minTileX + 1) * static_cast<std::size_t>(maxTileY - minTileY + 1));
     int tileY = minTileY;
     for (; tileY <= maxTileY; ++tileY) {
         int tileX = minTileX;
         for (; tileX <= maxTileX; ++tileX) {
-            removedAny = tryBulldozeAtTile(tileX, tileY, writeBuffer) || removedAny;
+            const int tileLinearIndex = tileIndex(tileX, tileY);
+            if (lotOccupancy_[tileLinearIndex] != kInvalidLotId) {
+                removedAny = tryBulldozeAtTile(tileX, tileY, writeBuffer) || removedAny;
+            } else {
+                roadTileIndices.push_back(tileLinearIndex);
+            }
         }
+    }
+
+    if (transportNetwork_.removeRoadsAtTiles(roadTileIndices)) {
+        commutesDirty_ = true;
+        removedAny = true;
     }
 
     return removedAny;
@@ -2558,26 +3076,71 @@ bool SimulationRuntime::tryBulldozeArea(int startTileX, int startTileY, int endT
 
 bool SimulationRuntime::tryZoneArea(int startTileX, int startTileY, int endTileX, int endTileY, std::uint16_t zoningType, TileBuffer& writeBuffer) {
     if (zoningType == TileZoningNone) {
-        return false;
+        return tryClearZoningArea(startTileX, startTileY, endTileX, endTileY, writeBuffer);
     }
 
     const RciRect rect(
         std::max(0, std::min(startTileX, endTileX)),
         std::max(0, std::min(startTileY, endTileY)),
-        std::min(kMapWidth - 1, std::max(startTileX, endTileX)),
-        std::min(kMapHeight - 1, std::max(startTileY, endTileY)));
+        std::min(mapWidth_ - 1, std::max(startTileX, endTileX)),
+        std::min(mapHeight_ - 1, std::max(startTileY, endTileY)));
 
     std::vector<int> changedTileIndices;
     bool hasZoneableTile = false;
     const bool changedTiles = applyZoningRect(rect, zoningType, writeBuffer, changedTileIndices, hasZoneableTile);
-    if (!changedTiles) {
+    if (!hasZoneableTile) {
         return false;
     }
 
     if (!changedTileIndices.empty()) {
+        removeZoningLotsIntersectingRect(rect);
         markChunksDirtyByTileIndices(writeBuffer.chunkRevisions, changedTileIndices);
     }
-    return true;
+
+    const bool addedParcels = parcelizeUnparcelledRciTiles(zoningType, writeBuffer) > 0u;
+    return changedTiles || addedParcels;
+}
+
+bool SimulationRuntime::tryClearZoningArea(int startTileX, int startTileY, int endTileX, int endTileY, TileBuffer& writeBuffer) {
+    const RciRect rect(
+        std::max(0, std::min(startTileX, endTileX)),
+        std::max(0, std::min(startTileY, endTileY)),
+        std::min(mapWidth_ - 1, std::max(startTileX, endTileX)),
+        std::min(mapHeight_ - 1, std::max(startTileY, endTileY)));
+    if (!rect.isValid()) {
+        return false;
+    }
+
+    std::vector<int> changedTileIndices;
+    int tileY = rect.minTileY;
+    for (; tileY <= rect.maxTileY; ++tileY) {
+        int tileX = rect.minTileX;
+        for (; tileX <= rect.maxTileX; ++tileX) {
+            const int tileLinearIndex = tileIndex(tileX, tileY);
+            if (tileLinearIndex < 0 ||
+                tileLinearIndex >= static_cast<int>(lotOccupancy_.size()) ||
+                lotOccupancy_[tileLinearIndex] != kInvalidLotId) {
+                continue;
+            }
+
+            Tile& tile = writeBuffer.tiles[tileLinearIndex];
+            if (tile.zoningType == TileZoningNone) {
+                continue;
+            }
+
+            tile.zoningType = TileZoningNone;
+            changedTileIndices.push_back(tileLinearIndex);
+        }
+    }
+
+    const bool removedZoningLots = removeZoningLotsIntersectingRect(rect);
+    if (!changedTileIndices.empty()) {
+        markChunksDirtyByTileIndices(writeBuffer.chunkRevisions, changedTileIndices);
+    }
+    if (removedZoningLots || !changedTileIndices.empty()) {
+        parcelizeAllUnparcelledRciTiles(writeBuffer);
+    }
+    return removedZoningLots || !changedTileIndices.empty();
 }
 
 bool SimulationRuntime::tryZoneLot(const RciLot& zoningLot, TileBuffer& writeBuffer) {
@@ -2588,8 +3151,8 @@ bool SimulationRuntime::tryZoneLot(const RciLot& zoningLot, TileBuffer& writeBuf
     const RciRect rect(
         std::max(0, zoningLot.rect.minTileX),
         std::max(0, zoningLot.rect.minTileY),
-        std::min(kMapWidth - 1, zoningLot.rect.maxTileX),
-        std::min(kMapHeight - 1, zoningLot.rect.maxTileY));
+        std::min(mapWidth_ - 1, zoningLot.rect.maxTileX),
+        std::min(mapHeight_ - 1, zoningLot.rect.maxTileY));
     if (!rect.isValid()) {
         return false;
     }
@@ -2746,12 +3309,13 @@ void SimulationRuntime::clearZoningForRoadStroke(const RoadStrokeCommand& roadSt
     std::vector<RoadTilePlacement> placements;
     placements.reserve(512);
     Road road(roadTemplate);
-    if (!road.appendStrokePlacements(roadStrokeCommand.startTile, roadStrokeCommand.cornerTile, roadStrokeCommand.endTile, kMapWidth, kMapHeight, placements)) {
+    if (!road.appendStrokePlacements(roadStrokeCommand.startTile, roadStrokeCommand.cornerTile, roadStrokeCommand.endTile, mapWidth_, mapHeight_, placements)) {
         return;
     }
 
     std::vector<int> changedTileIndices;
     changedTileIndices.reserve(placements.size());
+    bool removedZoningLots = false;
     std::size_t placementIndex = 0;
     for (; placementIndex < placements.size(); ++placementIndex) {
         const int tileLinearIndex = placements[placementIndex].tileIndex;
@@ -2759,11 +3323,11 @@ void SimulationRuntime::clearZoningForRoadStroke(const RoadStrokeCommand& roadSt
             continue;
         }
 
-        removeZoningLotsIntersectingRect(RciRect(
+        removedZoningLots = removeZoningLotsIntersectingRect(RciRect(
             placements[placementIndex].tileX,
             placements[placementIndex].tileY,
             placements[placementIndex].tileX,
-            placements[placementIndex].tileY));
+            placements[placementIndex].tileY)) || removedZoningLots;
         if (writeBuffer.tiles[tileLinearIndex].zoningType == TileZoningNone) {
             continue;
         }
@@ -2772,13 +3336,15 @@ void SimulationRuntime::clearZoningForRoadStroke(const RoadStrokeCommand& roadSt
         changedTileIndices.push_back(tileLinearIndex);
     }
 
-    if (changedTileIndices.empty()) {
-        return;
+    if (!changedTileIndices.empty()) {
+        std::sort(changedTileIndices.begin(), changedTileIndices.end());
+        changedTileIndices.erase(std::unique(changedTileIndices.begin(), changedTileIndices.end()), changedTileIndices.end());
+        markChunksDirtyByTileIndices(writeBuffer.chunkRevisions, changedTileIndices);
     }
 
-    std::sort(changedTileIndices.begin(), changedTileIndices.end());
-    changedTileIndices.erase(std::unique(changedTileIndices.begin(), changedTileIndices.end()), changedTileIndices.end());
-    markChunksDirtyByTileIndices(writeBuffer.chunkRevisions, changedTileIndices);
+    if (removedZoningLots || !changedTileIndices.empty()) {
+        parcelizeAllUnparcelledRciTiles(writeBuffer);
+    }
 }
 
 // Checks occupancy and ground-road conflicts for a candidate lot footprint.
@@ -2787,8 +3353,8 @@ bool SimulationRuntime::canPlaceLot(const Lot& candidateLot) const {
     std::size_t tileIndexValue = 0;
     for (; tileIndexValue < occupiedTileIndices.size(); ++tileIndexValue) {
         const int tileLinearIndex = occupiedTileIndices[tileIndexValue];
-        const int tileY = tileLinearIndex / kMapWidth;
-        const int tileX = tileLinearIndex - (tileY * kMapWidth);
+        const int tileY = tileLinearIndex / mapWidth_;
+        const int tileX = tileLinearIndex - (tileY * mapWidth_);
         if (!isTileInsideMap(tileX, tileY)) {
             return false;
         }
@@ -2840,8 +3406,8 @@ bool SimulationRuntime::collectAdjacentLotIdsForModule(const LotModule& moduleAs
     std::size_t candidateIndex = 0;
     for (; candidateIndex < candidateTileIndices.size(); ++candidateIndex) {
         const int candidateTileIndex = candidateTileIndices[candidateIndex];
-        const int candidateTileY = candidateTileIndex / kMapWidth;
-        const int candidateTileX = candidateTileIndex - (candidateTileY * kMapWidth);
+        const int candidateTileY = candidateTileIndex / mapWidth_;
+        const int candidateTileX = candidateTileIndex - (candidateTileY * mapWidth_);
 
         int neighborIndex = 0;
         for (; neighborIndex < 4; ++neighborIndex) {
@@ -2991,10 +3557,10 @@ std::vector<CommuteRouteSegment> SimulationRuntime::buildCommuteRouteSegments(co
 
         const int fromTileIndex = costMap.nodeTileIndex(step.fromNodeId);
         const int toTileIndex = costMap.nodeTileIndex(step.toNodeId);
-        const int fromTileY = fromTileIndex / kMapWidth;
-        const int fromTileX = fromTileIndex - (fromTileY * kMapWidth);
-        const int toTileY = toTileIndex / kMapWidth;
-        const int toTileX = toTileIndex - (toTileY * kMapWidth);
+        const int fromTileY = fromTileIndex / mapWidth_;
+        const int fromTileX = fromTileIndex - (fromTileY * mapWidth_);
+        const int toTileY = toTileIndex / mapWidth_;
+        const int toTileX = toTileIndex - (toTileY * mapWidth_);
 
         if (!segments.empty()) {
             CommuteRouteSegment& previous = segments.back();
@@ -3052,10 +3618,10 @@ bool SimulationRuntime::commuteRouteIsStillValid(const CommuteRouteRecord& route
 
 // Validates a tile coordinate against the fixed map bounds.
 bool SimulationRuntime::isTileInsideMap(int tileX, int tileY) const {
-    return tileX >= 0 && tileX < kMapWidth && tileY >= 0 && tileY < kMapHeight;
+    return tileX >= 0 && tileX < mapWidth_ && tileY >= 0 && tileY < mapHeight_;
 }
 
 // Converts a tile coordinate to row-major storage index.
 int SimulationRuntime::tileIndex(int tileX, int tileY) const {
-    return (tileY * kMapWidth) + tileX;
+    return (tileY * mapWidth_) + tileX;
 }

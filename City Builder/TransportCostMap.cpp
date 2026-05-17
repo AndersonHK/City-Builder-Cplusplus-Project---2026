@@ -73,6 +73,44 @@ struct HeapCompare {
         return left.priority > right.priority;
     }
 };
+
+void WriteTrafficOverlayPixel(const TransportCostMap& costMap, int tileIndex, std::vector<std::uint8_t>& overlayPixels) {
+    const std::size_t pixelOffset = static_cast<std::size_t>(tileIndex) * 4u;
+    overlayPixels[pixelOffset + 0u] = 0u;
+    overlayPixels[pixelOffset + 1u] = 0u;
+    overlayPixels[pixelOffset + 2u] = 0u;
+    overlayPixels[pixelOffset + 3u] = 0u;
+
+    bool relevant = false;
+    float maxUtilization = 0.0f;
+
+    std::size_t layerIndex = 0;
+    for (; layerIndex < static_cast<std::size_t>(TransportLayerId::Count); ++layerIndex) {
+        std::size_t modeIndex = 0;
+        for (; modeIndex < static_cast<std::size_t>(TransportMode::Count); ++modeIndex) {
+            const TransportCostCell& transportCell = costMap.cell(static_cast<TransportLayerId>(layerIndex), static_cast<TransportMode>(modeIndex), tileIndex);
+            std::size_t directionIndex = 0;
+            for (; directionIndex < kRoadDirectionCount; ++directionIndex) {
+                if (transportCell.capacities[directionIndex] == 0u) {
+                    continue;
+                }
+
+                relevant = true;
+                maxUtilization = std::max(maxUtilization, static_cast<float>(transportCell.oldLoads[directionIndex]) / static_cast<float>(transportCell.capacities[directionIndex]));
+            }
+        }
+    }
+
+    if (!relevant) {
+        return;
+    }
+
+    const float clampedUtilization = std::max(0.0f, std::min(maxUtilization, 1.0f));
+    overlayPixels[pixelOffset + 0u] = static_cast<std::uint8_t>(clampedUtilization * 255.0f + 0.5f);
+    overlayPixels[pixelOffset + 1u] = static_cast<std::uint8_t>((1.0f - clampedUtilization) * 255.0f + 0.5f);
+    overlayPixels[pixelOffset + 2u] = 0u;
+    overlayPixels[pixelOffset + 3u] = kTrafficOverlayAlphaByte;
+}
 }
 
 TransportCostCell::TransportCostCell()
@@ -204,6 +242,17 @@ void TransportCostMap::clearCosts() {
     std::size_t cellIndex = 0;
     for (; cellIndex < cells_.size(); ++cellIndex) {
         cells_[cellIndex].clearCosts();
+    }
+}
+
+void TransportCostMap::clearCostsForTile(TransportLayerId layer, int tileIndex) {
+    if (tileIndex < 0 || tileIndex >= static_cast<int>(totalTileCount_)) {
+        return;
+    }
+
+    std::size_t modeIndex = 0;
+    for (; modeIndex < static_cast<std::size_t>(TransportMode::Count); ++modeIndex) {
+        cellForMutation(layer, static_cast<TransportMode>(modeIndex), tileIndex).clearCosts();
     }
 }
 
@@ -609,36 +658,30 @@ void TransportCostMap::buildTrafficOverlay(std::vector<std::uint8_t>& overlayPix
 
     int tileIndex = 0;
     for (; tileIndex < static_cast<int>(totalTileCount_); ++tileIndex) {
-        bool relevant = false;
-        float maxUtilization = 0.0f;
+        WriteTrafficOverlayPixel(*this, tileIndex, overlayPixels);
+    }
+}
 
-        std::size_t layerIndex = 0;
-        for (; layerIndex < static_cast<std::size_t>(TransportLayerId::Count); ++layerIndex) {
-            std::size_t modeIndex = 0;
-            for (; modeIndex < static_cast<std::size_t>(TransportMode::Count); ++modeIndex) {
-                const TransportCostCell& transportCell = cell(static_cast<TransportLayerId>(layerIndex), static_cast<TransportMode>(modeIndex), tileIndex);
-                std::size_t directionIndex = 0;
-                for (; directionIndex < kRoadDirectionCount; ++directionIndex) {
-                    if (transportCell.capacities[directionIndex] == 0u) {
-                        continue;
-                    }
+void TransportCostMap::buildTrafficOverlayForTiles(const std::vector<int>& tileIndices, std::vector<std::uint8_t>& overlayPixels) const {
+    if (overlayPixels.size() != totalTileCount_ * 4u) {
+        overlayPixels.assign(totalTileCount_ * 4u, 0u);
+    }
 
-                    relevant = true;
-                    maxUtilization = std::max(maxUtilization, static_cast<float>(transportCell.oldLoads[directionIndex]) / static_cast<float>(transportCell.capacities[directionIndex]));
-                }
-            }
+    std::vector<int> validTileIndices;
+    validTileIndices.reserve(tileIndices.size());
+    std::size_t dirtyIndex = 0;
+    for (; dirtyIndex < tileIndices.size(); ++dirtyIndex) {
+        const int dirtyTileIndex = tileIndices[dirtyIndex];
+        if (dirtyTileIndex >= 0 && dirtyTileIndex < static_cast<int>(totalTileCount_)) {
+            validTileIndices.push_back(dirtyTileIndex);
         }
+    }
 
-        if (!relevant) {
-            continue;
-        }
+    std::sort(validTileIndices.begin(), validTileIndices.end());
+    validTileIndices.erase(std::unique(validTileIndices.begin(), validTileIndices.end()), validTileIndices.end());
 
-        const float clampedUtilization = std::max(0.0f, std::min(maxUtilization, 1.0f));
-        const std::size_t pixelOffset = static_cast<std::size_t>(tileIndex) * 4u;
-        overlayPixels[pixelOffset + 0u] = static_cast<std::uint8_t>(clampedUtilization * 255.0f + 0.5f);
-        overlayPixels[pixelOffset + 1u] = static_cast<std::uint8_t>((1.0f - clampedUtilization) * 255.0f + 0.5f);
-        overlayPixels[pixelOffset + 2u] = 0u;
-        overlayPixels[pixelOffset + 3u] = kTrafficOverlayAlphaByte;
+    for (dirtyIndex = 0; dirtyIndex < validTileIndices.size(); ++dirtyIndex) {
+        WriteTrafficOverlayPixel(*this, validTileIndices[dirtyIndex], overlayPixels);
     }
 }
 

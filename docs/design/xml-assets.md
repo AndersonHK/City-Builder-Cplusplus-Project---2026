@@ -21,7 +21,7 @@ Use this guide when changing `AssetLoader`, data XML files, lot/module archetype
 - The congestion XML defines `<point utilization="..." speedMultiplier="..." />` rows. Invalid or duplicate utilization points fail asset load.
 - Initial demand XML defines `<demand id="..." amount="..." />` rows keyed by city parameter id. The checked-in defaults seed 20 low-wealth residents and 20 dirty-industry demand.
 - RCI constructor overbuild is stored as a multiplier internally. XML may spell `constructorOverbuildPercent="120"` for 120 percent, or `constructorOverbuildMultiplier="1.2"` for the same result.
-- The query window XML defines one `<window>` plus flat `<textField>` entries. City tool XML defines flat `<menu>` containers plus `<button>` children and action strings. Both UI parsers are tolerant and fall back to built-in layouts when missing or malformed.
+- The query window XML defines one `<window>` plus flat `<textField>` entries. City tool XML defines flat `<menu>` containers plus `<button>` children, action strings, optional named icons, and top-left/bottom-left/center anchors. Both UI parsers are tolerant and fall back to built-in layouts when missing or malformed.
 
 ## Rules
 - Keep errors descriptive; asset failures should not become silent defaults.

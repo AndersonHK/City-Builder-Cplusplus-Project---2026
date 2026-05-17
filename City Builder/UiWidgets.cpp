@@ -75,6 +75,10 @@ UiAnchor AttributeAnchorValue(const std::string& tag, const std::string& attribu
         return UiAnchor::TopLeft;
     }
 
+    if (value == "center") {
+        return UiAnchor::Center;
+    }
+
     return fallback;
 }
 
@@ -97,6 +101,10 @@ UiColor AttributeColorValue(const std::string& tag, const std::string& prefix, c
         AttributeFloatValue(tag, prefix + "G", fallback.g),
         AttributeFloatValue(tag, prefix + "B", fallback.b),
         AttributeFloatValue(tag, prefix + "A", fallback.a));
+}
+
+bool ActionIsActive(const std::vector<std::string>& activeActions, const std::string& action) {
+    return !action.empty() && std::find(activeActions.begin(), activeActions.end(), action) != activeActions.end();
 }
 }
 
@@ -147,6 +155,10 @@ const std::string& UiButton::id() const {
 
 const std::string& UiButton::text() const {
     return text_;
+}
+
+const std::string& UiButton::icon() const {
+    return icon_;
 }
 
 const std::string& UiButton::action() const {
@@ -206,9 +218,11 @@ void UiButton::setDefinition(
     bool hasExplicitWidth,
     bool hasExplicitHeight,
     const UiColor& color,
-    const UiColor& activeColor) {
+    const UiColor& activeColor,
+    const std::string& icon) {
     id_ = id;
     text_ = text;
+    icon_ = icon;
     action_ = action;
     x_ = x;
     y_ = y;
@@ -296,16 +310,28 @@ void UiMenu::addButton(const UiButton& button) {
 }
 
 UiRect UiMenu::resolvedRect(int framebufferWidth, int framebufferHeight) const {
-    (void)framebufferWidth;
     UiRect rect;
-    rect.x = x_;
     rect.width = width_;
     rect.height = height_ > 0 ? height_ : automaticHeight();
-    rect.y = anchor_ == UiAnchor::BottomLeft ? std::max(0, framebufferHeight - bottom_ - rect.height) : y_;
+    if (anchor_ == UiAnchor::Center) {
+        rect.x = std::max(0, (framebufferWidth - rect.width) / 2 + x_);
+        rect.y = std::max(0, (framebufferHeight - rect.height) / 2 + y_);
+    } else {
+        rect.x = x_;
+        rect.y = anchor_ == UiAnchor::BottomLeft ? std::max(0, framebufferHeight - bottom_ - rect.height) : y_;
+    }
     return rect;
 }
 
 void UiMenu::resolveButtons(int framebufferWidth, int framebufferHeight, const std::string& activeAction, std::vector<UiResolvedButton>& resolvedButtons) const {
+    std::vector<std::string> activeActions;
+    if (!activeAction.empty()) {
+        activeActions.push_back(activeAction);
+    }
+    resolveButtons(framebufferWidth, framebufferHeight, activeActions, resolvedButtons);
+}
+
+void UiMenu::resolveButtons(int framebufferWidth, int framebufferHeight, const std::vector<std::string>& activeActions, std::vector<UiResolvedButton>& resolvedButtons) const {
     if (!visible_) {
         return;
     }
@@ -323,8 +349,9 @@ void UiMenu::resolveButtons(int framebufferWidth, int framebufferHeight, const s
         resolvedButton.menuId = id_;
         resolvedButton.buttonId = button.id();
         resolvedButton.text = button.text();
+        resolvedButton.icon = button.icon();
         resolvedButton.action = button.action();
-        resolvedButton.isActive = !activeAction.empty() && button.action() == activeAction;
+        resolvedButton.isActive = ActionIsActive(activeActions, button.action());
         resolvedButton.color = resolvedButton.isActive ? button.activeColor() : button.color();
         resolvedButton.rect.x = menuRect.x + (button.hasExplicitX() ? button.x() : 0);
         resolvedButton.rect.width = buttonWidth;
@@ -430,7 +457,8 @@ bool UiLayout::loadFromXmlFile(const std::string& filePath) {
                 AttributeExists(buttonTag, "width"),
                 AttributeExists(buttonTag, "height"),
                 buttonColor,
-                AttributeColorValue(buttonTag, "active", UiColor(0.25f, 0.42f, 0.33f, 0.96f)));
+                AttributeColorValue(buttonTag, "active", UiColor(0.25f, 0.42f, 0.33f, 0.96f)),
+                AttributeValue(buttonTag, "icon", std::string()));
             menu.addButton(button);
             buttonSearchStart = buttonEnd + 1u;
         }
@@ -451,26 +479,79 @@ bool UiLayout::loadFromXmlFile(const std::string& filePath) {
 void UiLayout::setFallbackDefinition() {
     menus_.clear();
 
+    UiMenu speedMenu;
+    speedMenu.setDefinition("date_speed", 16, 48, 16, 140, 28, 32, 28, 4, UiAnchor::TopLeft, UiFlow::Down, true, UiColor(0.0f, 0.0f, 0.0f, 0.0f));
+    const char* speedButtonIds[] = {"speed_pause", "speed_play", "speed_fast", "speed_fast_forward"};
+    const char* speedButtonIcons[] = {"pause", "play", "fast", "fastForward"};
+    const char* speedButtonActions[] = {"set_speed_paused", "set_speed_play", "set_speed_fast", "set_speed_fast_forward"};
+    for (std::size_t index = 0; index < 4u; ++index) {
+        UiButton button;
+        button.setDefinition(speedButtonIds[index], std::string(), speedButtonActions[index], static_cast<int>(index) * 36, 0, 32, 28, true, true, false, false, UiColor(0.08f, 0.12f, 0.13f, 0.94f), UiColor(0.22f, 0.43f, 0.35f, 0.96f), speedButtonIcons[index]);
+        speedMenu.addButton(button);
+    }
+    menus_.push_back(speedMenu);
+
     UiMenu sideMenu;
     sideMenu.setDefinition("side_tools", 16, 16, 72, 132, 0, 132, 38, 8, UiAnchor::BottomLeft, UiFlow::Down, true, UiColor(0.0f, 0.0f, 0.0f, 0.0f));
 
-    const char* buttonIds[] = {"bulldozer", "road", "query", "rci_residential", "rci_industrial"};
-    const char* buttonTexts[] = {"Bulldoze", "Road", "Query", "Residence", "Industry"};
-    const char* buttonActions[] = {"select_bulldozer", "select_road_street", "select_query", "select_rci_residential", "select_rci_industrial"};
+    const char* buttonIds[] = {"bulldozer", "road", "query", "rci_residential", "rci_industrial", "rci_unzone"};
+    const char* buttonTexts[] = {"Bulldoze", "Road", "Query", "Residence", "Industry", "Unzone"};
+    const char* buttonActions[] = {"select_bulldozer", "select_road_street", "select_query", "select_rci_residential", "select_rci_industrial", "select_rci_unzone"};
     const UiColor colors[] = {
         UiColor(0.34f, 0.12f, 0.11f, 0.90f),
         UiColor(0.14f, 0.22f, 0.30f, 0.90f),
         UiColor(0.16f, 0.24f, 0.22f, 0.90f),
         UiColor(0.12f, 0.34f, 0.18f, 0.90f),
-        UiColor(0.42f, 0.35f, 0.10f, 0.90f)
+        UiColor(0.42f, 0.35f, 0.10f, 0.90f),
+        UiColor(0.24f, 0.24f, 0.27f, 0.90f)
     };
 
-    for (std::size_t index = 0; index < 5u; ++index) {
+    for (std::size_t index = 0; index < 6u; ++index) {
         UiButton button;
         button.setDefinition(buttonIds[index], buttonTexts[index], buttonActions[index], 0, 0, 132, 38, false, false, false, false, colors[index], UiColor(0.52f, 0.66f, 0.47f, 0.96f));
         sideMenu.addButton(button);
     }
     menus_.push_back(sideMenu);
+
+    UiMenu regionExitMenu;
+    regionExitMenu.setDefinition("region_exit", 16, 16, 16, 92, 40, 92, 40, 0, UiAnchor::TopLeft, UiFlow::Down, true, UiColor(0.0f, 0.0f, 0.0f, 0.0f));
+    UiButton regionExitButton;
+    regionExitButton.setDefinition("region_exit_game", "Exit", "open_exit_confirm", 0, 0, 92, 40, true, true, true, true, UiColor(0.08f, 0.12f, 0.13f, 0.94f), UiColor(0.08f, 0.12f, 0.13f, 0.94f));
+    regionExitMenu.addButton(regionExitButton);
+    menus_.push_back(regionExitMenu);
+
+    UiMenu escapeMenu;
+    escapeMenu.setDefinition("escape_menu", 0, 0, 16, 220, 56, 180, 40, 0, UiAnchor::Center, UiFlow::Down, false, UiColor(0.035f, 0.047f, 0.058f, 0.94f));
+    UiButton exitButton;
+    exitButton.setDefinition("exit_game", "Exit", "open_exit_confirm", 20, 8, 180, 40, true, true, true, true, UiColor(0.22f, 0.10f, 0.10f, 0.94f), UiColor(0.46f, 0.17f, 0.14f, 0.96f));
+    escapeMenu.addButton(exitButton);
+    menus_.push_back(escapeMenu);
+
+    UiMenu exitDialog;
+    exitDialog.setDefinition("exit_confirm_dialog", 0, 0, 16, 340, 116, 132, 36, 8, UiAnchor::Center, UiFlow::Down, false, UiColor(0.035f, 0.047f, 0.058f, 0.96f));
+    UiButton promptButton;
+    promptButton.setDefinition("exit_prompt", "Save before exiting?", std::string(), 18, 14, 304, 34, true, true, true, true, UiColor(0.035f, 0.047f, 0.058f, 0.0f), UiColor(0.035f, 0.047f, 0.058f, 0.0f));
+    exitDialog.addButton(promptButton);
+    UiButton yesButton;
+    yesButton.setDefinition("exit_save_yes", "Yes", "exit_save_yes", 34, 66, 122, 36, true, true, true, true, UiColor(0.14f, 0.30f, 0.20f, 0.94f), UiColor(0.22f, 0.48f, 0.32f, 0.96f));
+    exitDialog.addButton(yesButton);
+    UiButton noButton;
+    noButton.setDefinition("exit_save_no", "No", "exit_save_no", 184, 66, 122, 36, true, true, true, true, UiColor(0.30f, 0.12f, 0.11f, 0.94f), UiColor(0.52f, 0.20f, 0.18f, 0.96f));
+    exitDialog.addButton(noButton);
+    menus_.push_back(exitDialog);
+
+    UiMenu citySwitchDialog;
+    citySwitchDialog.setDefinition("city_switch_confirm_dialog", 0, 0, 16, 340, 116, 132, 36, 8, UiAnchor::Center, UiFlow::Down, false, UiColor(0.035f, 0.047f, 0.058f, 0.96f));
+    UiButton citySwitchPromptButton;
+    citySwitchPromptButton.setDefinition("city_switch_prompt", "Save city before leaving?", std::string(), 18, 14, 304, 34, true, true, true, true, UiColor(0.035f, 0.047f, 0.058f, 0.0f), UiColor(0.035f, 0.047f, 0.058f, 0.0f));
+    citySwitchDialog.addButton(citySwitchPromptButton);
+    UiButton citySwitchYesButton;
+    citySwitchYesButton.setDefinition("city_switch_save_yes", "Yes", "city_switch_save_yes", 34, 66, 122, 36, true, true, true, true, UiColor(0.14f, 0.30f, 0.20f, 0.94f), UiColor(0.22f, 0.48f, 0.32f, 0.96f));
+    citySwitchDialog.addButton(citySwitchYesButton);
+    UiButton citySwitchNoButton;
+    citySwitchNoButton.setDefinition("city_switch_save_no", "No", "city_switch_save_no", 184, 66, 122, 36, true, true, true, true, UiColor(0.30f, 0.12f, 0.11f, 0.94f), UiColor(0.52f, 0.20f, 0.18f, 0.96f));
+    citySwitchDialog.addButton(citySwitchNoButton);
+    menus_.push_back(citySwitchDialog);
 
     UiMenu toggleMenu;
     toggleMenu.setDefinition("menu_toggle", 16, 16, 16, 92, 0, 92, 40, 0, UiAnchor::BottomLeft, UiFlow::Down, true, UiColor(0.0f, 0.0f, 0.0f, 0.0f));
@@ -518,11 +599,47 @@ bool UiLayout::hitTestAction(double mouseX, double mouseY, int framebufferWidth,
     return false;
 }
 
+bool UiLayout::hitTestAction(double mouseX, double mouseY, int framebufferWidth, int framebufferHeight, const std::vector<std::string>& menuIds, std::string& action) const {
+    std::vector<UiResolvedButton> resolvedButtons;
+    std::vector<std::string> activeActions;
+    std::size_t menuIdIndex = 0;
+    for (; menuIdIndex < menuIds.size(); ++menuIdIndex) {
+        const UiMenu* menu = findMenu(menuIds[menuIdIndex]);
+        if (menu == 0) {
+            continue;
+        }
+
+        menu->resolveButtons(framebufferWidth, framebufferHeight, activeActions, resolvedButtons);
+    }
+
+    std::vector<UiResolvedButton>::const_reverse_iterator buttonIterator = resolvedButtons.rbegin();
+    for (; buttonIterator != resolvedButtons.rend(); ++buttonIterator) {
+        if (buttonIterator->action.empty()) {
+            continue;
+        }
+
+        if (buttonIterator->rect.contains(mouseX, mouseY)) {
+            action = buttonIterator->action;
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void UiLayout::resolveButtons(int framebufferWidth, int framebufferHeight, const std::string& activeAction, std::vector<UiResolvedButton>& resolvedButtons) const {
+    std::vector<std::string> activeActions;
+    if (!activeAction.empty()) {
+        activeActions.push_back(activeAction);
+    }
+    resolveButtons(framebufferWidth, framebufferHeight, activeActions, resolvedButtons);
+}
+
+void UiLayout::resolveButtons(int framebufferWidth, int framebufferHeight, const std::vector<std::string>& activeActions, std::vector<UiResolvedButton>& resolvedButtons) const {
     resolvedButtons.clear();
     std::size_t menuIndex = 0;
     for (; menuIndex < menus_.size(); ++menuIndex) {
-        menus_[menuIndex].resolveButtons(framebufferWidth, framebufferHeight, activeAction, resolvedButtons);
+        menus_[menuIndex].resolveButtons(framebufferWidth, framebufferHeight, activeActions, resolvedButtons);
     }
 }
 

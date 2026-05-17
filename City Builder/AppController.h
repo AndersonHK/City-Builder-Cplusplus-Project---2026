@@ -24,7 +24,8 @@ enum class ActiveTool {
     Bulldozer,
     Query,
     ZoneResidential,
-    ZoneIndustrial
+    ZoneIndustrial,
+    ZoneUnzone
 };
 
 enum class OverlayMode {
@@ -162,6 +163,8 @@ public:
     bool loadRciToolsFromXmlFile(const std::string& filePath);
     const UiLayout& uiLayout() const;
     std::string activeUiAction() const;
+    std::vector<std::string> activeUiActions() const;
+    bool quitRequested() const;
     void refreshQueryResultIfNeeded();
     void processPendingRegionClick();
 
@@ -175,6 +178,10 @@ private:
     void setActiveTool(ActiveTool activeTool);
     void toggleTrafficOverlay();
     void toggleRoadDebugGraphics();
+    void setGameSpeed(GameSpeed gameSpeed);
+    bool modalMenuOpen() const;
+    void clearTransientInteractions();
+    void toggleEscapeMenu();
     void rotatePlacement(int deltaSteps);
     bool activeToolIsRoad() const;
     bool activeToolIsZoning() const;
@@ -182,8 +189,10 @@ private:
     RciPlanMode currentRciPlanMode() const;
     bool buildActiveRciPlan(RciPlan& plan) const;
     bool handleUiClick();
+    bool handleUiClickForMenus(const std::vector<std::string>& menuIds);
     void invokeUiAction(const std::string& action);
     bool handleRegionClick();
+    bool enterPendingRegionCity();
     void applyCameraFromActiveCity();
     void syncActiveCityCameraToSession();
     void beginRoadDrag(int tileX, int tileY);
@@ -206,6 +215,10 @@ private:
     RciToolCatalog rciTools_;
     bool uiPressCaptured_;
     bool regionClickPending_;
+    bool quitRequested_;
+    bool pendingRegionEnter_;
+    int pendingRegionEnterX_;
+    int pendingRegionEnterY_;
     bool hasLastRegionClick_;
     int lastRegionClickX_;
     int lastRegionClickY_;

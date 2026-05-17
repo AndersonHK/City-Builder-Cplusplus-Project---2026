@@ -29,6 +29,7 @@ public:
 
     const std::string& id() const;
     const std::string& text() const;
+    const std::string& icon() const;
     const std::string& action() const;
     int x() const;
     int y() const;
@@ -54,11 +55,13 @@ public:
         bool hasExplicitWidth,
         bool hasExplicitHeight,
         const UiColor& color,
-        const UiColor& activeColor);
+        const UiColor& activeColor,
+        const std::string& icon = std::string());
 
 private:
     std::string id_;
     std::string text_;
+    std::string icon_;
     std::string action_;
     int x_;
     int y_;
@@ -76,6 +79,7 @@ struct UiResolvedButton {
     std::string menuId;
     std::string buttonId;
     std::string text;
+    std::string icon;
     std::string action;
     UiRect rect;
     UiColor color;
@@ -86,7 +90,8 @@ struct UiResolvedButton {
 
 enum class UiAnchor {
     TopLeft,
-    BottomLeft
+    BottomLeft,
+    Center
 };
 
 enum class UiFlow {
@@ -121,6 +126,7 @@ public:
     void addButton(const UiButton& button);
     UiRect resolvedRect(int framebufferWidth, int framebufferHeight) const;
     void resolveButtons(int framebufferWidth, int framebufferHeight, const std::string& activeAction, std::vector<UiResolvedButton>& resolvedButtons) const;
+    void resolveButtons(int framebufferWidth, int framebufferHeight, const std::vector<std::string>& activeActions, std::vector<UiResolvedButton>& resolvedButtons) const;
 
 private:
     int automaticHeight() const;
@@ -152,7 +158,9 @@ public:
     void toggleMenu(const std::string& menuId);
     bool menuVisible(const std::string& menuId) const;
     bool hitTestAction(double mouseX, double mouseY, int framebufferWidth, int framebufferHeight, std::string& action) const;
+    bool hitTestAction(double mouseX, double mouseY, int framebufferWidth, int framebufferHeight, const std::vector<std::string>& menuIds, std::string& action) const;
     void resolveButtons(int framebufferWidth, int framebufferHeight, const std::string& activeAction, std::vector<UiResolvedButton>& resolvedButtons) const;
+    void resolveButtons(int framebufferWidth, int framebufferHeight, const std::vector<std::string>& activeActions, std::vector<UiResolvedButton>& resolvedButtons) const;
 
 private:
     UiMenu* findMenu(const std::string& menuId);

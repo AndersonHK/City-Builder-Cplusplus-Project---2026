@@ -193,6 +193,8 @@ void ApplyHotkey(HotkeyConfig& hotkeys, const std::string& key, const std::strin
         hotkeys.save = keyCode;
     } else if (key == "load") {
         hotkeys.load = keyCode;
+    } else if (key == "escape_menu") {
+        hotkeys.escapeMenu = keyCode;
     } else if (key == "exit_to_region") {
         hotkeys.exitToRegion = keyCode;
     } else if (key == "toggle_road_debug") {
@@ -260,6 +262,7 @@ std::string GetExecutableDirectory() {
 HotkeyConfig::HotkeyConfig()
     : save(GLFW_KEY_F1),
       load(GLFW_KEY_F2),
+      escapeMenu(GLFW_KEY_ESCAPE),
       exitToRegion(GLFW_KEY_F3),
       toggleRoadDebug(GLFW_KEY_F11),
       panRight(GLFW_KEY_RIGHT),

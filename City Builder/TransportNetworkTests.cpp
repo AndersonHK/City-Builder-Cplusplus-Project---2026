@@ -49,9 +49,30 @@ std::vector<ChunkRect> SingleChunkLayout(int width, int height) {
     return std::vector<ChunkRect>(1, chunkRect);
 }
 
+std::vector<ChunkRect> TwoColumnChunkLayout(int width, int height) {
+    std::vector<ChunkRect> chunks;
+    const int chunkWidth = width / 2;
+    int chunkX = 0;
+    for (; chunkX < 2; ++chunkX) {
+        ChunkRect chunkRect;
+        chunkRect.startX = chunkX * chunkWidth;
+        chunkRect.startY = 0;
+        chunkRect.width = chunkX == 0 ? chunkWidth : width - chunkWidth;
+        chunkRect.height = height;
+        chunks.push_back(chunkRect);
+    }
+    return chunks;
+}
+
 TransportNetwork MakeNetwork(int width, int height) {
     TransportNetwork network;
     network.initialize(width, height, SingleChunkLayout(width, height));
+    return network;
+}
+
+TransportNetwork MakeTwoColumnChunkNetwork(int width, int height) {
+    TransportNetwork network;
+    network.initialize(width, height, TwoColumnChunkLayout(width, height));
     return network;
 }
 
@@ -1871,6 +1892,30 @@ void TestTrafficOverlayStartsGreenOnRoadCapacity(TestRunner& runner) {
     runner.expect(network.trafficOverlayState()[pixelOffset + 3u] == kTrafficOverlayAlphaByte, "traffic overlay starts visible where capacity exists");
 }
 
+void TestRoadRemovalTouchesOnlyAffectedTrafficOverlayChunks(TestRunner& runner) {
+    TransportNetwork network = MakeTwoColumnChunkNetwork(16, 12);
+    std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(network, MakeStroke(Int2(1, 5), Int2(6, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "left traffic overlay road placement succeeds");
+    runner.expect(Place(network, MakeStroke(Int2(10, 5), Int2(14, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "right traffic overlay road placement succeeds");
+    runner.expect(network.trafficOverlayChunkRevisions().size() == 2u, "traffic overlay chunk test uses two chunks");
+
+    const std::vector<std::uint64_t> revisionsBeforeRemove = network.trafficOverlayChunkRevisions();
+    const int removedTileIndex = (5 * network.width()) + 3;
+    const int retainedTileIndex = (5 * network.width()) + 12;
+    const std::size_t removedPixelOffset = static_cast<std::size_t>(removedTileIndex) * 4u;
+    const std::size_t retainedPixelOffset = static_cast<std::size_t>(retainedTileIndex) * 4u;
+
+    runner.expect(network.trafficOverlayState()[removedPixelOffset + 3u] == kTrafficOverlayAlphaByte, "traffic overlay marks road before removal");
+    runner.expect(network.trafficOverlayState()[retainedPixelOffset + 3u] == kTrafficOverlayAlphaByte, "traffic overlay marks unrelated road before removal");
+    runner.expect(network.removeRoadAtTile(3, 5), "traffic overlay road removal succeeds");
+
+    runner.expect(network.trafficOverlayState()[removedPixelOffset + 3u] == 0u, "traffic overlay clears removed road tile");
+    runner.expect(network.trafficOverlayState()[retainedPixelOffset + 3u] == kTrafficOverlayAlphaByte, "traffic overlay keeps unrelated road tile");
+    runner.expect(network.trafficOverlayChunkRevisions()[0] > revisionsBeforeRemove[0], "traffic overlay bumps affected chunk after road removal");
+    runner.expect(network.trafficOverlayChunkRevisions()[1] == revisionsBeforeRemove[1], "traffic overlay leaves unaffected chunk revision unchanged");
+}
+
 void TestFactoryHouseAssetsAndParameters(TestRunner& runner) {
     CityParameterRegistry registry;
     LoadedGameAssets assets;
@@ -2206,6 +2251,7 @@ int main() {
     TestCongestionReroutesPath(runner);
     TestEqualRouteJitterSpreadsChoices(runner);
     TestTrafficOverlayStartsGreenOnRoadCapacity(runner);
+    TestRoadRemovalTouchesOnlyAffectedTrafficOverlayChunks(runner);
     TestFactoryHouseAssetsAndParameters(runner);
     TestPopulationParameterAggregation(runner);
     TestInvalidAssetValidation(runner);

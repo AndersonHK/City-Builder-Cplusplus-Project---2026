@@ -228,21 +228,95 @@ void TestHudTextQuads(TestRunner& runner) {
     runner.expect(!quads.empty(), "HUD text helper emits bitmap glyph quads");
 }
 
+void TestLoadingScreenQuads(TestRunner& runner) {
+    std::vector<UiQuadInstanceData> quads;
+    RendererAppendLoadingScreenQuads("Loading city", 0.5f, 1024, 768, quads);
+    runner.expect(quads.size() > 20u, "loading screen emits background, bar, and text quads");
+    runner.expect(AlmostEqual(quads[0].x, 0.0f) && AlmostEqual(quads[0].y, 0.0f), "loading screen background starts at framebuffer origin");
+    runner.expect(AlmostEqual(quads[0].width, 1024.0f) && AlmostEqual(quads[0].height, 768.0f), "loading screen background covers framebuffer");
+    runner.expect(AlmostEqual(quads[3].x, 230.0f) && AlmostEqual(quads[3].y, 574.0f), "loading bar frame is horizontally centered near three quarter height");
+    runner.expect(AlmostEqual(quads[5].width, 277.0f), "loading bar fill follows clamped progress");
+
+    std::vector<UiQuadInstanceData> clampedQuads;
+    RendererAppendLoadingScreenQuads("Saving city", 2.0f, 1024, 768, clampedQuads);
+    runner.expect(clampedQuads.size() > 5u && AlmostEqual(clampedQuads[5].width, 554.0f), "loading bar progress clamps to full width");
+}
+
 void TestUiMenuQuadsAndHitTesting(TestRunner& runner) {
     UiLayout layout;
     std::string action;
-    runner.expect(layout.hitTestAction(24.0, 480.0, 1024, 768, action) && action == "select_bulldozer", "fallback side-menu button hit tests by screen position");
+    std::vector<std::string> regionMenuIds;
+    regionMenuIds.push_back("region_exit");
+    runner.expect(layout.hitTestAction(24.0, 24.0, 1024, 768, regionMenuIds, action) && action == "open_exit_confirm", "fallback region exit button hit tests in filtered region UI");
+    runner.expect(layout.hitTestAction(24.0, 434.0, 1024, 768, action) && action == "select_bulldozer", "fallback side-menu button hit tests by screen position");
+    runner.expect(layout.hitTestAction(24.0, 664.0, 1024, 768, action) && action == "select_rci_unzone", "fallback side-menu exposes unzone button");
 
     std::vector<UiQuadInstanceData> quads = RendererBuildUiMenuQuads(layout, 1024, 768, "select_road_street");
     runner.expect(!quads.empty(), "visible UI menus produce quads");
     runner.expect(AlmostEqual(quads[0].x, 16.0f), "side menu resolves to left edge");
     runner.expect(quads[0].colorA >= 0.0f, "menu background alpha is stable");
 
+    layout.setMenuVisible("escape_menu", true);
+    std::vector<UiResolvedButton> resolvedButtons;
+    layout.resolveButtons(1024, 768, std::string(), resolvedButtons);
+    bool foundCenteredExitButton = false;
+    std::size_t buttonIndex = 0;
+    for (; buttonIndex < resolvedButtons.size(); ++buttonIndex) {
+        if (resolvedButtons[buttonIndex].action == "open_exit_confirm") {
+            foundCenteredExitButton =
+                resolvedButtons[buttonIndex].rect.x == 422 &&
+                resolvedButtons[buttonIndex].rect.y == 364;
+        }
+    }
+    runner.expect(foundCenteredExitButton, "center-anchored escape menu resolves around framebuffer center");
+    runner.expect(layout.hitTestAction(512.0, 384.0, 1024, 768, action) && action == "open_exit_confirm", "centered escape menu button hit tests");
+    std::vector<std::string> activeActions;
+    std::vector<std::string> modalMenuIds;
+    modalMenuIds.push_back("escape_menu");
+    std::vector<UiQuadInstanceData> modalQuads = RendererBuildUiMenuQuads(layout, 1024, 768, activeActions, modalMenuIds);
+    runner.expect(!modalQuads.empty() && AlmostEqual(modalQuads[0].x, 402.0f), "filtered UI menu rendering can draw only the centered modal menu");
+    layout.setMenuVisible("escape_menu", false);
+
+    layout.setMenuVisible("city_switch_confirm_dialog", true);
+    modalMenuIds.clear();
+    modalMenuIds.push_back("city_switch_confirm_dialog");
+    std::vector<UiQuadInstanceData> switchQuads = RendererBuildUiMenuQuads(layout, 1024, 768, activeActions, modalMenuIds);
+    runner.expect(!switchQuads.empty() && AlmostEqual(switchQuads[0].x, 342.0f), "city switch save dialog shares centered modal layout");
+    runner.expect(layout.hitTestAction(388.0, 400.0, 1024, 768, modalMenuIds, action) && action == "city_switch_save_yes", "city switch save button hit tests through filtered UI");
+    layout.setMenuVisible("city_switch_confirm_dialog", false);
+
     const std::size_t visibleQuadCount = quads.size();
     layout.toggleMenu("side_tools");
     std::vector<UiQuadInstanceData> hiddenQuads = RendererBuildUiMenuQuads(layout, 1024, 768, std::string());
     runner.expect(hiddenQuads.size() < visibleQuadCount, "hidden side menu removes its button quads");
     runner.expect(layout.hitTestAction(24.0, 740.0, 1024, 768, action) && action == "toggle_side_menu", "bottom-left menu toggle remains clickable");
+}
+
+void TestUiButtonIconXmlAndRendering(TestRunner& runner) {
+    const char* filePath = "ui_icon_test.xml";
+    {
+        std::ofstream file(filePath, std::ios::out | std::ios::trunc);
+        file << "<ui><menu id=\"speed\" anchor=\"topLeft\" x=\"10\" y=\"12\" width=\"68\" height=\"28\" buttonWidth=\"32\" buttonHeight=\"28\" spacing=\"4\">"
+            << "<button id=\"pause\" text=\"\" icon=\"pause\" action=\"set_speed_paused\" x=\"0\" y=\"0\" />"
+            << "<button id=\"play\" text=\"\" icon=\"play\" action=\"set_speed_play\" x=\"36\" y=\"0\" />"
+            << "</menu></ui>";
+    }
+
+    UiLayout layout;
+    runner.expect(layout.loadFromXmlFile(filePath), "UI XML loads icon button declarations");
+
+    std::vector<std::string> activeActions;
+    activeActions.push_back("set_speed_play");
+    std::vector<UiResolvedButton> buttons;
+    layout.resolveButtons(320, 240, activeActions, buttons);
+    runner.expect(buttons.size() == 2u, "icon button XML resolves both buttons");
+    runner.expect(!buttons.empty() && buttons[0].icon == "pause", "button icon attribute is stored");
+    runner.expect(buttons.size() > 1u && buttons[1].isActive, "active action vector highlights icon button");
+
+    std::vector<UiQuadInstanceData> quads = RendererBuildUiMenuQuads(layout, 320, 240, activeActions);
+    runner.expect(quads.size() > 10u, "icon buttons render bitmap icon quads");
+
+    std::remove(filePath);
 }
 
 void TestRciToolFallbacksAndPlanning(TestRunner& runner) {
@@ -327,7 +401,9 @@ int main() {
     TestSimulationDateCalculation(runner);
     TestWindowQuads(runner);
     TestHudTextQuads(runner);
+    TestLoadingScreenQuads(runner);
     TestUiMenuQuadsAndHitTesting(runner);
+    TestUiButtonIconXmlAndRendering(runner);
     TestRciToolFallbacksAndPlanning(runner);
     TestRciToolXmlLoading(runner);
     return runner.finish();

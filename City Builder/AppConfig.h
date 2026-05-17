@@ -10,6 +10,7 @@
 struct HotkeyConfig {
     int save;
     int load;
+    int escapeMenu;
     int exitToRegion;
     int toggleRoadDebug;
     int panRight;

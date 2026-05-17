@@ -29,6 +29,7 @@ Use this guide when changing `AppConfig`, `Data/config.ini`, startup window beha
 - Remove or rename the output `Data/config.ini` and confirm compiled defaults still boot.
 - Set `fullscreen=false` and confirm startup uses the configured windowed dimensions.
 - Change one tool hotkey and confirm the old key no longer selects it while the new key does.
+- Change `escape_menu` and confirm the configured key opens the centered game menu.
 - Set each supported date format: `YYYY/MM/DD`, `MM/DD/YYYY`, and `DD/MM/YYYY`.
 - Toggle `print_query_values_to_console` and confirm query windows still update in both modes while console query dumps only print when enabled.
 

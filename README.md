@@ -7,6 +7,7 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
 - `GameSession` owns the boot mode, the default 3x3 `Region`, the reusable active `SimulationRuntime`, and alpha autoslot save/load.
 - `Region` owns coordinate-addressed `City` records and 4096x4096 top-down preview pixels rendered from saved city state through the normal city draw passes.
 - `Renderer` owns the OpenGL presentation path:
+  - startup and blocking foreground save/load screens with a shared loading bar
   - region preview grid rendering and double-click city entry
   - constrained pitched perspective camera
   - world-space tile rendering
@@ -21,6 +22,7 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
   - persistent residential/industrial zoning tint overlays plus matching drag previews
   - separate lot prism instancing
   - top-left simulation date display and top-right city population counter sourced from published simulation snapshots
+  - top-left date widget speed controls for paused, play, fast, and fast-forward simulation pacing
   - top-right region population counter sourced from summed city parameter metadata
   - screen-space in-game window, menu, button quads, and bitmap text for query inspection and tool selection
   - chunk frustum culling
@@ -50,13 +52,17 @@ Default keyboard bindings, startup fullscreen mode, preferred windowed resolutio
 - `F11`: toggle road debug graphics; off by default
 - `M`: add park module to an adjacent lot footprint
 - `Y`: remove the module under the hovered tile
-- `B`: drag a rectangular bulldoze area; selected tiles overlay red and selected buildings tint red before release. Bulldozing removes buildings and roads, but zoning and empty parcels remain for a future dezoning tool.
+- `B`: drag a rectangular bulldoze area; selected tiles overlay red and selected buildings tint red before release. Bulldozing removes buildings and roads, but zoning and empty parcels remain for the unzone tool.
 - `A`: query hovered tile; queried lots show an in-game detail window plus accepted commute routes as green car arrows and pink pedestrian arrows, road tiles summarize commuters passing through their lanes, and empty RCI lots show their zoning name
 - Bottom-left `Tools` button: show or hide the left-side tool menu
-- Left-side menu: select bulldoze, road, query, residential zoning, or industrial zoning
-- Residential / Industrial zoning buttons: drag a rectangle to zone vacant tiles or existing RCI lots. By default the RCI tool previews and commits lots plus surrounding local roads; hold `Shift` for lots only, or hold `Ctrl` for a plain area fill. New parcel lots require an unoccupied footprint.
-- Region mode starts first; double-click a city preview to enter that city
+- Left-side menu: select bulldoze, road, query, residential zoning, industrial zoning, or unzone
+- Residential / Industrial zoning buttons: drag a rectangle to zone vacant tiles or existing RCI lots. By default the RCI tool previews and commits lots plus surrounding local roads; hold `Shift` for lots only, or hold `Ctrl` for a plain area fill. New parcel lots require an unoccupied footprint, and plain area zoning still tries to fit empty parcels onto any unparcelled RCI tiles, preferring road-facing parcels when roads are already available.
+- Unzone button: drag a rectangle to clear only the selected tile zoning and rebuild affected empty RCI parcel boundaries without bulldozing buildings, roads, adjacent parcel tiles, or zoning beneath live lots.
+- Region mode starts first; the top-left `Exit` button opens the same save-before-exit dialog as `Esc` -> `Exit`.
+- Double-click a city preview to enter that city. If a dirty active city is cached from a previous city visit, the region view asks whether to save it before replacing it; choosing `No` discards that cached state, invalidates its dirty preview, and reloads from the city save. Double-clicking that same cached city returns to it directly from memory.
 - City mode shows the current simulation date at top left and the active city's population at top right
+- Date widget icon buttons set speed to paused, play (one tick per second), fast (render/simulation lockstep), or fast-forward (uncapped)
+- `Esc`: open the centered game menu; `Exit` asks whether to save before closing the game
 - Region mode shows total region population at top right
 - `F1`: save the current region autoslot
 - `F2`: load the region autoslot; in city mode, reload the current city in place
@@ -87,6 +93,13 @@ msbuild 'City Builder/RendererTests.vcxproj' /p:Configuration=Release /p:Platfor
 & 'City Builder/x64/Release/RendererTests.exe'
 ```
 
+Save/load round-trip coverage has a standalone integration target. It boots a temporary 32x32 sandbox city, mutates runtime state, saves to a temp autoslot, reloads through a fresh session, compares the exported state, and cleans up the temp files:
+
+```powershell
+msbuild 'City Builder/SaveLoadIntegrationTests.vcxproj' /p:Configuration=Release /p:Platform=x64 /m
+& 'City Builder/x64/Release/SaveLoadIntegrationTests.exe'
+```
+
 ## Architecture notes
 - Simulation remains tile-statistical and authoritative.
 - Rendering consumes published immutable snapshots only.
@@ -94,13 +107,15 @@ msbuild 'City Builder/RendererTests.vcxproj' /p:Configuration=Release /p:Platfor
 - Dynamic scalar tile debug color uploads only visible stale chunks through a compact texture.
 - Lot occupancy lift uploads only visible stale chunks through a small mask texture.
 - Roads live in a separate transport layer with their own published cell snapshot, directional pathfinding cost map, packed ground-road render state, traffic overlay state, and split ground/elevated chunk revisions so `Tile` stays compact for the scalar simulation passes.
+- Committed road edits rebuild pathing costs and traffic overlay pixels for affected dirty tiles only; full transport cost/overlay rebuilds are reserved for full city imports and whole-network resets.
 - Ground-road and elevated-road uploads are dirty visible-chunk only, and stale hidden chunks stay deferred until visible.
 - Traffic overlays use the same visible-dirty chunk upload pattern and draw above roads and lots as a presentation tint.
 - Road debug graphics start disabled and can be toggled with `F11`; disabling them hides ordinary direction arrows and car-lane connection markers while preserving turn-lane arrows, lane dividers, crosswalks, and road surfaces.
 - Road drag previews are renderer-only transient instances tinted with alpha; committed road topology still arrives through published snapshots.
 - Lot placement previews are renderer-only transient instances built from the same XML-backed lot candidate geometry used by committed placement.
 - Bulldoze previews are renderer-only transient area overlays; committed destruction still arrives through queued simulation commands and may remove buildings or roads, but does not clear zoning or empty parcels.
-- Residential and industrial zoning are XML-backed RCI tools. They queue simulation commands that mark zoneable tiles, optionally create empty zoning-lot parcels with boundary overlays, and can lay planned two-tile local streets before zoning. The RCI constructor runs after city parameters and commutes are recalculated, tries up to the XML-configured parcel attempts for each RCI type, and only builds lots whose capacity fits the current demand budget plus the configured overbuild allowance.
+- Unzone previews are renderer-only transient area overlays; committed unzoning clears tile zoning and empty parcel records through a queued simulation command.
+- Residential and industrial zoning are XML-backed RCI tools. They queue simulation commands that mark zoneable tiles, optionally create empty zoning-lot parcels with boundary overlays, and can lay planned two-tile local streets before zoning. Runtime area zoning and save import also fit empty zoning-lot parcel records onto unparcelled RCI tiles using the same RCI tool sizing rules, with a road-facing pass before the fallback block partitioner. The RCI constructor runs after city parameters and commutes are recalculated, tries up to the XML-configured parcel attempts for each RCI type, and only builds lots whose capacity fits the current demand budget plus the configured overbuild allowance.
 - In-game windows load from XML under `City Builder/Data/UI`; the current query window uses optional text fields, margins, and content hugging.
 - Tool menus and buttons also load from XML under `City Builder/Data/UI`; the current city tool menu lives in `city_tools.xml`.
 - The renderer timing print breaks out tile-state packing/upload bytes, lift uploads, ground-road uploads, elevated-road uploads, and draw costs.
@@ -112,9 +127,15 @@ msbuild 'City Builder/RendererTests.vcxproj' /p:Configuration=Release /p:Platfor
 - Constructor-built RCI lots grow their module render height from 0 percent to full height over their XML `constructionTicks`. Construction lots reserve demand budget immediately, but their population/jobs, pollution, land value, and commute demand do not enter city parameters until construction completes. Bulldozed RCI buildings expose their former empty zoning lot again after a 30-day redevelopment grace period.
 - Population is derived from the reduced resident wealth parameters (`$`, `$$`, and `$$$`) and published with snapshots rather than recounted from lots.
 - Simulation dates are city-owned and derive from each city's saved tick counter, where one tick is one day, starting from `SIMULATION_START_YEAR` / `SIMULATION_START_MONTH` / `SIMULATION_START_DAY` in `SimulationDate.h` (default January 1, 1900). `SimulationDateSettings` defaults display to `YYYY/MM/DD` and supports `MM/DD/YYYY` and `DD/MM/YYYY` through `Data/config.ini`.
+- City loads always start paused, whether entering from the region, switching cities, or reloading the autoslot in city mode. The runtime speed modes are paused, play at one tick per second, fast at render lockstep, and fast-forward uncapped.
+- Startup region loading, foreground city entry/reload, foreground return-to-region preview refresh, and foreground autoslot saves use the same loading bar, positioned about three-quarters down the screen. Future background autosaves should avoid that blocking loading stage and report separately if they need passive status.
+- Paused tool commands publish command-only frames, so building/road/zoning edits appear without advancing the simulation date.
+- Region preview textures stay resident while a city is open so F3 return only needs to refresh stale city previews, normally the city that was just open.
+- `RuntimeOptions` defaults city maps to 1024x1024 but can shrink the runtime for non-renderer integration tests such as the 32x32 save/load sandbox.
 
 ## Design guides
 - `docs/design/transport-network.md` - lane-owned road placement, directional cost maps, pathfinding, crosswalk graphic rules, packed road state, and layer revisions. Main code anchors: `TransportTypes.h`, `TransportCostMap.h`, `RoadLane.h`, `Road.h`, `TransportTile.h`, `RoadRenderState.h`, and `TransportNetwork.h`.
+- `docs/design/transport-routing-scalability-plan.md` - plan for persistent route scratch, sparse traffic load deltas, lazy route budgeting, later chunk-owned routing topology caches, and future destination-field reuse.
 - `docs/design/app-config.md` - INI-backed startup preferences, hotkeys, date display settings, and debug console gates.
 - `docs/design/renderer.md` - renderer upload, culling, texture, shader decisions, packed lane graphic masks, shared ground/elevated road render data, placement ghost previews, zoning overlays, and UI draw ordering. Main code anchors: `BuildLotInstance`, `BuildRoadPreviewInstances`, `BuildRoadChunkInstances`, `BuildWindowQuads`, `RendererBuildUiMenuQuads`, `UpdateGroundRoadChunkTexture`, and `applyRoadEdgeOverlays`.
 - `docs/design/simulation-threading.md` - tile passes, triple buffering, chunk worker rules, and published snapshot ownership.

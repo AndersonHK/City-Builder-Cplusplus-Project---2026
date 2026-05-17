@@ -26,7 +26,6 @@ int main() {
         appConfig.loadFromFile(DefaultAppConfigPath());
 
         GameSession gameSession(runtimeOptions);
-        gameSession.loadOrCreateRegion();
 
         AppController appController(gameSession, appConfig);
         Renderer renderer(gameSession, appController, appConfig);

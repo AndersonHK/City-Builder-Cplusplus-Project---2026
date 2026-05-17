@@ -21,8 +21,9 @@ Use this guide when changing `Lot`, lot placement, module expansion/removal, lot
 - Factory lots use a 3x2 footprint containing a 2x2 warehouse plus an adjacent smokestack module; their access XML defines eight exterior connection points that accept cars and pedestrians. House lots use a garden on the front-left pedestrian access tile, a driveway on the front-right car access tile, and a centered 2x2 house module behind them.
 - Lots still draw through a global placeholder-prism instance path.
 - RCI zoning lots start as separate empty parcel records. They have no modules, do not reserve building occupancy, and exist only to mark zoning boundaries over tiles until the constructor pass finds a matching RCI lot archetype and instantiates a real `Lot`.
+- Plain RCI area zoning now creates those empty parcel records too. `SimulationRuntime` fits parcels onto unoccupied, unparcelled RCI tiles with the XML-backed smart RCI tool dimensions, first trying frontage runs beside existing ground roads and then partitioning remaining RCI blocks.
 - Constructor-built RCI lots can be under construction. Their modules render as height-scaled growth from 0 percent to full height, but their city parameters, pollution, land-value effects, and commute demand are suppressed until construction completes.
-- Destroyed RCI building lots are removed and replaced by their former empty zoning parcel after a 30-day grace period. Bulldozing remains responsible for roads and building destruction; zoning and empty-parcel removal belong to the future dezoning tool.
+- Destroyed RCI building lots are removed and replaced by their former empty zoning parcel after a 30-day grace period. Bulldozing remains responsible for roads and building destruction; zoning and empty-parcel removal belong to the unzone tool.
 - RCI constructor lot archetypes are tagged with `zoningType` and currently cover residential and industrial 2- and 3-tile widths for depths 2 through 8.
 
 ## Rules
@@ -34,7 +35,9 @@ Use this guide when changing `Lot`, lot placement, module expansion/removal, lot
 - Keep lot previews presentation-only; they can share candidate footprint/render construction, but occupancy rejection and mutation belong to committed placement.
 - Keep RCI parcel creation separate from building `Lot` placement. Only the constructor pass should consume a zoning parcel and instantiate a building lot inside it.
 - Keep new empty RCI parcel records on unoccupied footprints. Plain area zoning may update existing RCI-lot tiles, but parcel creation over a live lot would create overlapping ownership for the constructor.
-- Keep bulldoze focused on building/module destruction and road removal. Removing zoning or empty parcels belongs to the future dezoning tool, not the bulldozer command path.
+- When RCI tiles are zoned without explicit parcels, run the parcel fitter over unparcelled RCI tiles instead of waiting for demand. Existing empty parcels, live lots, and ground roads are blockers; road-adjacent candidate runs should be claimed before landlocked fallback blocks.
+- Keep bulldoze focused on building/module destruction and road removal. Removing zoning or empty parcels belongs to the unzone command path, not the bulldozer command path.
+- Keep unzone from clearing zoning beneath live lots. If unzone touches an empty RCI parcel record, clear only the selected unoccupied tiles, then rebuild affected empty parcel records around the remaining zoned tiles.
 - When rotating lots, rotate both module origin and placed module footprint dimensions. Do not render a rotated non-square module with its original width/height.
 - Keep lot effects simple and tile-statistical until profiling proves a different model is needed.
 - Do not make lots the source of tile truth; they apply effects into simulation passes.

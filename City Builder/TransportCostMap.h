@@ -117,6 +117,7 @@ public:
     void initialize(int width, int height);
     void clear();
     void clearCosts();
+    void clearCostsForTile(TransportLayerId layer, int tileIndex);
     void clearLoads();
 
     int width() const;
@@ -148,6 +149,7 @@ public:
 
     bool findPath(const TransportPathRequest& request, TransportPathScratch& scratch, TransportPathResult& result) const;
     void buildTrafficOverlay(std::vector<std::uint8_t>& overlayPixels) const;
+    void buildTrafficOverlayForTiles(const std::vector<int>& tileIndices, std::vector<std::uint8_t>& overlayPixels) const;
 
 private:
     bool isTileInsideMap(int tileX, int tileY) const;

@@ -17,7 +17,7 @@ Use this guide when changing road placement, lane topology, road render data, or
 - `TransportTile` owns the authored lanes on one tile/layer and validates merge/replay rules locally, including replayed stroke identity updates during upgrades.
 - `RoadRenderState` owns base glyph, arrow glyph, lane graphic mask, and divider packing.
 - `TransportCostMap` owns dense outgoing directional costs, capacities, old/new load buffers, sparse transfer edges, A* scratch reuse, and traffic-overlay generation.
-- `TransportNetwork` owns layer storage, lot-occupancy rejection, dirty tile neighborhoods, chunk revisions, resolved-cell publication, cost-map rebuilding, traffic-overlay publication, and packed ground-road bytes.
+- `TransportNetwork` owns layer storage, lot-occupancy rejection, dirty tile neighborhoods, chunk revisions, resolved-cell publication, affected-tile cost-map rebuilding, traffic-overlay publication, and packed ground-road bytes.
 - `Data/TransportNetwork/congestion.xml` owns the utilization-to-speed-multiplier table used when old load turns base lane travel time into congested A* cost.
 
 ## Lane Rules
@@ -57,6 +57,8 @@ Otherwise the same pedestrian lane remains a sidewalk. This keeps T-section endp
 Road edits seed the immediate neighborhood and then expand dirty resolution across the connected road component. This lets validation use information from the full local road graph, including wide roads where the deciding continuation can be several tiles away from the modified slice. Same-stroke L-corner overlaps are cleaned to a valid corner configuration with one horizontal and one vertical junction leg; they must not remain as partial T/cross intersections. Road removal clears the full road cross-section for the clicked slice, so a normal two-tile two-way road removes both paired footprint tiles and wider avenue templates remove the full template width.
 
 After removal, any remaining contiguous authored road run whose longitudinal length is shorter than that road template's footprint is invalid and should be erased too. This prevents remnants such as a two-wide road left one tile long, or a four-wide road left only three tiles long.
+
+Committed road edits rebuild pathing costs and traffic-overlay pixels only for the dirty affected tiles and bump only the touched overlay chunks. Full cost-map and traffic-overlay rebuilds are reserved for full save import or other whole-network resets.
 
 ## Test Doctrine
 Prefer scenario-style sandbox and micro-simulation coverage over narrow helper-only unit tests. Small function assertions are useful for parsing and bit packing, but road, pathfinding, and commute behavior should be tested through authored configurations that look like player actions and inspect the resulting network state.
@@ -115,11 +117,12 @@ A car intersection node is a resolved car junction with at least three cardinal 
 - Build `x64 Release`.
 - Build and run `TransportNetworkTests.vcxproj`.
 - Verify straight one-way and two-way local streets, elevated highways, corners, tees, crosses, same-axis overlap rejection, exact replay revision stability, and lot-road occupancy rejection.
-- Verify directional one-way costs, lower-cost merge behavior, mode start costs, capacity accumulation, no implicit layer connection, explicit transfer edges, load add/subtract, congestion rerouting, and traffic-overlay colors.
+- Verify directional one-way costs, lower-cost merge behavior, mode start costs, capacity accumulation, no implicit layer connection, explicit transfer edges, load add/subtract, congestion rerouting, traffic-overlay colors, and affected-only overlay chunk updates after road removal.
 - Verify congestion XML keeps car cost at 10 tiles/time and pedestrian cost at 2 tiles/time at 100 percent capacity before applying over-capacity slowdowns.
 - In game, pan away and back after road edits to confirm deferred chunk uploads still catch up when visible.
 
 ## Related Guides
 - `README.md` indexes the project and controls.
+- `docs/design/transport-routing-scalability-plan.md` owns the persistent route scratch, sparse load delta, lazy route budgeting, later chunk-owned topology cache, and destination-field plan for making commute work scale with active network size.
 - `docs/design/renderer.md` covers packed road-state texture upload and elevated-road instance consumption.
 - `docs/design/simulation-threading.md` covers command application and snapshot publication.

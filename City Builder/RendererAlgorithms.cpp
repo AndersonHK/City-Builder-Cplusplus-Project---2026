@@ -28,6 +28,12 @@ struct GlyphPattern {
     const char* rows[7];
 };
 
+struct IconPattern {
+    const char* name;
+    int width;
+    const char* rows[7];
+};
+
 const char* const* RendererGlyphRows(std::uint32_t codepoint) {
     if (codepoint >= 'a' && codepoint <= 'z') {
         codepoint = codepoint - 'a' + 'A';
@@ -93,6 +99,25 @@ const char* const* RendererGlyphRows(std::uint32_t codepoint) {
     }
 
     return glyphs[sizeof(glyphs) / sizeof(glyphs[0]) - 1u].rows;
+}
+
+const IconPattern* RendererIconPatternForName(const std::string& iconName) {
+    static const IconPattern icons[] = {
+        {"pause", 9, {"110001100", "110001100", "110001100", "110001100", "110001100", "110001100", "110001100"}},
+        {"play", 9, {"100000000", "111000000", "111110000", "111111100", "111110000", "111000000", "100000000"}},
+        {"fast", 9, {"100010000", "110011000", "111011100", "111111110", "111011100", "110011000", "100010000"}},
+        {"fastForward", 9, {"100010001", "110011001", "111011101", "111111111", "111011101", "110011001", "100010001"}},
+        {"fast_forward", 9, {"100010001", "110011001", "111011101", "111111111", "111011101", "110011001", "100010001"}}
+    };
+
+    std::size_t iconIndex = 0;
+    for (; iconIndex < sizeof(icons) / sizeof(icons[0]); ++iconIndex) {
+        if (iconName == icons[iconIndex].name) {
+            return &icons[iconIndex];
+        }
+    }
+
+    return 0;
 }
 
 void RendererAddUiQuad(std::vector<UiQuadInstanceData>& quads, float x, float y, float width, float height, const RendererColor& color) {
@@ -172,6 +197,39 @@ void RendererBuildTextQuadsInRect(const std::string& text, float originX, float 
 
         cursorX += characterAdvance;
     }
+}
+
+bool RendererBuildIconQuadsInRect(const std::string& iconName, float originX, float originY, float width, float height, const RendererColor& iconColor, std::vector<UiQuadInstanceData>& quads) {
+    const IconPattern* icon = RendererIconPatternForName(iconName);
+    if (icon == 0) {
+        return false;
+    }
+
+    const float scale = 2.0f;
+    const float iconWidth = static_cast<float>(icon->width) * scale;
+    const float iconHeight = 7.0f * scale;
+    const float startX = originX + std::max(0.0f, (width - iconWidth) * 0.5f);
+    const float startY = originY + std::max(0.0f, (height - iconHeight) * 0.5f);
+    const float maxX = originX + width;
+    const float maxY = originY + height;
+
+    int row = 0;
+    for (; row < 7; ++row) {
+        int column = 0;
+        for (; column < icon->width; ++column) {
+            if (icon->rows[row][column] != '1') {
+                continue;
+            }
+
+            const float x = startX + static_cast<float>(column) * scale;
+            const float y = startY + static_cast<float>(row) * scale;
+            if (x + scale <= maxX && y + scale <= maxY) {
+                RendererAddUiQuad(quads, x, y, scale, scale, iconColor);
+            }
+        }
+    }
+
+    return true;
 }
 
 void RendererBuildTextQuads(const TextFieldElement& field, float windowX, float windowY, std::vector<UiQuadInstanceData>& quads) {
@@ -338,13 +396,28 @@ std::vector<UiQuadInstanceData> RendererBuildWindowQuads(const InGameWindow& win
 }
 
 std::vector<UiQuadInstanceData> RendererBuildUiMenuQuads(const UiLayout& uiLayout, int framebufferWidth, int framebufferHeight, const std::string& activeAction) {
+    std::vector<std::string> activeActions;
+    if (!activeAction.empty()) {
+        activeActions.push_back(activeAction);
+    }
+    return RendererBuildUiMenuQuads(uiLayout, framebufferWidth, framebufferHeight, activeActions);
+}
+
+std::vector<UiQuadInstanceData> RendererBuildUiMenuQuads(const UiLayout& uiLayout, int framebufferWidth, int framebufferHeight, const std::vector<std::string>& activeActions) {
+    const std::vector<std::string> menuIds;
+    return RendererBuildUiMenuQuads(uiLayout, framebufferWidth, framebufferHeight, activeActions, menuIds);
+}
+
+std::vector<UiQuadInstanceData> RendererBuildUiMenuQuads(const UiLayout& uiLayout, int framebufferWidth, int framebufferHeight, const std::vector<std::string>& activeActions, const std::vector<std::string>& menuIds) {
     std::vector<UiQuadInstanceData> quads;
     const std::vector<UiMenu>& menus = uiLayout.menus();
+    const bool includeAllMenus = menuIds.empty();
 
     std::size_t menuIndex = 0;
     for (; menuIndex < menus.size(); ++menuIndex) {
         const UiMenu& menu = menus[menuIndex];
-        if (!menu.visible()) {
+        if (!menu.visible() ||
+            (!includeAllMenus && std::find(menuIds.begin(), menuIds.end(), menu.id()) == menuIds.end())) {
             continue;
         }
 
@@ -359,7 +432,15 @@ std::vector<UiQuadInstanceData> RendererBuildUiMenuQuads(const UiLayout& uiLayou
     }
 
     std::vector<UiResolvedButton> resolvedButtons;
-    uiLayout.resolveButtons(framebufferWidth, framebufferHeight, activeAction, resolvedButtons);
+    for (menuIndex = 0; menuIndex < menus.size(); ++menuIndex) {
+        const UiMenu& menu = menus[menuIndex];
+        if (!menu.visible() ||
+            (!includeAllMenus && std::find(menuIds.begin(), menuIds.end(), menu.id()) == menuIds.end())) {
+            continue;
+        }
+
+        menu.resolveButtons(framebufferWidth, framebufferHeight, activeActions, resolvedButtons);
+    }
 
     std::size_t buttonIndex = 0;
     for (; buttonIndex < resolvedButtons.size(); ++buttonIndex) {
@@ -369,12 +450,17 @@ std::vector<UiQuadInstanceData> RendererBuildUiMenuQuads(const UiLayout& uiLayou
         const float width = static_cast<float>(button.rect.width);
         const float height = static_cast<float>(button.rect.height);
 
-        RendererAddUiQuad(quads, x, y, width, height, ToRendererColor(button.color));
-        RendererAddUiQuad(quads, x, y, width, 2.0f, RendererColor(0.70f, 0.78f, 0.70f, button.isActive ? 0.96f : 0.52f));
-        RendererAddUiQuad(quads, x, y + height - 2.0f, width, 2.0f, RendererColor(0.03f, 0.04f, 0.05f, 0.56f));
-        RendererAddUiQuad(quads, x, y, 2.0f, height, RendererColor(0.58f, 0.66f, 0.61f, button.isActive ? 0.92f : 0.46f));
-        RendererAddUiQuad(quads, x + width - 2.0f, y, 2.0f, height, RendererColor(0.03f, 0.04f, 0.05f, 0.56f));
-        RendererBuildTextQuadsInRect(button.text, x, y, width, height, RendererColor(0.92f, 0.96f, 0.92f, 1.0f), true, quads);
+        if (!button.action.empty()) {
+            RendererAddUiQuad(quads, x, y, width, height, ToRendererColor(button.color));
+            RendererAddUiQuad(quads, x, y, width, 2.0f, RendererColor(0.70f, 0.78f, 0.70f, button.isActive ? 0.96f : 0.52f));
+            RendererAddUiQuad(quads, x, y + height - 2.0f, width, 2.0f, RendererColor(0.03f, 0.04f, 0.05f, 0.56f));
+            RendererAddUiQuad(quads, x, y, 2.0f, height, RendererColor(0.58f, 0.66f, 0.61f, button.isActive ? 0.92f : 0.46f));
+            RendererAddUiQuad(quads, x + width - 2.0f, y, 2.0f, height, RendererColor(0.03f, 0.04f, 0.05f, 0.56f));
+        }
+        if (button.icon.empty() ||
+            !RendererBuildIconQuadsInRect(button.icon, x, y, width, height, RendererColor(0.92f, 0.96f, 0.92f, 1.0f), quads)) {
+            RendererBuildTextQuadsInRect(button.text, x, y, width, height, RendererColor(0.92f, 0.96f, 0.92f, 1.0f), true, quads);
+        }
     }
 
     return quads;
@@ -382,4 +468,26 @@ std::vector<UiQuadInstanceData> RendererBuildUiMenuQuads(const UiLayout& uiLayou
 
 void RendererAppendTextQuads(const std::string& text, float x, float y, float width, float height, const UiColor& textColor, bool centered, std::vector<UiQuadInstanceData>& quads) {
     RendererBuildTextQuadsInRect(text, x, y, width, height, ToRendererColor(textColor), centered, quads);
+}
+
+void RendererAppendLoadingScreenQuads(const std::string& label, float progress, int framebufferWidth, int framebufferHeight, std::vector<UiQuadInstanceData>& quads) {
+    const float width = static_cast<float>(std::max(1, framebufferWidth));
+    const float height = static_cast<float>(std::max(1, framebufferHeight));
+    const float clampedProgress = std::max(0.0f, std::min(progress, 1.0f));
+    const float barWidth = std::max(180.0f, std::min(560.0f, width - 96.0f));
+    const float barHeight = 20.0f;
+    const float barX = (width - barWidth) * 0.5f;
+    float barY = height * 0.75f;
+    if (barY + 96.0f > height) {
+        barY = std::max(42.0f, height - 96.0f);
+    }
+
+    RendererAddUiQuad(quads, 0.0f, 0.0f, width, height, RendererColor(0.018f, 0.025f, 0.030f, 1.0f));
+    RendererAddUiQuad(quads, 0.0f, 0.0f, width, 4.0f, RendererColor(0.18f, 0.33f, 0.30f, 0.70f));
+    RendererAddUiQuad(quads, 0.0f, height - 4.0f, width, 4.0f, RendererColor(0.18f, 0.33f, 0.30f, 0.50f));
+    RendererAddUiQuad(quads, barX - 2.0f, barY - 2.0f, barWidth + 4.0f, barHeight + 4.0f, RendererColor(0.36f, 0.48f, 0.44f, 0.95f));
+    RendererAddUiQuad(quads, barX, barY, barWidth, barHeight, RendererColor(0.055f, 0.070f, 0.076f, 0.98f));
+    RendererAddUiQuad(quads, barX + 3.0f, barY + 3.0f, (barWidth - 6.0f) * clampedProgress, barHeight - 6.0f, RendererColor(0.24f, 0.62f, 0.50f, 0.96f));
+    RendererBuildTextQuadsInRect("PROJECT PRIME", 0.0f, std::max(12.0f, barY - 74.0f), width, 28.0f, RendererColor(0.76f, 0.89f, 0.84f, 1.0f), true, quads);
+    RendererBuildTextQuadsInRect(label.empty() ? "Loading" : label, 0.0f, std::max(12.0f, barY - 34.0f), width, 22.0f, RendererColor(0.90f, 0.96f, 0.93f, 1.0f), true, quads);
 }

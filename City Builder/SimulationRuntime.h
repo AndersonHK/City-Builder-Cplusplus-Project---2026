@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -20,18 +21,29 @@
 #include "Tile.h"
 #include "TransportNetwork.h"
 
+enum class GameSpeed {
+    Paused,
+    Play,
+    Fast,
+    FastForward
+};
+
 struct RuntimeOptions {
     bool fastForward;
     bool detectL2CacheSize;
     std::size_t manualL2BytesPerLogicalThread;
     double usableL2Fraction;
+    int mapWidth;
+    int mapHeight;
 
     // Defaults to fast simulation and detected cache sizing.
     RuntimeOptions()
         : fastForward(true),
           detectL2CacheSize(true),
           manualL2BytesPerLogicalThread(0),
-          usableL2Fraction(0.75) {
+          usableL2Fraction(0.75),
+          mapWidth(1024),
+          mapHeight(1024) {
     }
 };
 
@@ -229,6 +241,8 @@ public:
 
     void start();
     void stop();
+    void setGameSpeed(GameSpeed gameSpeed);
+    GameSpeed gameSpeed() const;
 
     void queuePaintPollution(int tileX, int tileY, int amount);
     void queuePlaceLot(const std::string& lotAssetId, int tileX, int tileY, int rotationSteps = 0);
@@ -304,6 +318,9 @@ private:
     void loadAssets();
     void initializeWorld();
     void simulationLoop();
+    bool waitForTickPermission(GameSpeed& activeGameSpeed, std::chrono::steady_clock::time_point& nextPlayTick, bool& commandOnlyFrame);
+    bool hasPendingCommands() const;
+    void publishPausedCommandFrame();
     void startWorkers();
     void stopWorkers();
     void workerMain();
@@ -348,6 +365,19 @@ private:
     bool tryConstructOneRciLot(std::uint16_t zoningType, TileBuffer& writeBuffer);
     bool tryConstructRciLotAtIndex(std::size_t zoningLotIndex, float demandBudget, TileBuffer& writeBuffer, float& constructedCapacity);
     const LotAsset* findRciConstructorLotAsset(std::uint16_t zoningType, int width, int height, float demandBudget, int& rotationSteps, float& capacity) const;
+    const RciTool* findRciToolByZoningType(std::uint16_t zoningType) const;
+    bool hasRciConstructorLotAsset(std::uint16_t zoningType, int width, int height) const;
+    bool rciParcelTileIsAvailable(int tileX, int tileY, std::uint16_t zoningType, const TileBuffer& writeBuffer, const std::vector<std::uint8_t>& blockedTiles) const;
+    bool rciParcelRectIsAvailable(const RciRect& rect, std::uint16_t zoningType, const TileBuffer& writeBuffer, const std::vector<std::uint8_t>& blockedTiles) const;
+    void markRciParcelBlocked(const RciRect& rect, std::vector<std::uint8_t>& blockedTiles) const;
+    bool tryAddRciParcel(const RciTool& tool, const RciRect& rect, TileBuffer& writeBuffer, std::vector<std::uint8_t>& blockedTiles);
+    int rciRoadFacingDepthAtTile(int tileX, int tileY, int deltaX, int deltaY, std::uint16_t zoningType, const TileBuffer& writeBuffer, const std::vector<std::uint8_t>& blockedTiles, int maximumDepth) const;
+    RciRect mapRoadFacingRciLotRect(int roadFacingDirection, int frontageStartX, int frontageStartY, const RciRect& localRect) const;
+    std::size_t parcelizeRoadFacingRciRun(const RciTool& tool, int roadFacingDirection, int frontageStartX, int frontageStartY, const std::vector<int>& frontageDepths, TileBuffer& writeBuffer, std::vector<std::uint8_t>& blockedTiles);
+    std::size_t parcelizeRoadFacingRciTiles(std::uint16_t zoningType, const RciTool& tool, TileBuffer& writeBuffer, std::vector<std::uint8_t>& blockedTiles);
+    std::size_t parcelizeRemainingRciTiles(std::uint16_t zoningType, const RciTool& tool, TileBuffer& writeBuffer, std::vector<std::uint8_t>& blockedTiles);
+    std::size_t parcelizeUnparcelledRciTiles(std::uint16_t zoningType, TileBuffer& writeBuffer);
+    std::size_t parcelizeAllUnparcelledRciTiles(TileBuffer& writeBuffer);
     float rciDemandForZoningType(std::uint16_t zoningType) const;
     float rciPendingConstructionCapacity(std::uint16_t zoningType) const;
     float rciCapacityForLotAsset(const LotAsset& lotAsset, std::uint16_t zoningType) const;
@@ -359,6 +389,7 @@ private:
     bool tryBulldozeAtTile(int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
     bool tryBulldozeArea(int startTileX, int startTileY, int endTileX, int endTileY, TileBuffer& writeBuffer);
     bool tryZoneArea(int startTileX, int startTileY, int endTileX, int endTileY, std::uint16_t zoningType, TileBuffer& writeBuffer);
+    bool tryClearZoningArea(int startTileX, int startTileY, int endTileX, int endTileY, TileBuffer& writeBuffer);
     bool tryZoneLot(const RciLot& zoningLot, TileBuffer& writeBuffer);
     bool applyZoningRect(const RciRect& rect, std::uint16_t zoningType, TileBuffer& writeBuffer, std::vector<int>& changedTileIndices, bool& hasZoneableTile);
     bool isZoningRectFullyZoneable(const RciRect& rect, const TileBuffer& writeBuffer, bool requireUnoccupied) const;
@@ -385,7 +416,12 @@ private:
     static const int kInvalidLotId = -1;
 
     RuntimeOptions runtimeOptions_;
+    int mapWidth_;
+    int mapHeight_;
     ChunkConfig chunkConfig_;
+    // Guards mutable simulation state read outside the simulation thread, such
+    // as placement previews and save/load export/import.
+    mutable std::mutex liveStateMutex_;
 
     std::vector<TileBuffer> tileBuffers_;
     int simulationReadBufferIndex_;
@@ -404,6 +440,7 @@ private:
 
     std::vector<LotModule> moduleAssets_;
     std::vector<LotAsset> lotAssets_;
+    RciToolCatalog rciTools_;
     std::unordered_map<std::string, std::size_t> moduleAssetIndexById_;
     std::unordered_map<std::string, std::size_t> lotAssetIndexById_;
     std::vector<int> lotOccupancy_;
@@ -425,6 +462,9 @@ private:
     bool commutesDirty_;
     std::vector<int> forcedCommuteLotIds_;
     std::size_t commuteRebalanceCursor_;
+    // Simulation-thread-only A* scratch. Keeping it persistent lets the stamped
+    // arrays in TransportPathScratch amortize their map-sized allocation.
+    TransportPathScratch commutePathScratch_;
     TransportNetwork transportNetwork_;
 
     std::deque<PlayerCommand> pendingCommands_;
@@ -432,6 +472,9 @@ private:
 
     std::thread simulationThread_;
     std::atomic<bool> keepRunning_;
+    std::atomic<GameSpeed> gameSpeed_;
+    std::mutex speedMutex_;
+    std::condition_variable speedCv_;
 
     std::vector<std::thread> workerThreads_;
     std::mutex workerMutex_;

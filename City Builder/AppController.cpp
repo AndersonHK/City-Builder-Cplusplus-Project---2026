@@ -56,6 +56,63 @@ const char* RotationDirectionName(int rotationSteps) {
     }
 }
 
+const char* GameSpeedName(GameSpeed gameSpeed) {
+    switch (gameSpeed) {
+        case GameSpeed::Paused:
+            return "paused";
+
+        case GameSpeed::Play:
+            return "play";
+
+        case GameSpeed::Fast:
+            return "fast";
+
+        case GameSpeed::FastForward:
+            return "fast forward";
+    }
+
+    return "unknown";
+}
+
+std::string GameSpeedAction(GameSpeed gameSpeed) {
+    switch (gameSpeed) {
+        case GameSpeed::Paused:
+            return "set_speed_paused";
+
+        case GameSpeed::Play:
+            return "set_speed_play";
+
+        case GameSpeed::Fast:
+            return "set_speed_fast";
+
+        case GameSpeed::FastForward:
+            return "set_speed_fast_forward";
+    }
+
+    return std::string();
+}
+
+bool TryGameSpeedForAction(const std::string& action, GameSpeed& gameSpeed) {
+    if (action == "set_speed_paused") {
+        gameSpeed = GameSpeed::Paused;
+        return true;
+    }
+    if (action == "set_speed_play") {
+        gameSpeed = GameSpeed::Play;
+        return true;
+    }
+    if (action == "set_speed_fast") {
+        gameSpeed = GameSpeed::Fast;
+        return true;
+    }
+    if (action == "set_speed_fast_forward") {
+        gameSpeed = GameSpeed::FastForward;
+        return true;
+    }
+
+    return false;
+}
+
 // Returns the human-readable label used when the active tool changes.
 const char* ActiveToolName(ActiveTool activeTool) {
     switch (activeTool) {
@@ -97,6 +154,9 @@ const char* ActiveToolName(ActiveTool activeTool) {
 
         case ActiveTool::ZoneIndustrial:
             return "industrial zoning";
+
+        case ActiveTool::ZoneUnzone:
+            return "unzone";
     }
 
     return "unknown";
@@ -446,6 +506,10 @@ AppController::AppController(GameSession& gameSession, const AppConfig& appConfi
       appConfig_(appConfig),
       uiPressCaptured_(false),
       regionClickPending_(false),
+      quitRequested_(false),
+      pendingRegionEnter_(false),
+      pendingRegionEnterX_(0),
+      pendingRegionEnterY_(0),
       hasLastRegionClick_(false),
       lastRegionClickX_(0),
       lastRegionClickY_(0),
@@ -461,7 +525,13 @@ void AppController::onCursorMoved(double mouseX, double mouseY) {
 // Dispatches the currently selected tool's primary click action.
 void AppController::onLeftMouseButtonPressed() {
     uiPressCaptured_ = false;
-    if (!gameSession_.isRegionMode() && handleUiClick()) {
+    if (modalMenuOpen()) {
+        handleUiClick();
+        uiPressCaptured_ = true;
+        return;
+    }
+
+    if (handleUiClick()) {
         uiPressCaptured_ = true;
         return;
     }
@@ -518,6 +588,7 @@ void AppController::onLeftMouseButtonPressed() {
 
         case ActiveTool::ZoneResidential:
         case ActiveTool::ZoneIndustrial:
+        case ActiveTool::ZoneUnzone:
             beginZoneDrag(tileX, tileY);
             break;
     }
@@ -555,6 +626,10 @@ void AppController::onLeftMouseButtonHeld() {
         return;
     }
 
+    if (modalMenuOpen()) {
+        return;
+    }
+
     if (gameSession_.isRegionMode()) {
         return;
     }
@@ -588,6 +663,11 @@ void AppController::onKeyPressed(int key, int action) {
     }
 
     const HotkeyConfig& hotkeys = appConfig_.hotkeys;
+    if (action == kKeyActionPress && key == hotkeys.escapeMenu) {
+        toggleEscapeMenu();
+        return;
+    }
+
     if (action == kKeyActionPress && key == hotkeys.save) {
         syncActiveCityCameraToSession();
         gameSession_.saveAutoslot();
@@ -861,7 +941,7 @@ bool AppController::zonePreviewRect(int& minTileX, int& minTileY, int& maxTileX,
     maxTileX = std::max(viewState_.zoneDragStartX, viewState_.zoneDragCurrentX);
     maxTileY = std::max(viewState_.zoneDragStartY, viewState_.zoneDragCurrentY);
     zoningType = viewState_.zoneDragType;
-    return zoningType != TileZoningNone;
+    return viewState_.activeTool == ActiveTool::ZoneUnzone || zoningType != TileZoningNone;
 }
 
 bool AppController::rciPreviewPlan(RciPlan& plan) const {
@@ -897,9 +977,30 @@ std::string AppController::activeUiAction() const {
         case ActiveTool::ZoneIndustrial:
             return "select_rci_industrial";
 
+        case ActiveTool::ZoneUnzone:
+            return "select_rci_unzone";
+
         default:
             return std::string();
     }
+}
+
+std::vector<std::string> AppController::activeUiActions() const {
+    std::vector<std::string> actions;
+    const std::string activeToolAction = activeUiAction();
+    if (!activeToolAction.empty()) {
+        actions.push_back(activeToolAction);
+    }
+
+    if (gameSession_.isCityMode()) {
+        actions.push_back(GameSpeedAction(gameSession_.gameSpeed()));
+    }
+
+    return actions;
+}
+
+bool AppController::quitRequested() const {
+    return quitRequested_;
 }
 
 // Keeps the camera span inside the map after pan or zoom changes.
@@ -944,6 +1045,41 @@ void AppController::toggleRoadDebugGraphics() {
     std::cout << "Road debug graphics: " << (viewState_.roadDebugGraphicsEnabled ? "on" : "off") << std::endl;
 }
 
+void AppController::setGameSpeed(GameSpeed gameSpeed) {
+    gameSession_.setGameSpeed(gameSpeed);
+    std::cout << "Game speed: " << GameSpeedName(gameSpeed) << std::endl;
+}
+
+bool AppController::modalMenuOpen() const {
+    return uiLayout_.menuVisible("escape_menu") ||
+        uiLayout_.menuVisible("exit_confirm_dialog") ||
+        uiLayout_.menuVisible("city_switch_confirm_dialog");
+}
+
+void AppController::clearTransientInteractions() {
+    viewState_.roadDragActive = false;
+    viewState_.bulldozeDragActive = false;
+    viewState_.zoneDragActive = false;
+    viewState_.zoneDragToolId.clear();
+}
+
+void AppController::toggleEscapeMenu() {
+    clearTransientInteractions();
+    if (uiLayout_.menuVisible("exit_confirm_dialog")) {
+        uiLayout_.setMenuVisible("exit_confirm_dialog", false);
+        uiLayout_.setMenuVisible("escape_menu", true);
+        return;
+    }
+
+    if (uiLayout_.menuVisible("city_switch_confirm_dialog")) {
+        uiLayout_.setMenuVisible("city_switch_confirm_dialog", false);
+        pendingRegionEnter_ = false;
+        return;
+    }
+
+    uiLayout_.setMenuVisible("escape_menu", !uiLayout_.menuVisible("escape_menu"));
+}
+
 void AppController::rotatePlacement(int deltaSteps) {
     viewState_.lotRotationSteps = ((viewState_.lotRotationSteps + deltaSteps) % 4 + 4) % 4;
     std::cout << "Lot placement front: " << RotationDirectionName(viewState_.lotRotationSteps) << std::endl;
@@ -955,7 +1091,9 @@ bool AppController::activeToolIsRoad() const {
 }
 
 bool AppController::activeToolIsZoning() const {
-    return viewState_.activeTool == ActiveTool::ZoneResidential || viewState_.activeTool == ActiveTool::ZoneIndustrial;
+    return viewState_.activeTool == ActiveTool::ZoneResidential ||
+        viewState_.activeTool == ActiveTool::ZoneIndustrial ||
+        viewState_.activeTool == ActiveTool::ZoneUnzone;
 }
 
 std::string AppController::activeRciToolId() const {
@@ -1005,8 +1143,25 @@ bool AppController::buildActiveRciPlan(RciPlan& plan) const {
 }
 
 bool AppController::handleUiClick() {
+    std::vector<std::string> menuIds;
+    if (modalMenuOpen()) {
+        menuIds.push_back("escape_menu");
+        menuIds.push_back("exit_confirm_dialog");
+        menuIds.push_back("city_switch_confirm_dialog");
+    } else if (gameSession_.isRegionMode()) {
+        menuIds.push_back("region_exit");
+    } else {
+        menuIds.push_back("date_speed");
+        menuIds.push_back("side_tools");
+        menuIds.push_back("menu_toggle");
+    }
+
+    return handleUiClickForMenus(menuIds);
+}
+
+bool AppController::handleUiClickForMenus(const std::vector<std::string>& menuIds) {
     std::string action;
-    if (!uiLayout_.hitTestAction(viewState_.mouseX, viewState_.mouseY, viewState_.framebufferWidth, viewState_.framebufferHeight, action)) {
+    if (!uiLayout_.hitTestAction(viewState_.mouseX, viewState_.mouseY, viewState_.framebufferWidth, viewState_.framebufferHeight, menuIds, action)) {
         return false;
     }
 
@@ -1015,10 +1170,63 @@ bool AppController::handleUiClick() {
 }
 
 void AppController::invokeUiAction(const std::string& action) {
+    GameSpeed requestedGameSpeed = GameSpeed::Paused;
+    if (TryGameSpeedForAction(action, requestedGameSpeed)) {
+        setGameSpeed(requestedGameSpeed);
+        return;
+    }
+
+    if (action == "open_exit_confirm") {
+        clearTransientInteractions();
+        uiLayout_.setMenuVisible("escape_menu", false);
+        uiLayout_.setMenuVisible("city_switch_confirm_dialog", false);
+        uiLayout_.setMenuVisible("exit_confirm_dialog", true);
+        return;
+    }
+
+    if (action == "exit_save_yes") {
+        syncActiveCityCameraToSession();
+        if (gameSession_.saveAutoslot()) {
+            quitRequested_ = true;
+            uiLayout_.setMenuVisible("escape_menu", false);
+            uiLayout_.setMenuVisible("exit_confirm_dialog", false);
+            uiLayout_.setMenuVisible("city_switch_confirm_dialog", false);
+        } else {
+            std::cout << "Save failed; exit canceled." << std::endl;
+        }
+        return;
+    }
+
+    if (action == "exit_save_no") {
+        quitRequested_ = true;
+        uiLayout_.setMenuVisible("escape_menu", false);
+        uiLayout_.setMenuVisible("exit_confirm_dialog", false);
+        uiLayout_.setMenuVisible("city_switch_confirm_dialog", false);
+        return;
+    }
+
+    if (action == "city_switch_save_yes") {
+        if (gameSession_.saveAutoslot()) {
+            uiLayout_.setMenuVisible("city_switch_confirm_dialog", false);
+            enterPendingRegionCity();
+        } else {
+            std::cout << "Save failed; city switch canceled." << std::endl;
+        }
+        return;
+    }
+
+    if (action == "city_switch_save_no") {
+        if (gameSession_.discardActiveCityChanges()) {
+            uiLayout_.setMenuVisible("city_switch_confirm_dialog", false);
+            enterPendingRegionCity();
+        } else {
+            std::cout << "Discard failed; city switch canceled." << std::endl;
+        }
+        return;
+    }
+
     if (action == "toggle_side_menu") {
-        viewState_.roadDragActive = false;
-        viewState_.bulldozeDragActive = false;
-        viewState_.zoneDragActive = false;
+        clearTransientInteractions();
         uiLayout_.toggleMenu("side_tools");
         return;
     }
@@ -1034,6 +1242,8 @@ void AppController::invokeUiAction(const std::string& action) {
         setActiveTool(ActiveTool::ZoneResidential);
     } else if (action == "select_rci_industrial") {
         setActiveTool(ActiveTool::ZoneIndustrial);
+    } else if (action == "select_rci_unzone") {
+        setActiveTool(ActiveTool::ZoneUnzone);
     }
 }
 
@@ -1057,14 +1267,39 @@ bool AppController::handleRegionClick() {
 
     if (isDoubleClick) {
         hasLastRegionClick_ = false;
-        const bool enteredCity = gameSession_.enterCity(viewState_.hoveredRegionX, viewState_.hoveredRegionY);
-        if (enteredCity) {
-            applyCameraFromActiveCity();
+        pendingRegionEnter_ = true;
+        pendingRegionEnterX_ = viewState_.hoveredRegionX;
+        pendingRegionEnterY_ = viewState_.hoveredRegionY;
+        const City* activeCity = gameSession_.activeCity();
+        const bool enteringDifferentCity = activeCity != 0 &&
+            (activeCity->regionX() != pendingRegionEnterX_ || activeCity->regionY() != pendingRegionEnterY_);
+        if (enteringDifferentCity && gameSession_.activeCityHasUnsavedChanges()) {
+            clearTransientInteractions();
+            uiLayout_.setMenuVisible("escape_menu", false);
+            uiLayout_.setMenuVisible("exit_confirm_dialog", false);
+            uiLayout_.setMenuVisible("city_switch_confirm_dialog", true);
+            return true;
         }
-        return enteredCity;
+
+        return enterPendingRegionCity();
     }
 
     return false;
+}
+
+bool AppController::enterPendingRegionCity() {
+    if (!pendingRegionEnter_) {
+        return false;
+    }
+
+    const int regionX = pendingRegionEnterX_;
+    const int regionY = pendingRegionEnterY_;
+    pendingRegionEnter_ = false;
+    const bool enteredCity = gameSession_.enterCity(regionX, regionY);
+    if (enteredCity) {
+        applyCameraFromActiveCity();
+    }
+    return enteredCity;
 }
 
 void AppController::applyCameraFromActiveCity() {

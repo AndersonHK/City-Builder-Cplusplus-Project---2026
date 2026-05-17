@@ -20,6 +20,7 @@ public:
     bool placeRoadStroke(const RoadStrokeCommand& roadStrokeCommand, const std::vector<int>& lotOccupancy, int invalidLotId);
     bool canPlaceRoadStroke(const RoadStrokeCommand& roadStrokeCommand, const std::vector<int>& lotOccupancy, int invalidLotId) const;
     bool removeRoadAtTile(int tileX, int tileY);
+    bool removeRoadsAtTiles(const std::vector<int>& tileIndices);
 
     const std::vector<ResolvedRoadCell>& resolvedCells() const;
     const TransportCostMap& costMap() const;
@@ -65,9 +66,11 @@ private:
     bool mergeConnectedReplayStrokeId(TransportLayerId layer, const RoadLanePlacement& lanePlacement, std::uint32_t oldStrokeId);
     void resolveDirtyTile(TransportLayerId layer, int tileX, int tileY);
     void rebuildCostMapAndTrafficOverlay();
+    void rebuildCostMapAndTrafficOverlayForTiles(const std::vector<int>& dirtyTileIndices);
     void addLaneToCostMap(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement);
     void refreshTrafficOverlayState();
     void bumpAllTrafficOverlayChunkRevisions();
+    void bumpTrafficOverlayChunkRevisionsForTiles(const std::vector<int>& dirtyTileIndices);
     void markDirtyNeighborhood(const std::vector<RoadTilePlacement>& placements, std::vector<int>& dirtyTileIndices) const;
     void markDirtyTileNeighborhood(const std::vector<int>& tileIndices, std::vector<int>& dirtyTileIndices) const;
     void expandDirtyRoadDependencies(TransportLayerId layer, std::vector<int>& dirtyTileIndices) const;

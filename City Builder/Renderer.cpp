@@ -2317,6 +2317,61 @@ void UploadRegionPreviewTexture(RegionPreviewTextureCache& cache, const City& ci
     cache.previewRevision = city.previewRevision();
 }
 
+float LoadingBarYForHeight(float height) {
+    float barY = height * 0.75f;
+    if (barY + 96.0f > height) {
+        barY = std::max(42.0f, height - 96.0f);
+    }
+    return barY;
+}
+
+void ClearScreenRect(int framebufferWidth, int framebufferHeight, float x, float y, float width, float height, float red, float green, float blue, float alpha) {
+    const int scissorX = std::max(0, static_cast<int>(x + 0.5f));
+    const int scissorY = std::max(0, framebufferHeight - static_cast<int>(y + height + 0.5f));
+    const int scissorWidth = std::max(0, std::min(framebufferWidth - scissorX, static_cast<int>(width + 0.5f)));
+    const int scissorHeight = std::max(0, std::min(framebufferHeight - scissorY, static_cast<int>(height + 0.5f)));
+    if (scissorWidth <= 0 || scissorHeight <= 0) {
+        return;
+    }
+
+    glScissor(scissorX, scissorY, scissorWidth, scissorHeight);
+    glClearColor(red, green, blue, alpha);
+    glClear(GL_COLOR_BUFFER_BIT);
+}
+
+void DrawBootstrapLoadingScreen(GLFWwindow* window, float progress) {
+    int framebufferWidth = 0;
+    int framebufferHeight = 0;
+    glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
+    framebufferWidth = std::max(1, framebufferWidth);
+    framebufferHeight = std::max(1, framebufferHeight);
+
+    const float width = static_cast<float>(framebufferWidth);
+    const float height = static_cast<float>(framebufferHeight);
+    const float clampedProgress = std::max(0.0f, std::min(progress, 1.0f));
+    const float barWidth = std::max(180.0f, std::min(560.0f, width - 96.0f));
+    const float barHeight = 20.0f;
+    const float barX = (width - barWidth) * 0.5f;
+    const float barY = LoadingBarYForHeight(height);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, framebufferWidth, framebufferHeight);
+    glDisable(GL_SCISSOR_TEST);
+    glClearColor(0.018f, 0.025f, 0.030f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    glEnable(GL_SCISSOR_TEST);
+    ClearScreenRect(framebufferWidth, framebufferHeight, 0.0f, 0.0f, width, 4.0f, 0.18f, 0.33f, 0.30f, 0.70f);
+    ClearScreenRect(framebufferWidth, framebufferHeight, 0.0f, height - 4.0f, width, 4.0f, 0.18f, 0.33f, 0.30f, 0.50f);
+    ClearScreenRect(framebufferWidth, framebufferHeight, barX - 2.0f, barY - 2.0f, barWidth + 4.0f, barHeight + 4.0f, 0.36f, 0.48f, 0.44f, 0.95f);
+    ClearScreenRect(framebufferWidth, framebufferHeight, barX, barY, barWidth, barHeight, 0.055f, 0.070f, 0.076f, 0.98f);
+    ClearScreenRect(framebufferWidth, framebufferHeight, barX + 3.0f, barY + 3.0f, (barWidth - 6.0f) * clampedProgress, barHeight - 6.0f, 0.24f, 0.62f, 0.50f, 0.96f);
+    glDisable(GL_SCISSOR_TEST);
+
+    glfwSwapBuffers(window);
+    glfwPollEvents();
+}
+
 }
 
 // Connects the renderer to immutable snapshots and user input state.
@@ -2389,6 +2444,8 @@ int Renderer::run() {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
+
+    DrawBootstrapLoadingScreen(window, 0.02f);
 
     const float tileVertices[] = {
         0.0f, 0.0f, 0.0f,
@@ -2701,10 +2758,57 @@ int Renderer::run() {
     std::vector<RouteArrowInstanceData> routeArrowInstances;
     std::vector<RegionPreviewTextureCache> regionPreviewTextureCaches;
     std::vector<UiQuadInstanceData> uiQuadInstances;
+    auto drawLoadingScreen = [&] (const LoadingStatus& loadingStatus) {
+        if (!loadingStatus.active) {
+            return;
+        }
+
+        int loadingFramebufferWidth = 0;
+        int loadingFramebufferHeight = 0;
+        glfwGetFramebufferSize(window, &loadingFramebufferWidth, &loadingFramebufferHeight);
+        loadingFramebufferWidth = std::max(1, loadingFramebufferWidth);
+        loadingFramebufferHeight = std::max(1, loadingFramebufferHeight);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, loadingFramebufferWidth, loadingFramebufferHeight);
+        glClearColor(0.018f, 0.025f, 0.030f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        uiQuadInstances.clear();
+        RendererAppendLoadingScreenQuads(
+            loadingStatus.label,
+            loadingStatus.progress,
+            loadingFramebufferWidth,
+            loadingFramebufferHeight,
+            uiQuadInstances);
+        DrawUiQuadInstances(
+            shaderProgram,
+            viewProjectionLocation,
+            renderModeLocation,
+            uiInstanceBufferId,
+            uiVertexArrayId,
+            loadingFramebufferWidth,
+            loadingFramebufferHeight,
+            uiQuadInstances);
+        glfwSwapBuffers(window);
+    };
+
+    gameSession_.setLoadingPresenter(drawLoadingScreen);
+    LoadingStatus startupLoadingStatus;
+    startupLoadingStatus.active = true;
+    startupLoadingStatus.label = "Starting";
+    startupLoadingStatus.progress = 0.04f;
+    drawLoadingScreen(startupLoadingStatus);
+
     InGameWindow queryWindow;
+    startupLoadingStatus.label = "Loading UI";
+    startupLoadingStatus.progress = 0.08f;
+    drawLoadingScreen(startupLoadingStatus);
     queryWindow.loadFromXmlFile(BuildDataPath("UI\\lot_query.xml"));
     appController_.loadUiLayoutFromXmlFile(BuildDataPath("UI\\city_tools.xml"));
+    startupLoadingStatus.label = "Loading tools";
+    startupLoadingStatus.progress = 0.14f;
+    drawLoadingScreen(startupLoadingStatus);
     appController_.loadRciToolsFromXmlFile(BuildDataPath("RCI\\rci_tools.xml"));
+    gameSession_.loadOrCreateRegion();
     std::uint64_t lastUploadedLotRevision = std::numeric_limits<std::uint64_t>::max();
     std::uint64_t lastUploadedZoningLotRevision = std::numeric_limits<std::uint64_t>::max();
     std::uint64_t lastUploadedQueryRouteRevision = std::numeric_limits<std::uint64_t>::max();
@@ -2718,6 +2822,61 @@ int Renderer::run() {
     bool roadGhostPlacementValid = true;
     float roadGhostAlphaScale = kRoadGhostAlpha;
     bool lotGhostPlacementValid = true;
+
+    auto drawRegionPreviewLoadingScreen = [&] (const std::string& label, float progress) {
+        LoadingStatus regionLoadingStatus;
+        regionLoadingStatus.active = true;
+        regionLoadingStatus.label = label;
+        regionLoadingStatus.progress = progress;
+        drawLoadingScreen(regionLoadingStatus);
+    };
+
+    auto staleRegionPreviewCount = [&] () -> std::size_t {
+        const std::vector<std::unique_ptr<City> >& cities = gameSession_.region().cities();
+        if (cities.empty()) {
+            return 0u;
+        }
+
+        if (lastRegionPreviewCacheRevision != gameSession_.region().revision() ||
+            regionPreviewTextureCaches.size() != cities.size()) {
+            return cities.size();
+        }
+
+        std::size_t staleCount = 0u;
+        std::size_t cityIndex = 0u;
+        for (; cityIndex < cities.size(); ++cityIndex) {
+            if (cityIndex >= regionPreviewTextureCaches.size() ||
+                regionPreviewTextureCaches[cityIndex].textureId == 0 ||
+                regionPreviewTextureCaches[cityIndex].previewRevision != cities[cityIndex]->previewRevision()) {
+                ++staleCount;
+            }
+        }
+        return staleCount;
+    };
+
+    auto regionPreviewLoadingProgress = [&] () -> float {
+        const std::vector<std::unique_ptr<City> >& cities = gameSession_.region().cities();
+        if (cities.empty()) {
+            return 1.0f;
+        }
+
+        if (lastRegionPreviewCacheRevision != gameSession_.region().revision() ||
+            regionPreviewTextureCaches.size() != cities.size()) {
+            return 0.12f;
+        }
+
+        std::size_t readyCount = 0u;
+        std::size_t cityIndex = 0u;
+        for (; cityIndex < cities.size() && cityIndex < regionPreviewTextureCaches.size(); ++cityIndex) {
+            if (regionPreviewTextureCaches[cityIndex].textureId != 0 &&
+                regionPreviewTextureCaches[cityIndex].previewRevision == cities[cityIndex]->previewRevision()) {
+                ++readyCount;
+            }
+        }
+
+        const float normalizedReady = static_cast<float>(readyCount) / static_cast<float>(std::max<std::size_t>(cities.size(), 1u));
+        return 0.12f + 0.78f * normalizedReady;
+    };
 
     auto invalidateCityRenderCaches = [&] () {
         std::size_t cacheIndex = 0;
@@ -2939,6 +3098,7 @@ int Renderer::run() {
         appController_.setModifierKeys(shiftDown, controlDown);
 
         if (gameSession_.isLoading()) {
+            drawLoadingScreen(gameSession_.loadingStatus());
             glfwPollEvents();
             continue;
         }
@@ -2946,11 +3106,25 @@ int Renderer::run() {
         appController_.refreshQueryResultIfNeeded();
         const ViewState viewState = appController_.viewState();
         if (gameSession_.isRegionMode()) {
+            const bool returningFromCity = !lastFrameWasRegion;
+            const std::size_t stalePreviewCountBeforeUpdate = staleRegionPreviewCount();
+            if (stalePreviewCountBeforeUpdate > 0u) {
+                if (returningFromCity) {
+                    std::cout << "Refreshing " << stalePreviewCountBeforeUpdate << " stale region preview"
+                        << (stalePreviewCountBeforeUpdate == 1u ? "." : "s.") << std::endl;
+                }
+                drawRegionPreviewLoadingScreen(returningFromCity ? "Loading region" : "Loading region previews", regionPreviewLoadingProgress());
+            }
+
             if (!updateRegionPreviewTextures()) {
                 appController_.setHoveredRegionCity(0, 0, false);
+                drawRegionPreviewLoadingScreen(returningFromCity ? "Loading region" : "Loading region previews", regionPreviewLoadingProgress());
                 glfwPollEvents();
                 lastFrameWasRegion = true;
                 continue;
+            }
+            if (stalePreviewCountBeforeUpdate > 0u) {
+                drawRegionPreviewLoadingScreen(returningFromCity ? "Loading region" : "Loading region previews", 1.0f);
             }
 
             const CameraState regionCameraState = BuildRegionCameraState(viewState, gameSession_.region());
@@ -2958,6 +3132,12 @@ int Renderer::run() {
             int hoveredRegionY = 0;
             const bool hasHoveredRegion = TryPickRegionCity(viewState, regionCameraState, gameSession_.region(), hoveredRegionX, hoveredRegionY);
             appController_.setHoveredRegionCity(hoveredRegionX, hoveredRegionY, hasHoveredRegion);
+            appController_.processPendingRegionClick();
+            if (!gameSession_.isRegionMode() || gameSession_.isLoading()) {
+                glfwPollEvents();
+                lastFrameWasRegion = true;
+                continue;
+            }
 
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             glViewport(0, 0, framebufferWidth, framebufferHeight);
@@ -2998,6 +3178,27 @@ int Renderer::run() {
                 std::max(16.0f, static_cast<float>(framebufferWidth) - 406.0f),
                 16.0f,
                 390.0f);
+            {
+                std::vector<std::string> regionMenuIds;
+                regionMenuIds.push_back("region_exit");
+                if (appController_.uiLayout().menuVisible("escape_menu")) {
+                    regionMenuIds.push_back("escape_menu");
+                }
+                if (appController_.uiLayout().menuVisible("exit_confirm_dialog")) {
+                    regionMenuIds.push_back("exit_confirm_dialog");
+                }
+                if (appController_.uiLayout().menuVisible("city_switch_confirm_dialog")) {
+                    regionMenuIds.push_back("city_switch_confirm_dialog");
+                }
+                const std::vector<std::string> activeActions;
+                std::vector<UiQuadInstanceData> menuQuadInstances = RendererBuildUiMenuQuads(
+                    appController_.uiLayout(),
+                    framebufferWidth,
+                    framebufferHeight,
+                    activeActions,
+                    regionMenuIds);
+                uiQuadInstances.insert(uiQuadInstances.end(), menuQuadInstances.begin(), menuQuadInstances.end());
+            }
             DrawUiQuadInstances(
                 shaderProgram,
                 viewProjectionLocation,
@@ -3007,9 +3208,11 @@ int Renderer::run() {
                 framebufferWidth,
                 framebufferHeight,
                 uiQuadInstances);
-            appController_.processPendingRegionClick();
             glfwSwapBuffers(window);
             glfwPollEvents();
+            if (appController_.quitRequested()) {
+                glfwSetWindowShouldClose(window, GLFW_TRUE);
+            }
             lastFrameWasRegion = true;
             continue;
         }
@@ -3020,17 +3223,12 @@ int Renderer::run() {
 
         const std::uint64_t renderStateRevision = gameSession_.renderStateRevision();
         if (lastFrameWasRegion || lastHandledRenderStateRevision != renderStateRevision) {
-            if (lastFrameWasRegion) {
-                DestroyRegionPreviewTextureCaches(regionPreviewTextureCaches);
-                lastRegionPreviewCacheRevision = std::numeric_limits<std::uint64_t>::max();
-            }
             invalidateCityRenderCaches();
             lastFrameWasRegion = false;
             lastHandledRenderStateRevision = renderStateRevision;
         }
 
         const CameraState cameraState = BuildCameraState(viewState);
-        const PublishedWorldSnapshot snapshot = simulationRuntime.acquirePublishedSnapshot();
 
         int hoveredTileX = 0;
         int hoveredTileY = 0;
@@ -3046,6 +3244,17 @@ int Renderer::run() {
 
         RciPlan rciGhostPlan;
         const bool hasRciGhostPlan = appController_.rciPreviewPlan(rciGhostPlan);
+        int zonePreviewMinTileX = 0;
+        int zonePreviewMinTileY = 0;
+        int zonePreviewMaxTileX = 0;
+        int zonePreviewMaxTileY = 0;
+        std::uint16_t zonePreviewType = TileZoningNone;
+        const bool hasZonePreviewRect = appController_.zonePreviewRect(
+            zonePreviewMinTileX,
+            zonePreviewMinTileY,
+            zonePreviewMaxTileX,
+            zonePreviewMaxTileY,
+            zonePreviewType);
 
         RoadStrokeCommand roadGhostCommand;
         const bool hasRoadGhostCommand = appController_.roadPreviewStroke(roadGhostCommand);
@@ -3122,6 +3331,8 @@ int Renderer::run() {
             lastUploadedQueryRouteRevision = viewState.queryRouteRevision;
         }
 
+        const PublishedWorldSnapshot snapshot = simulationRuntime.acquirePublishedSnapshot();
+
         int bulldozeMinTileX = 0;
         int bulldozeMinTileY = 0;
         int bulldozeMaxTileX = 0;
@@ -3186,6 +3397,23 @@ int Renderer::run() {
                     GL_ARRAY_BUFFER,
                     static_cast<GLsizeiptr>(areaOverlayInstances.size() * sizeof(AreaOverlayInstanceData)),
                     areaOverlayInstances.empty() ? 0 : &areaOverlayInstances[0],
+                    GL_DYNAMIC_DRAW);
+            } else if (hasZonePreviewRect) {
+                areaOverlayInstances.clear();
+                areaOverlayInstances.push_back(BuildAreaOverlayInstance(
+                    zonePreviewMinTileX,
+                    zonePreviewMinTileY,
+                    zonePreviewMaxTileX,
+                    zonePreviewMaxTileY,
+                    zonePreviewType == TileZoningNone ? 0.66f : 0.72f,
+                    zonePreviewType == TileZoningNone ? 0.66f : 0.92f,
+                    zonePreviewType == TileZoningNone ? 0.70f : 0.44f,
+                    0.36f));
+                glBindBuffer(GL_ARRAY_BUFFER, areaOverlayInstanceBufferId);
+                glBufferData(
+                    GL_ARRAY_BUFFER,
+                    static_cast<GLsizeiptr>(areaOverlayInstances.size() * sizeof(AreaOverlayInstanceData)),
+                    &areaOverlayInstances[0],
                     GL_DYNAMIC_DRAW);
             } else {
                 areaOverlayInstances.clear();
@@ -3582,7 +3810,17 @@ int Renderer::run() {
                 16.0f,
                 340.0f);
             {
-                std::vector<UiQuadInstanceData> menuQuadInstances = RendererBuildUiMenuQuads(appController_.uiLayout(), framebufferWidth, framebufferHeight, appController_.activeUiAction());
+                std::vector<std::string> cityMenuIds;
+                cityMenuIds.push_back("date_speed");
+                cityMenuIds.push_back("side_tools");
+                cityMenuIds.push_back("menu_toggle");
+                if (appController_.uiLayout().menuVisible("escape_menu")) {
+                    cityMenuIds.push_back("escape_menu");
+                }
+                if (appController_.uiLayout().menuVisible("exit_confirm_dialog")) {
+                    cityMenuIds.push_back("exit_confirm_dialog");
+                }
+                std::vector<UiQuadInstanceData> menuQuadInstances = RendererBuildUiMenuQuads(appController_.uiLayout(), framebufferWidth, framebufferHeight, appController_.activeUiActions(), cityMenuIds);
                 uiQuadInstances.insert(uiQuadInstances.end(), menuQuadInstances.begin(), menuQuadInstances.end());
             }
 
@@ -3604,6 +3842,9 @@ int Renderer::run() {
         simulationRuntime.releasePublishedSnapshot(snapshot);
         glfwSwapBuffers(window);
         glfwPollEvents();
+        if (appController_.quitRequested()) {
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
+        }
 
         lastFrameMetrics = frameMetrics;
         ++renderedFrames;
@@ -3653,6 +3894,7 @@ int Renderer::run() {
         }
     }
 
+    gameSession_.clearLoadingPresenter();
     DestroyTileChunkCaches(chunkCaches);
     DestroyRoadChunkCaches(roadChunkCaches);
     DestroyRegionPreviewTextureCaches(regionPreviewTextureCaches);
