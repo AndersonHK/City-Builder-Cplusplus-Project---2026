@@ -17,10 +17,10 @@ public:
     void initialize(int width, int height, const std::vector<ChunkRect>& chunkLayout);
     void clear();
 
-    bool placeRoadStroke(const RoadStrokeCommand& roadStrokeCommand, const std::vector<int>& lotOccupancy, int invalidLotId);
+    bool placeRoadStroke(const RoadStrokeCommand& roadStrokeCommand, const std::vector<int>& lotOccupancy, int invalidLotId, std::vector<int>* topologyDirtyTileIndices = 0);
     bool canPlaceRoadStroke(const RoadStrokeCommand& roadStrokeCommand, const std::vector<int>& lotOccupancy, int invalidLotId) const;
-    bool removeRoadAtTile(int tileX, int tileY);
-    bool removeRoadsAtTiles(const std::vector<int>& tileIndices);
+    bool removeRoadAtTile(int tileX, int tileY, std::vector<int>* topologyDirtyTileIndices = 0);
+    bool removeRoadsAtTiles(const std::vector<int>& tileIndices, std::vector<int>* topologyDirtyTileIndices = 0);
 
     const std::vector<ResolvedRoadCell>& resolvedCells() const;
     const TransportCostMap& costMap() const;

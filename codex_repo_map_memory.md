@@ -125,7 +125,7 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - ground and elevated road uploads are deferred while dirty chunks are hidden
   - elevated roads rebuild only when visible chunks have changed revisions
 - Overlays:
-  - traffic capacity is the first generic per-tile RGBA overlay
+- traffic capacity and land value use the reusable per-tile RGBA overlay draw path
   - overlay chunks upload lazily only when visible and stale
   - overlay draw happens after roads and lots so the tint remains readable
 - Lots:
@@ -140,6 +140,7 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - `R` drag-places ground streets and `H` drag-places elevated highways
   - `B` drag-selects a 2D bulldoze area with red tile/building preview before queued deletion
   - `T` toggles the traffic capacity overlay
+  - `L` toggles the land value overlay
   - `M` and `Y` still expose live module add/remove testing for the XML-backed lot system
 
 ## Current migration doctrine

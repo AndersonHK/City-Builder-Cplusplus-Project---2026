@@ -191,7 +191,11 @@ void TransportNetwork::clear() {
     nextRoadStrokeId_ = 1;
 }
 
-bool TransportNetwork::placeRoadStroke(const RoadStrokeCommand& roadStrokeCommand, const std::vector<int>& lotOccupancy, int invalidLotId) {
+bool TransportNetwork::placeRoadStroke(const RoadStrokeCommand& roadStrokeCommand, const std::vector<int>& lotOccupancy, int invalidLotId, std::vector<int>* topologyDirtyTileIndices) {
+    if (topologyDirtyTileIndices != 0) {
+        topologyDirtyTileIndices->clear();
+    }
+
     if (roadStrokeCommand.operation != RoadStrokeOperation::Place || roadStrokeCommand.family == RoadFamily::None) {
         return false;
     }
@@ -280,6 +284,9 @@ bool TransportNetwork::placeRoadStroke(const RoadStrokeCommand& roadStrokeComman
 
     bumpDirtyChunkRevisions(roadStrokeCommand.layer, dirtyTileIndices);
     rebuildCostMapAndTrafficOverlayForTiles(dirtyTileIndices);
+    if (topologyDirtyTileIndices != 0) {
+        *topologyDirtyTileIndices = dirtyTileIndices;
+    }
     ++revision_;
     return true;
 }
@@ -339,16 +346,24 @@ bool TransportNetwork::canPlaceRoadStroke(const RoadStrokeCommand& roadStrokeCom
     return true;
 }
 
-bool TransportNetwork::removeRoadAtTile(int tileX, int tileY) {
+bool TransportNetwork::removeRoadAtTile(int tileX, int tileY, std::vector<int>* topologyDirtyTileIndices) {
+    if (topologyDirtyTileIndices != 0) {
+        topologyDirtyTileIndices->clear();
+    }
+
     if (!isTileInsideMap(tileX, tileY)) {
         return false;
     }
 
     std::vector<int> tileIndices(1, tileIndex(tileX, tileY));
-    return removeRoadsAtTiles(tileIndices);
+    return removeRoadsAtTiles(tileIndices, topologyDirtyTileIndices);
 }
 
-bool TransportNetwork::removeRoadsAtTiles(const std::vector<int>& tileIndices) {
+bool TransportNetwork::removeRoadsAtTiles(const std::vector<int>& tileIndices, std::vector<int>* topologyDirtyTileIndices) {
+    if (topologyDirtyTileIndices != 0) {
+        topologyDirtyTileIndices->clear();
+    }
+
     if (tileIndices.empty()) {
         return false;
     }
@@ -447,6 +462,9 @@ bool TransportNetwork::removeRoadsAtTiles(const std::vector<int>& tileIndices) {
     std::sort(costMapDirtyTileIndices.begin(), costMapDirtyTileIndices.end());
     costMapDirtyTileIndices.erase(std::unique(costMapDirtyTileIndices.begin(), costMapDirtyTileIndices.end()), costMapDirtyTileIndices.end());
     rebuildCostMapAndTrafficOverlayForTiles(costMapDirtyTileIndices);
+    if (topologyDirtyTileIndices != 0) {
+        *topologyDirtyTileIndices = costMapDirtyTileIndices;
+    }
     ++revision_;
     return true;
 }

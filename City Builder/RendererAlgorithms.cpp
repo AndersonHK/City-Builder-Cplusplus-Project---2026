@@ -141,6 +141,11 @@ RendererColor ToRendererColor(const UiColor& color) {
     return RendererColor(color.r, color.g, color.b, color.a);
 }
 
+std::uint8_t RendererColorByte(double value) {
+    const double clampedValue = std::max(0.0, std::min(value, 255.0));
+    return static_cast<std::uint8_t>(clampedValue + 0.5);
+}
+
 std::size_t RendererVisibleCharacterCount(const std::string& text) {
     std::size_t byteIndex = 0;
     std::size_t characterCount = 0;
@@ -319,6 +324,51 @@ void RendererFillZoningOverlayChunkPixels(const std::vector<Tile>& tiles, int ma
                 texturePixels[writeIndex++] = 0u;
                 texturePixels[writeIndex++] = 0u;
             }
+        }
+    }
+}
+
+bool RendererFindLandValueRange(const std::vector<Tile>& tiles, int& minimumLandValue, int& maximumLandValue) {
+    if (tiles.empty()) {
+        minimumLandValue = 0;
+        maximumLandValue = 0;
+        return false;
+    }
+
+    minimumLandValue = std::numeric_limits<int>::max();
+    maximumLandValue = std::numeric_limits<int>::min();
+    std::size_t tileIndex = 0;
+    for (; tileIndex < tiles.size(); ++tileIndex) {
+        minimumLandValue = std::min(minimumLandValue, tiles[tileIndex].landValue);
+        maximumLandValue = std::max(maximumLandValue, tiles[tileIndex].landValue);
+    }
+
+    return true;
+}
+
+void RendererFillLandValueOverlayChunkPixels(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, int minimumLandValue, int maximumLandValue, std::uint8_t alpha, std::vector<std::uint8_t>& texturePixels) {
+    const std::size_t chunkTileCount = static_cast<std::size_t>(chunkRect.width) * static_cast<std::size_t>(chunkRect.height);
+    if (texturePixels.size() != chunkTileCount * 4u) {
+        texturePixels.resize(chunkTileCount * 4u, 0u);
+    }
+
+    const double range = static_cast<double>(maximumLandValue) - static_cast<double>(minimumLandValue);
+    std::size_t writeIndex = 0;
+    int tileY = chunkRect.startY;
+    for (; tileY < chunkRect.startY + chunkRect.height; ++tileY) {
+        int tileX = chunkRect.startX;
+        for (; tileX < chunkRect.startX + chunkRect.width; ++tileX) {
+            const std::size_t sourceIndex = static_cast<std::size_t>(tileY) * static_cast<std::size_t>(mapWidth) + static_cast<std::size_t>(tileX);
+            const double normalizedLandValue = range > 0.0
+                ? std::max(0.0, std::min((static_cast<double>(tiles[sourceIndex].landValue) - static_cast<double>(minimumLandValue)) / range, 1.0))
+                : 0.5;
+            const double red = normalizedLandValue <= 0.5 ? 255.0 : (1.0 - normalizedLandValue) * 510.0;
+            const double green = normalizedLandValue <= 0.5 ? normalizedLandValue * 510.0 : 255.0;
+
+            texturePixels[writeIndex++] = RendererColorByte(red);
+            texturePixels[writeIndex++] = RendererColorByte(green);
+            texturePixels[writeIndex++] = 0u;
+            texturePixels[writeIndex++] = alpha;
         }
     }
 }

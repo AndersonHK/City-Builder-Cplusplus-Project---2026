@@ -351,6 +351,7 @@ private:
     void runCommuteAssignment();
     void queueCommuteRecalculationForLot(int lotId);
     void queueCommuteSourcesForDestination(int destinationLotId);
+    void queueCommuteRecalculationForRoadTopologyChange(const std::vector<int>& dirtyTileIndices);
     void removeCommuteLoadsForLot(const Lot& lot);
     void runLocalTilePass(std::vector<Tile>& writeTiles);
     void enqueueCommand(const PlayerCommand& playerCommand);
@@ -417,6 +418,9 @@ private:
     void collectLotAccessNodes(const Lot& lot, const LotAsset& lotAsset, std::uint8_t allowedModeMask, std::vector<std::uint32_t>& accessNodes) const;
     std::vector<CommuteRouteSegment> buildCommuteRouteSegments(const TransportPathResult& pathResult, std::uint16_t demand) const;
     bool commuteRouteIsStillValid(const CommuteRouteRecord& route) const;
+    bool commuteRouteTouchesTiles(const CommuteRouteRecord& route, const std::vector<int>& sortedTileIndices) const;
+    bool commutePathTouchesTiles(const TransportPathResult& pathResult, const std::vector<int>& sortedTileIndices) const;
+    bool lotAccessMayTouchTiles(const Lot& lot, const std::vector<int>& sortedTileIndices) const;
     bool isTileInsideMap(int tileX, int tileY) const;
     int tileIndex(int tileX, int tileY) const;
 

@@ -49,6 +49,7 @@ Default keyboard bindings, startup fullscreen mode, preferred windowed resolutio
 - `C`: toggle right-hand / left-hand road traffic side
 - `O`: cycle road direction mode between two-way, one-way forward, and one-way reverse
 - `T`: toggle the traffic capacity overlay
+- `L`: toggle the land value overlay
 - `F11`: toggle road debug graphics; off by default
 - `M`: add park module to an adjacent lot footprint
 - `Y`: remove the module under the hovered tile
@@ -110,6 +111,7 @@ msbuild 'City Builder/SaveLoadIntegrationTests.vcxproj' /p:Configuration=Release
 - Committed road edits rebuild pathing costs and traffic overlay pixels for affected dirty tiles only; full transport cost/overlay rebuilds are reserved for full city imports and whole-network resets.
 - Ground-road and elevated-road uploads are dirty visible-chunk only, and stale hidden chunks stay deferred until visible.
 - Traffic overlays use the same visible-dirty chunk upload pattern and draw above roads and lots as a presentation tint.
+- Land value overlays reuse the same tile overlay draw path and tint current land values from red through yellow to green across the city's current min/max land-value range.
 - Road debug graphics start disabled and can be toggled with `F11`; disabling them hides ordinary direction arrows and car-lane connection markers while preserving turn-lane arrows, lane dividers, crosswalks, and road surfaces.
 - Road drag previews are renderer-only transient instances tinted with alpha; committed road topology still arrives through published snapshots.
 - Lot placement previews are renderer-only transient instances built from the same XML-backed lot candidate geometry used by committed placement.

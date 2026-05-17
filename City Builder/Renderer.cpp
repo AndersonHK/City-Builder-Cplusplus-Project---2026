@@ -24,6 +24,7 @@
 #include "RoadRenderState.h"
 #include "ShaderProgram.h"
 #include "SimulationDate.h"
+#include "TransportCostMap.h"
 
 namespace {
 const float kPi = 3.14159265358979323846f;
@@ -2091,7 +2092,21 @@ void FillZoningOverlayChunkPixels(const PublishedWorldSnapshot& snapshot, const 
     RendererFillZoningOverlayChunkPixels(*snapshot.tiles, snapshot.width, chunkRect, texturePixels);
 }
 
-void UploadZoningOverlayChunkTexture(GLuint textureId, const ChunkRect& chunkRect, const std::vector<std::uint8_t>& texturePixels) {
+void FillLandValueOverlayChunkPixels(const PublishedWorldSnapshot& snapshot, const ChunkRect& chunkRect, int minimumLandValue, int maximumLandValue, std::vector<std::uint8_t>& texturePixels) {
+    const std::size_t chunkByteCount = static_cast<std::size_t>(chunkRect.width) * static_cast<std::size_t>(chunkRect.height) * 4u;
+    if (texturePixels.size() != chunkByteCount) {
+        texturePixels.resize(chunkByteCount, 0u);
+    }
+
+    if (snapshot.tiles == 0) {
+        std::fill(texturePixels.begin(), texturePixels.end(), 0u);
+        return;
+    }
+
+    RendererFillLandValueOverlayChunkPixels(*snapshot.tiles, snapshot.width, chunkRect, minimumLandValue, maximumLandValue, kTrafficOverlayAlphaByte, texturePixels);
+}
+
+void UploadRgbaOverlayChunkTexture(GLuint textureId, const ChunkRect& chunkRect, const std::vector<std::uint8_t>& texturePixels) {
     if (texturePixels.empty()) {
         return;
     }
@@ -2748,6 +2763,7 @@ int Renderer::run() {
     std::vector<GLshort> tileStateChunkPixels;
     std::vector<std::uint8_t> tileLiftChunkPixels;
     std::vector<std::uint8_t> zoningOverlayChunkPixels;
+    std::vector<std::uint8_t> landValueOverlayChunkPixels;
     std::vector<std::uint8_t> emptyGroundRoadChunkPixels;
     std::vector<LotInstanceData> lotInstances;
     std::vector<LotInstanceData> lotGhostInstances;
@@ -2815,6 +2831,10 @@ int Renderer::run() {
     std::vector<std::uint64_t> lastUploadedGroundRoadChunkRevisions(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
     std::vector<std::uint64_t> lastUploadedTileOverlayChunkRevisions(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
     std::vector<std::uint64_t> lastUploadedZoningOverlayChunkRevisions(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
+    OverlayMode lastUploadedTileOverlayMode = OverlayMode::None;
+    std::uint64_t landValueOverlayRangeGeneration = std::numeric_limits<std::uint64_t>::max();
+    int landValueOverlayMinimum = 0;
+    int landValueOverlayMaximum = 0;
     bool lastFrameWasRegion = true;
     std::uint64_t lastHandledRenderStateRevision = gameSession_.renderStateRevision();
     std::uint64_t lastRegionPreviewCacheRevision = std::numeric_limits<std::uint64_t>::max();
@@ -2894,6 +2914,8 @@ int Renderer::run() {
         lastUploadedGroundRoadChunkRevisions.assign(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
         lastUploadedTileOverlayChunkRevisions.assign(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
         lastUploadedZoningOverlayChunkRevisions.assign(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
+        lastUploadedTileOverlayMode = OverlayMode::None;
+        landValueOverlayRangeGeneration = std::numeric_limits<std::uint64_t>::max();
         lastUploadedLotRevision = std::numeric_limits<std::uint64_t>::max();
         lastUploadedZoningLotRevision = std::numeric_limits<std::uint64_t>::max();
         lastUploadedQueryRouteRevision = std::numeric_limits<std::uint64_t>::max();
@@ -3528,12 +3550,17 @@ int Renderer::run() {
 
                     const ChunkRect& chunkRect = chunkCaches[uploadChunkIndex].chunkRect;
                     FillZoningOverlayChunkPixels(snapshot, chunkRect, zoningOverlayChunkPixels);
-                    UploadZoningOverlayChunkTexture(zoningOverlayTextureId, chunkRect, zoningOverlayChunkPixels);
+                    UploadRgbaOverlayChunkTexture(zoningOverlayTextureId, chunkRect, zoningOverlayChunkPixels);
                     lastUploadedZoningOverlayChunkRevisions[uploadChunkIndex] = publishedRevision;
                 }
             }
 
-            if (viewState.overlayMode != OverlayMode::None && snapshot.tileOverlayState != 0 && snapshot.tileOverlayChunkRevisions != 0) {
+            if (lastUploadedTileOverlayMode != viewState.overlayMode) {
+                lastUploadedTileOverlayChunkRevisions.assign(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
+                lastUploadedTileOverlayMode = viewState.overlayMode;
+            }
+
+            if (viewState.overlayMode == OverlayMode::TrafficCapacity && snapshot.tileOverlayState != 0 && snapshot.tileOverlayChunkRevisions != 0) {
                 for (uploadChunkIndex = 0; uploadChunkIndex < chunkCaches.size(); ++uploadChunkIndex) {
                     const std::uint64_t publishedRevision = (*snapshot.tileOverlayChunkRevisions)[uploadChunkIndex];
                     if (lastUploadedTileOverlayChunkRevisions[uploadChunkIndex] == publishedRevision) {
@@ -3546,6 +3573,29 @@ int Renderer::run() {
                     }
 
                     UpdateTileOverlayChunkTexture(tileOverlayTextureId, snapshot, chunkCaches[uploadChunkIndex].chunkRect);
+                    lastUploadedTileOverlayChunkRevisions[uploadChunkIndex] = publishedRevision;
+                    ++frameMetrics.tileOverlayUploadedChunkCount;
+                }
+            } else if (viewState.overlayMode == OverlayMode::LandValue && snapshot.tiles != 0) {
+                if (landValueOverlayRangeGeneration != snapshot.generation) {
+                    RendererFindLandValueRange(*snapshot.tiles, landValueOverlayMinimum, landValueOverlayMaximum);
+                    landValueOverlayRangeGeneration = snapshot.generation;
+                }
+
+                for (uploadChunkIndex = 0; uploadChunkIndex < chunkCaches.size(); ++uploadChunkIndex) {
+                    const std::uint64_t publishedRevision = snapshot.generation;
+                    if (lastUploadedTileOverlayChunkRevisions[uploadChunkIndex] == publishedRevision) {
+                        continue;
+                    }
+
+                    if (visibleChunkFlags[uploadChunkIndex] == 0u) {
+                        ++frameMetrics.tileOverlayDeferredChunkCount;
+                        continue;
+                    }
+
+                    const ChunkRect& chunkRect = chunkCaches[uploadChunkIndex].chunkRect;
+                    FillLandValueOverlayChunkPixels(snapshot, chunkRect, landValueOverlayMinimum, landValueOverlayMaximum, landValueOverlayChunkPixels);
+                    UploadRgbaOverlayChunkTexture(tileOverlayTextureId, chunkRect, landValueOverlayChunkPixels);
                     lastUploadedTileOverlayChunkRevisions[uploadChunkIndex] = publishedRevision;
                     ++frameMetrics.tileOverlayUploadedChunkCount;
                 }
@@ -3751,7 +3801,10 @@ int Renderer::run() {
                 glDrawArraysInstanced(GL_TRIANGLES, 0, 6, cache.instanceCount);
             }
 
-            if (viewState.overlayMode != OverlayMode::None && snapshot.tileOverlayState != 0) {
+            const bool drawTileOverlay =
+                (viewState.overlayMode == OverlayMode::TrafficCapacity && snapshot.tileOverlayState != 0) ||
+                (viewState.overlayMode == OverlayMode::LandValue && snapshot.tiles != 0);
+            if (drawTileOverlay) {
                 glActiveTexture(GL_TEXTURE5);
                 glBindTexture(GL_TEXTURE_2D, tileOverlayTextureId);
                 glUniform1i(renderModeLocation, 3);

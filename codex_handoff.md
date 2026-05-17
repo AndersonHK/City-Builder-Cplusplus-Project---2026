@@ -26,7 +26,8 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 - Lot occupancy lift is separated into a visible-chunk mask texture instead of causing tile instance rebuilds.
 - Ground roads piggyback on the tile pass through a packed road-state texture plus atlas lookups.
 - Ground-road and elevated-road uploads are lazy per visible dirty chunk.
-- Traffic capacity is the first generic per-tile overlay; `T` toggles it, and it draws above roads/lots.
+- Traffic capacity uses the reusable per-tile RGBA overlay path; `T` toggles it, and it draws above roads/lots.
+- Land value overlay uses the same tile overlay texture/draw path; `L` toggles it and renderer-packs the published tile snapshot from city-wide min/max land value into red/yellow/green tint.
 - Bulldoze is intended to be an area drag tool, with renderer-only red tile/building preview and committed deletion through queued commands.
 - Lots render through a separate world-space placeholder prism path and are not chunk-owned yet.
 - Mouse picking now raycasts from the perspective camera onto the ground plane.

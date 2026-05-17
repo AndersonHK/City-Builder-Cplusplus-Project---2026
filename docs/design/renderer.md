@@ -15,7 +15,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Tile scalar color comes from a persistent full-map `GL_RG16_SNORM` texture updated only for visible stale chunks.
 - Lot occupancy lift comes from a persistent full-map `GL_R8` mask texture updated only for visible stale chunks.
 - Ground roads render in the tile pass from packed road-state bytes and generated road atlases. The ground-road upload path is `UpdateGroundRoadChunkTexture`.
-- Reusable tile overlays render from published RGBA tile textures. Zoning and traffic capacity both use visible-dirty chunk uploads.
+- Reusable tile overlays render from RGBA tile textures. Zoning and traffic capacity both use visible-dirty chunk uploads from published state; land value reuses the same overlay texture/draw path and packs visible chunks from the published tile snapshot using the current city-wide min/max land-value range.
 - Queried lot and road commutes render morning-only coalesced route arrows above roads, lots, and tile overlays; car arrows are green and pedestrian arrows are pink.
 - Elevated roads use separate per-chunk instance buffers and rebuild lazily for visible stale chunks. They consume the same resolved road glyph, lane graphic, and divider masks through `BuildRoadChunkInstances`.
 - Road placement ghost previews are transient renderer instances built from the active drag stroke and drawn with a blue alpha tint when valid or a red tint when invalid. They do not enter published road snapshots.
@@ -66,6 +66,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Keep date formatting presentation-only. The city simulation tick comes from snapshots; `AppConfig` only selects how the renderer formats that tick.
 - Keep game-speed buttons as controller intent. The renderer only draws icon buttons and active states; `SimulationRuntime` owns tick pacing.
 - Future overlays should publish the same RGBA tile payload and chunk revisions instead of adding one-off shader paths.
+- Snapshot-derived overlays that do not need simulation-owned derived state may pack into the existing overlay texture on the renderer side, but should keep the same visible-chunk freshness behavior.
 - Keep city preview capture top-down orthographic so preview orientation remains stable before the region camera projects it.
 
 ## Checks
@@ -84,6 +85,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Toggle the bottom-left tool menu and confirm hidden menu buttons no longer draw or capture clicks.
 - Rotate lot placement with `,` and `.` while hovering to confirm the ghost footprint rotates before commit.
 - Toggle `T` to verify the traffic capacity overlay appears above roads/lots and starts green at zero load.
+- Toggle `L` to verify the land value overlay appears above roads/lots and maps low values red, middle values yellow, and high values green with normal overlay alpha.
 - Query lots and roads with `A` to verify the in-game window draws above world content, hugs populated fields, summarizes morning road commuters, and disappears when the query selection has no lot, road, or RCI zoning.
 - Use the date widget speed buttons to verify paused holds the date, play advances one day per second, fast advances at render lockstep, and fast-forward is uncapped.
 - Launch the game and confirm the first visible frame is the startup loading background with a horizontally centered progress bar near the lower quarter before the region appears.

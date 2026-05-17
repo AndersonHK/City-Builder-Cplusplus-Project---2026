@@ -20,7 +20,7 @@ Use this guide when changing `AppConfig`, `Data/config.ini`, startup window beha
 - Prefer adding new app-level preferences here instead of hardcoding new startup/input/debug behavior in `Source.cpp`, `Renderer`, or `AppController`.
 - Keep config tolerant: unknown sections, unknown keys, and invalid values should preserve existing defaults rather than aborting startup.
 - Keep config read-once until there is an explicit live-reload design. Runtime systems currently hold references to the startup `AppConfig`.
-- When adding a hotkey, update `HotkeyConfig`, `ApplyHotkey`, `Data/config.ini`, README controls, and any relevant design checks together.
+- When adding a hotkey, update `HotkeyConfig`, `ApplyHotkey`, `Data/config.ini`, README controls, and any relevant design checks together. Current overlay hotkeys are `T` for traffic capacity and `L` for land value.
 - Do not store city, region, or save compatibility state in this INI file.
 - Do not delete or recreate `Data\Saves` as part of config loading, post-build copying, or startup fallback.
 

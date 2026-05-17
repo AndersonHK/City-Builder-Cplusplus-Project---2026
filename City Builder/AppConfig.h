@@ -25,6 +25,7 @@ struct HotkeyConfig {
     int roadStreet;
     int roadHighway;
     int toggleTrafficOverlay;
+    int toggleLandValueOverlay;
     int addParkModule;
     int removeModule;
     int bulldozer;

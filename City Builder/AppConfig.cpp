@@ -223,6 +223,8 @@ void ApplyHotkey(HotkeyConfig& hotkeys, const std::string& key, const std::strin
         hotkeys.roadHighway = keyCode;
     } else if (key == "toggle_traffic_overlay") {
         hotkeys.toggleTrafficOverlay = keyCode;
+    } else if (key == "toggle_land_value_overlay") {
+        hotkeys.toggleLandValueOverlay = keyCode;
     } else if (key == "add_park_module") {
         hotkeys.addParkModule = keyCode;
     } else if (key == "remove_module") {
@@ -277,6 +279,7 @@ HotkeyConfig::HotkeyConfig()
       roadStreet('R'),
       roadHighway('H'),
       toggleTrafficOverlay('T'),
+      toggleLandValueOverlay('L'),
       addParkModule('M'),
       removeModule('Y'),
       bulldozer('B'),

@@ -157,6 +157,37 @@ void TestZoningOverlayChunkPacking(TestRunner& runner) {
     runner.expect(pixels[11] == 0u && pixels[15] == 0u, "un-zoned tiles pack transparent overlay");
 }
 
+void TestLandValueOverlayChunkPacking(TestRunner& runner) {
+    std::vector<Tile> tiles(16);
+    tiles[5].landValue = 10;
+    tiles[6].landValue = 20;
+    tiles[9].landValue = 30;
+    tiles[10].landValue = 20;
+
+    int minimumLandValue = 0;
+    int maximumLandValue = 0;
+    runner.expect(RendererFindLandValueRange(tiles, minimumLandValue, maximumLandValue), "land value overlay range finds populated tile values");
+    runner.expect(minimumLandValue == 10 && maximumLandValue == 160000, "land value range includes default tile values");
+
+    ChunkRect chunk;
+    chunk.startX = 1;
+    chunk.startY = 1;
+    chunk.width = 2;
+    chunk.height = 2;
+
+    std::vector<std::uint8_t> pixels;
+    RendererFillLandValueOverlayChunkPixels(tiles, 4, chunk, 10, 30, 89u, pixels);
+
+    runner.expect(pixels.size() == 16u, "land value overlay writes RGBA bytes per tile");
+    runner.expect(pixels[0] == 255u && pixels[1] == 0u && pixels[3] == 89u, "lowest land value packs red with overlay alpha");
+    runner.expect(pixels[4] == 255u && pixels[5] == 255u && pixels[7] == 89u, "middle land value packs yellow with overlay alpha");
+    runner.expect(pixels[8] == 0u && pixels[9] == 255u && pixels[11] == 89u, "highest land value packs green with overlay alpha");
+    runner.expect(pixels[12] == 255u && pixels[13] == 255u && pixels[15] == 89u, "matching middle land value repeats yellow");
+
+    RendererFillLandValueOverlayChunkPixels(tiles, 4, chunk, 20, 20, 89u, pixels);
+    runner.expect(pixels[0] == 255u && pixels[1] == 255u && pixels[3] == 89u, "flat land value range packs neutral yellow");
+}
+
 void TestUtf8Decoder(TestRunner& runner) {
     std::string text;
     text.push_back('A');
@@ -406,6 +437,7 @@ int main() {
     TestTileStateChunkPacking(runner);
     TestTileLiftChunkPacking(runner);
     TestZoningOverlayChunkPacking(runner);
+    TestLandValueOverlayChunkPacking(runner);
     TestUtf8Decoder(runner);
     TestSimulationDateCalculation(runner);
     TestWindowQuads(runner);

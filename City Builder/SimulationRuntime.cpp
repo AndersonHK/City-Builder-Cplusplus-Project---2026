@@ -848,6 +848,7 @@ void SimulationRuntime::importCitySaveState(const CitySaveState& saveState) {
     commutesDirty_ = true;
     forcedCommuteLotIds_.clear();
     commuteRebalanceCursor_ = 0u;
+    runCommuteAssignment();
     refreshPublishedLotSnapshot(tileBuffers_[simulationReadBufferIndex_]);
     refreshPublishedZoningLotSnapshot(tileBuffers_[simulationReadBufferIndex_]);
     refreshPublishedRoadSnapshot(tileBuffers_[simulationReadBufferIndex_]);
@@ -1471,14 +1472,14 @@ void SimulationRuntime::applyQueuedCommands(TileBuffer& writeBuffer) {
                 tryRemoveModuleAtTile(playerCommand.tileX, playerCommand.tileY, writeBuffer);
                 break;
 
-            case PlayerCommandType::PlaceRoadStroke:
-                if (transportNetwork_.placeRoadStroke(playerCommand.roadStroke, lotOccupancy_, kInvalidLotId)) {
+            case PlayerCommandType::PlaceRoadStroke: {
+                std::vector<int> dirtyRoadTopologyTiles;
+                if (transportNetwork_.placeRoadStroke(playerCommand.roadStroke, lotOccupancy_, kInvalidLotId, &dirtyRoadTopologyTiles)) {
                     clearZoningForRoadStroke(playerCommand.roadStroke, writeBuffer);
-                    commutesDirty_ = true;
-                    forcedCommuteLotIds_.clear();
-                    commuteRebalanceCursor_ = 0u;
+                    queueCommuteRecalculationForRoadTopologyChange(dirtyRoadTopologyTiles);
                 }
                 break;
+            }
 
             case PlayerCommandType::BulldozeAtTile:
                 tryBulldozeAtTile(playerCommand.tileX, playerCommand.tileY, writeBuffer);
@@ -1615,6 +1616,39 @@ void SimulationRuntime::queueCommuteSourcesForDestination(int destinationLotId) 
                 break;
             }
         }
+    }
+}
+
+void SimulationRuntime::queueCommuteRecalculationForRoadTopologyChange(const std::vector<int>& dirtyTileIndices) {
+    if (dirtyTileIndices.empty()) {
+        return;
+    }
+
+    std::vector<int> sortedTileIndices = dirtyTileIndices;
+    std::sort(sortedTileIndices.begin(), sortedTileIndices.end());
+    sortedTileIndices.erase(std::unique(sortedTileIndices.begin(), sortedTileIndices.end()), sortedTileIndices.end());
+
+    std::size_t lotIndex = 0;
+    for (; lotIndex < lots_.size(); ++lotIndex) {
+        Lot& lot = lots_[lotIndex];
+        bool shouldRecalculate = lotAccessMayTouchTiles(lot, sortedTileIndices);
+        if (!shouldRecalculate) {
+            const std::vector<CommuteRouteRecord>& routes = lot.commuteRoutes();
+            std::size_t routeIndex = 0;
+            for (; routeIndex < routes.size(); ++routeIndex) {
+                if (commuteRouteTouchesTiles(routes[routeIndex], sortedTileIndices)) {
+                    shouldRecalculate = true;
+                    break;
+                }
+            }
+        }
+
+        if (!shouldRecalculate) {
+            continue;
+        }
+
+        queueCommuteRecalculationForLot(lot.id());
+        queueCommuteSourcesForDestination(lot.id());
     }
 }
 
@@ -3316,8 +3350,9 @@ bool SimulationRuntime::tryBulldozeAtTile(int clickedTileX, int clickedTileY, Ti
         return false;
     }
 
-    if (transportNetwork_.removeRoadAtTile(clickedTileX, clickedTileY)) {
-        commutesDirty_ = true;
+    std::vector<int> dirtyRoadTopologyTiles;
+    if (transportNetwork_.removeRoadAtTile(clickedTileX, clickedTileY, &dirtyRoadTopologyTiles)) {
+        queueCommuteRecalculationForRoadTopologyChange(dirtyRoadTopologyTiles);
         return true;
     }
 
@@ -3346,8 +3381,9 @@ bool SimulationRuntime::tryBulldozeArea(int startTileX, int startTileY, int endT
         }
     }
 
-    if (transportNetwork_.removeRoadsAtTiles(roadTileIndices)) {
-        commutesDirty_ = true;
+    std::vector<int> dirtyRoadTopologyTiles;
+    if (transportNetwork_.removeRoadsAtTiles(roadTileIndices, &dirtyRoadTopologyTiles)) {
+        queueCommuteRecalculationForRoadTopologyChange(dirtyRoadTopologyTiles);
         removedAny = true;
     }
 
@@ -3905,6 +3941,77 @@ bool SimulationRuntime::commuteRouteIsStillValid(const CommuteRouteRecord& route
     }
 
     return true;
+}
+
+bool SimulationRuntime::commuteRouteTouchesTiles(const CommuteRouteRecord& route, const std::vector<int>& sortedTileIndices) const {
+    return commutePathTouchesTiles(route.morningPathResult, sortedTileIndices) ||
+        commutePathTouchesTiles(route.eveningPathResult, sortedTileIndices);
+}
+
+bool SimulationRuntime::commutePathTouchesTiles(const TransportPathResult& pathResult, const std::vector<int>& sortedTileIndices) const {
+    if (!pathResult.success || sortedTileIndices.empty()) {
+        return false;
+    }
+
+    const TransportCostMap& costMap = transportNetwork_.costMap();
+    const std::size_t totalNodeCount = costMap.totalNodeCount();
+    std::size_t stepIndex = 0;
+    for (; stepIndex < pathResult.steps.size(); ++stepIndex) {
+        const TransportPathStep& step = pathResult.steps[stepIndex];
+        const std::uint32_t nodeIds[] = {
+            step.fromNodeId,
+            step.toNodeId
+        };
+
+        std::size_t nodeIndex = 0;
+        for (; nodeIndex < sizeof(nodeIds) / sizeof(nodeIds[0]); ++nodeIndex) {
+            if (nodeIds[nodeIndex] >= totalNodeCount) {
+                continue;
+            }
+
+            const int tileIndexValue = costMap.nodeTileIndex(nodeIds[nodeIndex]);
+            if (std::binary_search(sortedTileIndices.begin(), sortedTileIndices.end(), tileIndexValue)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+bool SimulationRuntime::lotAccessMayTouchTiles(const Lot& lot, const std::vector<int>& sortedTileIndices) const {
+    if (sortedTileIndices.empty()) {
+        return false;
+    }
+
+    const std::vector<int>& occupiedTileIndices = lot.occupiedTileIndices();
+    std::size_t occupiedIndex = 0;
+    for (; occupiedIndex < occupiedTileIndices.size(); ++occupiedIndex) {
+        const int occupiedTileIndex = occupiedTileIndices[occupiedIndex];
+        if (occupiedTileIndex < 0 || occupiedTileIndex >= static_cast<int>(transportNetwork_.totalTileCount())) {
+            continue;
+        }
+
+        const int tileY = occupiedTileIndex / mapWidth_;
+        const int tileX = occupiedTileIndex - (tileY * mapWidth_);
+        const int adjacentTileIndices[] = {
+            occupiedTileIndex,
+            isTileInsideMap(tileX, tileY - 1) ? tileIndex(tileX, tileY - 1) : -1,
+            isTileInsideMap(tileX, tileY + 1) ? tileIndex(tileX, tileY + 1) : -1,
+            isTileInsideMap(tileX - 1, tileY) ? tileIndex(tileX - 1, tileY) : -1,
+            isTileInsideMap(tileX + 1, tileY) ? tileIndex(tileX + 1, tileY) : -1
+        };
+
+        std::size_t adjacentIndex = 0;
+        for (; adjacentIndex < sizeof(adjacentTileIndices) / sizeof(adjacentTileIndices[0]); ++adjacentIndex) {
+            if (adjacentTileIndices[adjacentIndex] >= 0 &&
+                std::binary_search(sortedTileIndices.begin(), sortedTileIndices.end(), adjacentTileIndices[adjacentIndex])) {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 // Validates a tile coordinate against the fixed map bounds.

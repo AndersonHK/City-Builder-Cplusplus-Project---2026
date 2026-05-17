@@ -38,6 +38,9 @@ const char* OverlayModeName(OverlayMode overlayMode) {
 
         case OverlayMode::TrafficCapacity:
             return "traffic capacity";
+
+        case OverlayMode::LandValue:
+            return "land value";
     }
 
     return "unknown";
@@ -778,6 +781,10 @@ void AppController::onKeyPressed(int key, int action) {
         toggleTrafficOverlay();
         return;
     }
+    if (key == hotkeys.toggleLandValueOverlay) {
+        toggleLandValueOverlay();
+        return;
+    }
     if (key == hotkeys.addParkModule) {
         setActiveTool(ActiveTool::AddParkModule);
         return;
@@ -1062,6 +1069,11 @@ void AppController::setActiveTool(ActiveTool activeTool) {
 
 void AppController::toggleTrafficOverlay() {
     viewState_.overlayMode = viewState_.overlayMode == OverlayMode::TrafficCapacity ? OverlayMode::None : OverlayMode::TrafficCapacity;
+    std::cout << "Overlay: " << OverlayModeName(viewState_.overlayMode) << std::endl;
+}
+
+void AppController::toggleLandValueOverlay() {
+    viewState_.overlayMode = viewState_.overlayMode == OverlayMode::LandValue ? OverlayMode::None : OverlayMode::LandValue;
     std::cout << "Overlay: " << OverlayModeName(viewState_.overlayMode) << std::endl;
 }
 

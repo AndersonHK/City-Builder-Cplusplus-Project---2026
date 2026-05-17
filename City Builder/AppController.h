@@ -30,7 +30,8 @@ enum class ActiveTool {
 
 enum class OverlayMode {
     None,
-    TrafficCapacity
+    TrafficCapacity,
+    LandValue
 };
 
 enum class QuerySelectionKind {
@@ -177,6 +178,7 @@ private:
     void panCamera(int deltaX, int deltaY);
     void setActiveTool(ActiveTool activeTool);
     void toggleTrafficOverlay();
+    void toggleLandValueOverlay();
     void toggleRoadDebugGraphics();
     void setGameSpeed(GameSpeed gameSpeed);
     bool modalMenuOpen() const;
