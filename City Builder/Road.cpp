@@ -83,55 +83,12 @@ int DistanceToVerticalSide(int localY, int footprint, std::uint8_t outsideDirect
     return outsideDirection == kRoadDirectionSouth ? footprint - 1 - localY : localY;
 }
 
-std::uint8_t RoadDirectionMaskForLane(const RoadLanePlacement& lanePlacement) {
-    std::uint8_t roadDirectionMask = 0;
-    const std::uint8_t directions[] = {
-        kRoadDirectionNorth,
-        kRoadDirectionEast,
-        kRoadDirectionSouth,
-        kRoadDirectionWest
-    };
-
-    std::size_t directionIndex = 0;
-    for (; directionIndex < sizeof(directions) / sizeof(directions[0]); ++directionIndex) {
-        if (lanePlacement.hasTravelDirection(directions[directionIndex])) {
-            roadDirectionMask |= directions[directionIndex];
-        }
-    }
-
-    return roadDirectionMask;
-}
-
-std::uint8_t LaneIntentMaskForRoadDirections(std::uint8_t roadDirectionMask) {
-    std::uint8_t laneIntentMask = 0;
-    const std::uint8_t directions[] = {
-        kRoadDirectionNorth,
-        kRoadDirectionEast,
-        kRoadDirectionSouth,
-        kRoadDirectionWest
-    };
-
-    std::size_t directionIndex = 0;
-    for (; directionIndex < sizeof(directions) / sizeof(directions[0]); ++directionIndex) {
-        const std::uint8_t direction = directions[directionIndex];
-        if ((roadDirectionMask & direction) != 0) {
-            laneIntentMask |= LaneIntentFromRoadDirection(direction);
-        }
-    }
-
-    return laneIntentMask;
-}
-
 RoadDirectionMode DirectionModeFromTemplateId(std::uint16_t templateId) {
     return static_cast<RoadDirectionMode>((templateId >> 6) & 0x3u);
 }
 
 RoadTemplateKind TemplateKindFromTemplateId(std::uint16_t templateId) {
     return static_cast<RoadTemplateKind>((templateId >> 14) & 0x3u);
-}
-
-int TemplateLaneCountFromTemplateId(std::uint16_t templateId) {
-    return static_cast<int>(templateId & 0x3fu);
 }
 
 bool PathLaneAllowsCapReturn(const RoadLanePlacement& lanePlacement) {
@@ -311,31 +268,20 @@ bool CornerWantsLaneAxis(const RoadTilePlacement& placement, const Int2& cornerT
     return true;
 }
 
-bool TemplateHasPedestrianEdgeLanes(RoadFamily family, TransportLayerId layer) {
-    return family == RoadFamily::LocalStreet && layer == TransportLayerId::Ground;
-}
-
 RoadFamily FamilyForTemplateKind(RoadTemplateKind templateKind) {
-    return templateKind == RoadTemplateKind::Highway ? RoadFamily::Highway : RoadFamily::LocalStreet;
+    return RoadTemplateDefinition::forKind(templateKind).family();
 }
 
 TransportLayerId LayerForTemplateKind(RoadTemplateKind templateKind) {
-    return templateKind == RoadTemplateKind::Highway ? TransportLayerId::Elevated : TransportLayerId::Ground;
+    return RoadTemplateDefinition::forKind(templateKind).layer();
 }
 
 RoadDirectionMode DirectionModeForTemplateKind(RoadTemplateKind templateKind, RoadDirectionMode directionMode) {
-    return templateKind == RoadTemplateKind::Avenue ? RoadDirectionMode::TwoWay : directionMode;
+    return RoadTemplateDefinition::forKind(templateKind).normalizeDirectionMode(directionMode);
 }
 
 int LaneCountForTemplateKind(RoadTemplateKind templateKind, int laneCount, RoadDirectionMode directionMode) {
-    if (templateKind == RoadTemplateKind::Avenue) {
-        return 2;
-    }
-    if (templateKind == RoadTemplateKind::Street && directionMode != RoadDirectionMode::TwoWay) {
-        return 2;
-    }
-
-    return std::max(1, laneCount);
+    return RoadTemplateDefinition::forKind(templateKind).normalizeLaneCount(laneCount, directionMode);
 }
 }
 
@@ -442,12 +388,10 @@ bool Road::appendStrokePlacements(const Int2& startTile, const Int2& cornerTile,
 
 RoadTemplate Road::makeTemplate(RoadFamily family, TransportLayerId layer, int laneCount, RoadTrafficSide trafficSide, RoadDirectionMode directionMode) {
     const RoadTemplateKind templateKind = inferTemplateKind(family, layer, laneCount, directionMode);
-    if (templateKind == RoadTemplateKind::Avenue || templateKind == RoadTemplateKind::Street || templateKind == RoadTemplateKind::Highway) {
-        family = FamilyForTemplateKind(templateKind);
-        layer = LayerForTemplateKind(templateKind);
-        directionMode = DirectionModeForTemplateKind(templateKind, directionMode);
-        laneCount = LaneCountForTemplateKind(templateKind, laneCount, directionMode);
-    }
+    family = FamilyForTemplateKind(templateKind);
+    layer = LayerForTemplateKind(templateKind);
+    directionMode = DirectionModeForTemplateKind(templateKind, directionMode);
+    laneCount = LaneCountForTemplateKind(templateKind, laneCount, directionMode);
 
     RoadTemplate roadTemplate;
     roadTemplate.templateKind = templateKind;
@@ -455,73 +399,33 @@ RoadTemplate Road::makeTemplate(RoadFamily family, TransportLayerId layer, int l
     roadTemplate.layer = layer;
     roadTemplate.trafficSide = trafficSide;
     roadTemplate.directionMode = directionMode;
-    const bool hasPedestrianEdgeLanes = TemplateHasPedestrianEdgeLanes(family, layer);
     roadTemplate.laneCount = laneCount;
     roadTemplate.identity.id = makeTemplateId(templateKind, family, layer, roadTemplate.laneCount, trafficSide, directionMode);
     roadTemplate.overlapPolicy = RoadTemplateOverlapPolicy::AdapterFriendly;
 
-    RoadTemplateElement pedestrianElement;
-    pedestrianElement.laneType = RoadLaneTypeId::Pedestrian;
-    pedestrianElement.surface = RoadLaneSurface::Sidewalk;
-    pedestrianElement.laneRole = RoadLaneRole::Access;
-    pedestrianElement.behavior.minimumWidth = hasPedestrianEdgeLanes ? 0.18f : 0.0f;
-    pedestrianElement.behavior.preferredWidth = hasPedestrianEdgeLanes ? 0.25f : 0.0f;
-    pedestrianElement.behavior.maximumWidth = hasPedestrianEdgeLanes ? 0.45f : 0.0f;
-    pedestrianElement.behavior.connectorMask = kRoadDirectionNorth | kRoadDirectionEast | kRoadDirectionSouth | kRoadDirectionWest;
-
-    RoadTemplateElement carElement;
-    carElement.laneType = RoadLaneTypeId::Car;
-    carElement.surface = RoadLaneSurface::Asphalt;
-    carElement.laneRole = RoadLaneRole::Through;
-    carElement.behavior.minimumWidth = 0.60f;
-    carElement.behavior.preferredWidth = family == RoadFamily::Highway ? 0.90f : 0.75f;
-    carElement.behavior.maximumWidth = 1.0f;
-    carElement.behavior.connectorMask = kRoadDirectionNorth | kRoadDirectionEast | kRoadDirectionSouth | kRoadDirectionWest;
-
-    RoadTemplateElement separatorElement;
-    separatorElement.laneType = RoadLaneTypeId::Separator;
-    separatorElement.surface = RoadLaneSurface::Asphalt;
-    separatorElement.laneRole = RoadLaneRole::Separator;
-    separatorElement.separatorStyle = templateKind == RoadTemplateKind::Avenue ? RoadSeparatorStyle::Median : RoadSeparatorStyle::None;
-    separatorElement.behavior.minimumWidth = 0.02f;
-    separatorElement.behavior.preferredWidth = 0.02f;
-    separatorElement.behavior.maximumWidth = 0.02f;
-    separatorElement.behavior.connectorMask = 0;
-
-    if (hasPedestrianEdgeLanes) {
-        roadTemplate.elements.push_back(pedestrianElement);
-    }
-
-    if (directionMode == RoadDirectionMode::TwoWay) {
-        int laneIndex = 0;
-        for (; laneIndex < roadTemplate.laneCount; ++laneIndex) {
-            roadTemplate.elements.push_back(carElement);
-        }
-
-        if (templateKind == RoadTemplateKind::Avenue) {
-            roadTemplate.elements.push_back(separatorElement);
-        }
-
-        for (laneIndex = 0; laneIndex < roadTemplate.laneCount; ++laneIndex) {
-            roadTemplate.elements.push_back(carElement);
-        }
-    } else {
-        int laneIndex = 0;
-        for (; laneIndex < roadTemplate.laneCount; ++laneIndex) {
-            roadTemplate.elements.push_back(carElement);
-        }
-    }
-
-    if (hasPedestrianEdgeLanes) {
-        roadTemplate.elements.push_back(pedestrianElement);
-    }
-
+    RoadTemplateDefinition::forKind(templateKind).buildElements(roadTemplate);
     roadTemplate.identity.footprint = static_cast<std::uint8_t>(std::min(255, chooseTemplateFootprint(roadTemplate)));
     return roadTemplate;
 }
 
 RoadTemplate Road::makeTemplate(RoadTemplateKind templateKind, RoadTrafficSide trafficSide, RoadDirectionMode directionMode) {
-    return makeTemplate(FamilyForTemplateKind(templateKind), LayerForTemplateKind(templateKind), templateKind == RoadTemplateKind::Avenue ? 2 : 1, trafficSide, directionMode);
+    RoadFamily family = FamilyForTemplateKind(templateKind);
+    TransportLayerId layer = LayerForTemplateKind(templateKind);
+    directionMode = DirectionModeForTemplateKind(templateKind, directionMode);
+    const int laneCount = LaneCountForTemplateKind(templateKind, templateKind == RoadTemplateKind::Avenue ? 2 : 1, directionMode);
+
+    RoadTemplate roadTemplate;
+    roadTemplate.templateKind = templateKind;
+    roadTemplate.family = family;
+    roadTemplate.layer = layer;
+    roadTemplate.trafficSide = trafficSide;
+    roadTemplate.directionMode = directionMode;
+    roadTemplate.laneCount = laneCount;
+    roadTemplate.identity.id = makeTemplateId(templateKind, family, layer, roadTemplate.laneCount, trafficSide, directionMode);
+    roadTemplate.overlapPolicy = RoadTemplateOverlapPolicy::AdapterFriendly;
+    RoadTemplateDefinition::forKind(templateKind).buildElements(roadTemplate);
+    roadTemplate.identity.footprint = static_cast<std::uint8_t>(std::min(255, chooseTemplateFootprint(roadTemplate)));
+    return roadTemplate;
 }
 
 RoadTemplateKind Road::inferTemplateKind(RoadFamily family, TransportLayerId layer, int laneCount, RoadDirectionMode directionMode) {
@@ -564,52 +468,22 @@ int Road::chooseTemplateFootprint(const RoadTemplate& roadTemplate) {
 }
 
 RoadLaneCell Road::makeLaneCell(const RoadLanePlacement& lanePlacement, std::uint8_t directionMask, std::uint8_t travelDirectionMask, std::uint8_t pathDirectionMask) {
-    RoadLaneCell cell;
-    if (!lanePlacement.isCar()) {
-        return cell;
-    }
-
+    RoadLaneCellContext context;
+    context.directionMask = directionMask;
     if (travelDirectionMask == 0) {
         travelDirectionMask = RoadDirectionsFromLaneIntent(lanePlacement.laneTravelMask);
     }
     if (pathDirectionMask == 0) {
         pathDirectionMask = travelDirectionMask;
     }
+    context.travelDirectionMask = travelDirectionMask;
+    context.pathDirectionMask = pathDirectionMask;
+    return makeLaneCell(lanePlacement, context);
+}
 
-    cell.primary.mode = CommuterMode::Car;
-    cell.primary.capacity = 200;
-    cell.primary.directionMask = directionMask;
-    cell.primary.travelDirectionMask = travelDirectionMask;
-    cell.primary.pathDirectionMask = pathDirectionMask;
-    cell.primary.centerSide = true;
-    cell.primary.parallelGraphic = RoadGraphic::asphalt(directionMask);
-
+RoadLaneCell Road::makeLaneCell(const RoadLanePlacement& lanePlacement, const RoadLaneCellContext& context) {
     const RoadTemplateKind templateKind = TemplateKindFromTemplateId(lanePlacement.templateId);
-    if (templateKind == RoadTemplateKind::Highway || lanePlacement.family != RoadFamily::LocalStreet || lanePlacement.layer != TransportLayerId::Ground) {
-        return cell;
-    }
-
-    cell.secondary.directionMask = directionMask;
-    cell.secondary.travelDirectionMask = travelDirectionMask;
-    cell.secondary.pathDirectionMask = pathDirectionMask;
-    const int laneCount = TemplateLaneCountFromTemplateId(lanePlacement.templateId);
-    const int separatorIndex = 1 + laneCount;
-    const bool avenueCenterLane = templateKind == RoadTemplateKind::Avenue &&
-        (lanePlacement.laneIndex == separatorIndex - 1 || lanePlacement.laneIndex == separatorIndex + 1);
-    if (avenueCenterLane) {
-        cell.secondary.mode = CommuterMode::None;
-        cell.secondary.capacity = 0;
-        cell.secondary.centerSide = true;
-        cell.secondary.parallelGraphic = RoadGraphic::median(directionMask);
-    } else {
-        cell.secondary.mode = CommuterMode::Pedestrian;
-        cell.secondary.capacity = 1200;
-        cell.secondary.centerSide = false;
-        cell.secondary.parallelGraphic = RoadGraphic::sidewalk(directionMask);
-        cell.secondary.crossingGraphic = RoadGraphic::crosswalk(directionMask);
-    }
-
-    return cell;
+    return RoadTemplateDefinition::forKind(templateKind).makeLaneCell(lanePlacement, context);
 }
 
 bool Road::appendLegPlacements(const Int2& startTile, const Int2& endTile, int mapWidth, int mapHeight, std::vector<RoadTilePlacement>& placements) const {

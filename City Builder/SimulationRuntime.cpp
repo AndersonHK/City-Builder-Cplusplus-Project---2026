@@ -34,6 +34,7 @@ const int kRciRoadFacingNorth = 0;
 const int kRciRoadFacingSouth = 1;
 const int kRciRoadFacingWest = 2;
 const int kRciRoadFacingEast = 3;
+const int kRoadMedianLandValueEffect = 300;
 
 std::uint64_t RciRedevelopmentGraceTicks() {
     return SimulationTime::daysToTicks(static_cast<std::uint64_t>(kRciRedevelopmentGraceDays));
@@ -1478,6 +1479,13 @@ void SimulationRuntime::runLocalChunk(const ChunkRect& chunkRect) {
             tile.landValue -= tile.airPollution + 1;
             if (tile.landValue < 1) {
                 tile.landValue = 0;
+            }
+
+            const int currentTileIndex = tileIndex(tileX, tileY);
+            const std::size_t roadSlot = TransportNetwork::slotIndex(TransportLayerId::Ground, currentTileIndex, transportNetwork_.totalTileCount());
+            const std::vector<ResolvedRoadCell>& resolvedRoads = transportNetwork_.resolvedCells();
+            if (roadSlot < resolvedRoads.size() && (resolvedRoads[roadSlot].surfaceMask & kRoadSurfaceMedian) != 0) {
+                tile.landValue += kRoadMedianLandValueEffect;
             }
 
             tile.airPollution -= 1;

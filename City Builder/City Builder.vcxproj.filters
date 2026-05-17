@@ -51,6 +51,9 @@
     <ClCompile Include="RoadLane.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="RoadTemplateDefinition.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="RoadRenderState.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -344,6 +347,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="RoadLane.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RoadLaneCell.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RoadTemplate.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RoadTemplateDefinition.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="RoadRenderState.h">

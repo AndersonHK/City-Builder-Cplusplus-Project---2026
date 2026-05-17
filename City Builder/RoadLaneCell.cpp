@@ -76,6 +76,7 @@ int CountCardinalDirections(std::uint8_t directionMask) {
 
 Lane::Lane()
     : mode(CommuterMode::None),
+      laneType(RoadLaneTypeId::Separator),
       capacity(0),
       directionMask(0),
       travelDirectionMask(0),

@@ -24,6 +24,9 @@ void RoadTemplateControlContext(const ViewState& viewState, RoadFamily& family, 
 }
 
 RoadTemplateKind RoadTemplateKindForTool(ActiveTool activeTool) {
+    if (activeTool == ActiveTool::RoadRoad) {
+        return RoadTemplateKind::Road;
+    }
     if (activeTool == ActiveTool::RoadAvenue) {
         return RoadTemplateKind::Avenue;
     }
@@ -150,6 +153,9 @@ const char* ActiveToolName(ActiveTool activeTool) {
 
         case ActiveTool::RoadStreet:
             return "place local street";
+
+        case ActiveTool::RoadRoad:
+            return "place road";
 
         case ActiveTool::RoadAvenue:
             return "place avenue";
@@ -610,6 +616,7 @@ void AppController::onLeftMouseButtonPressed() {
             break;
 
         case ActiveTool::RoadStreet:
+        case ActiveTool::RoadRoad:
         case ActiveTool::RoadAvenue:
         case ActiveTool::RoadHighway:
             beginRoadDrag(tileX, tileY);
@@ -789,6 +796,11 @@ void AppController::onKeyPressed(int key, int action) {
         printRoadTemplate();
         return;
     }
+    if (key == hotkeys.roadRoad) {
+        setActiveTool(ActiveTool::RoadRoad);
+        printRoadTemplate();
+        return;
+    }
     if (key == hotkeys.roadAvenue) {
         setActiveTool(ActiveTool::RoadAvenue);
         printRoadTemplate();
@@ -947,7 +959,7 @@ bool AppController::roadPreviewStroke(RoadStrokeCommand& roadStrokeCommand) cons
     roadStrokeCommand.cornerTile = cornerTile;
     roadStrokeCommand.endTile = endTile;
 
-    if (viewState_.activeTool == ActiveTool::RoadStreet || viewState_.activeTool == ActiveTool::RoadAvenue) {
+    if (viewState_.activeTool == ActiveTool::RoadStreet || viewState_.activeTool == ActiveTool::RoadRoad || viewState_.activeTool == ActiveTool::RoadAvenue) {
         roadStrokeCommand.family = RoadFamily::LocalStreet;
         roadStrokeCommand.layer = TransportLayerId::Ground;
         roadStrokeCommand.templateKind = RoadTemplateKindForTool(viewState_.activeTool);
@@ -1026,6 +1038,9 @@ std::string AppController::activeUiAction() const {
     switch (viewState_.activeTool) {
         case ActiveTool::RoadStreet:
             return "select_road_street";
+
+        case ActiveTool::RoadRoad:
+            return "select_road_road";
 
         case ActiveTool::RoadAvenue:
             return "select_road_avenue";
@@ -1158,6 +1173,7 @@ void AppController::rotatePlacement(int deltaSteps) {
 // Reports whether the active tool uses the road drag workflow.
 bool AppController::activeToolIsRoad() const {
     return viewState_.activeTool == ActiveTool::RoadStreet ||
+        viewState_.activeTool == ActiveTool::RoadRoad ||
         viewState_.activeTool == ActiveTool::RoadAvenue ||
         viewState_.activeTool == ActiveTool::RoadHighway;
 }
@@ -1308,6 +1324,9 @@ void AppController::invokeUiAction(const std::string& action) {
     } else if (action == "select_road_street") {
         setActiveTool(ActiveTool::RoadStreet);
         printRoadTemplate();
+    } else if (action == "select_road_road") {
+        setActiveTool(ActiveTool::RoadRoad);
+        printRoadTemplate();
     } else if (action == "select_road_avenue") {
         setActiveTool(ActiveTool::RoadAvenue);
         printRoadTemplate();
@@ -1425,7 +1444,7 @@ void AppController::commitRoadDrag(int tileX, int tileY) {
     const int deltaY = endTile.y - startTile.y;
     Int2 cornerTile = std::abs(deltaX) >= std::abs(deltaY) ? Int2(endTile.x, startTile.y) : Int2(startTile.x, endTile.y);
 
-    if (viewState_.activeTool == ActiveTool::RoadStreet || viewState_.activeTool == ActiveTool::RoadAvenue) {
+    if (viewState_.activeTool == ActiveTool::RoadStreet || viewState_.activeTool == ActiveTool::RoadRoad || viewState_.activeTool == ActiveTool::RoadAvenue) {
         RoadStrokeCommand roadStrokeCommand;
         roadStrokeCommand.startTile = startTile;
         roadStrokeCommand.cornerTile = cornerTile;
@@ -1536,8 +1555,9 @@ void AppController::printRoadTemplate() const {
     TransportLayerId layer = TransportLayerId::Ground;
     RoadTemplateControlContext(viewState_, family, layer);
     const RoadTemplate roadTemplate = currentRoadTemplate(family, layer);
-    const char* templateName = roadTemplate.templateKind == RoadTemplateKind::Avenue ? "avenue" :
-        (roadTemplate.templateKind == RoadTemplateKind::Highway ? "highway" : "street");
+    const char* templateName = roadTemplate.templateKind == RoadTemplateKind::Road ? "road" :
+        (roadTemplate.templateKind == RoadTemplateKind::Avenue ? "avenue" :
+        (roadTemplate.templateKind == RoadTemplateKind::Highway ? "highway" : "street"));
     std::cout << "Road template: tool=" << templateName
         << " lanes=" << roadTemplate.laneCount
         << " traffic=" << RoadTrafficSideName(viewState_.roadTrafficSide)
@@ -1740,8 +1760,10 @@ void AppController::printQueryResult() {
                 << " laneGraphics=" << DirectionMaskToString(roadCell.surfaceEdgeMask)
                 << " junction=" << DirectionMaskToString(roadCell.junctionMask)
                 << " variant=" << RoadRenderVariantName(static_cast<RoadRenderVariant>(roadCell.renderVariant))
-                << " costs(car/ped/bike/bus)="
-                << roadCell.laneTypeCosts[static_cast<std::size_t>(RoadLaneTypeId::Car)] << "/"
+                << " costs(slow/medium/fast/ped/bike/bus)="
+                << roadCell.laneTypeCosts[static_cast<std::size_t>(RoadLaneTypeId::Slow)] << "/"
+                << roadCell.laneTypeCosts[static_cast<std::size_t>(RoadLaneTypeId::Medium)] << "/"
+                << roadCell.laneTypeCosts[static_cast<std::size_t>(RoadLaneTypeId::Fast)] << "/"
                 << roadCell.laneTypeCosts[static_cast<std::size_t>(RoadLaneTypeId::Pedestrian)] << "/"
                 << roadCell.laneTypeCosts[static_cast<std::size_t>(RoadLaneTypeId::Bike)] << "/"
                 << roadCell.laneTypeCosts[static_cast<std::size_t>(RoadLaneTypeId::Bus)];

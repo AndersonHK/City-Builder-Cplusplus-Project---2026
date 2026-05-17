@@ -5,42 +5,8 @@
 
 #include "RoadLane.h"
 #include "RoadLaneCell.h"
-
-struct RoadTemplate {
-    RoadTemplateKind templateKind;
-    RoadFamily family;
-    TransportLayerId layer;
-    RoadTrafficSide trafficSide;
-    RoadDirectionMode directionMode;
-    RoadTemplateIdentity identity;
-    RoadTemplateOverlapPolicy overlapPolicy;
-    int laneCount;
-    std::vector<RoadTemplateElement> elements;
-
-    RoadTemplate();
-};
-
-struct RoadStrokeCommand {
-    Int2 startTile;
-    Int2 cornerTile;
-    Int2 endTile;
-    RoadTemplateKind templateKind;
-    RoadFamily family;
-    TransportLayerId layer;
-    RoadStrokeOperation operation;
-    RoadTemplate roadTemplate;
-
-    RoadStrokeCommand();
-};
-
-struct RoadTilePlacement {
-    int tileX;
-    int tileY;
-    int tileIndex;
-    RoadLanePlacement lanePlacement;
-
-    RoadTilePlacement();
-};
+#include "RoadTemplate.h"
+#include "RoadTemplateDefinition.h"
 
 class Road {
 public:
@@ -56,6 +22,7 @@ public:
     static std::uint16_t makeTemplateId(RoadTemplateKind templateKind, RoadFamily family, TransportLayerId layer, int laneCount, RoadTrafficSide trafficSide, RoadDirectionMode directionMode);
     static int chooseTemplateFootprint(const RoadTemplate& roadTemplate);
     static RoadLaneCell makeLaneCell(const RoadLanePlacement& lanePlacement, std::uint8_t directionMask, std::uint8_t travelDirectionMask = 0, std::uint8_t pathDirectionMask = 0);
+    static RoadLaneCell makeLaneCell(const RoadLanePlacement& lanePlacement, const RoadLaneCellContext& context);
 
 private:
     struct LayoutLane {

@@ -38,6 +38,8 @@ RoadTemplateKind InferToolKind(RoadTemplateKind templateKind, int laneCount, Roa
 
 const char* ToolKindName(RoadTemplateKind templateKind) {
     switch (templateKind) {
+        case RoadTemplateKind::Road:
+            return "road";
         case RoadTemplateKind::Avenue:
             return "avenue";
         case RoadTemplateKind::Highway:
@@ -486,6 +488,9 @@ RoadDirectionMode ParseDirectionMode(const std::string& token) {
 }
 
 RoadTemplateKind ParseTemplateKind(const std::string& token) {
+    if (token == "road") {
+        return RoadTemplateKind::Road;
+    }
     if (token == "avenue") {
         return RoadTemplateKind::Avenue;
     }
@@ -501,7 +506,10 @@ RoadToolSandboxAction ParseSandboxAction(const std::string& line) {
     stream >> command;
 
     RoadToolSandboxAction action;
-    if (command == "drag" || command == "street" || command == "avenue") {
+    if (command == "drag" || command == "street" || command == "road" || command == "avenue") {
+        if (command == "road") {
+            action.templateKind = RoadTemplateKind::Road;
+        }
         if (command == "avenue") {
             action.templateKind = RoadTemplateKind::Avenue;
         }

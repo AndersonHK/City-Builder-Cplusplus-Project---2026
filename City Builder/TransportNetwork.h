@@ -89,6 +89,10 @@ private:
     std::uint8_t pathLaneMovementMask(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) const;
     std::uint8_t laneGraphicDirectionMask(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) const;
     std::uint8_t laneCenterTravelDirectionMask(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) const;
+    RoadLaneCellContext roadLaneCellContext(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) const;
+    bool avenueTileIsOuter(TransportLayerId layer, int tileX, int tileY) const;
+    bool tileHasAvenueCarBody(TransportLayerId layer, int tileX, int tileY) const;
+    bool oneWayRoadHasLeftNeighbor(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) const;
     bool isCarIntersectionCollectionTile(TransportLayerId layer, int tileX, int tileY) const;
     std::uint8_t buildCarExitMask(TransportLayerId layer, int tileX, int tileY, const TransportTile& tile) const;
     std::uint8_t buildTurnExitMaskThroughIntersection(TransportLayerId layer, int entryTileX, int entryTileY, std::uint8_t travelDirection) const;

@@ -199,26 +199,32 @@ float visibleRoadArrowGlyph(float packedGlyph)
 
 float roadTileGlyphIndex(float baseGlyph, float laneGraphicMask, float dividerMask)
 {
+    int baseGlyphIndex = int(floor(baseGlyph + 0.5));
+    float materialOffset = baseGlyphIndex >= 17 ? 2048.0 : 0.0;
     int laneGraphics = int(floor(laneGraphicMask + 0.5));
     int sidewalkEdges = laneGraphics & 15;
     int crosswalkEdges = (laneGraphics >> 4) & 15;
     if (crosswalkEdges != 0) {
-        return 768.0 + float(laneGraphics);
+        return materialOffset + 768.0 + float(laneGraphics);
     }
 
     if (sidewalkEdges != 0) {
         int divider = int(floor(dividerMask + 0.5));
         int whiteMask = divider & 15;
         int yellowMask = (divider >> 4) & 15;
+        int medianMask = whiteMask & yellowMask;
+        if (medianMask != 0) {
+            return materialOffset + float(1024 + sidewalkEdges * 16 + medianMask);
+        }
         if (yellowMask != 0) {
-            return float(256 + sidewalkEdges * 16 + yellowMask);
+            return materialOffset + float(256 + sidewalkEdges * 16 + yellowMask);
         }
         if (whiteMask != 0) {
-            return float(512 + sidewalkEdges * 16 + whiteMask);
+            return materialOffset + float(512 + sidewalkEdges * 16 + whiteMask);
         }
-        return float(64 + sidewalkEdges);
+        return materialOffset + float(64 + sidewalkEdges);
     }
-    return baseGlyph;
+    return materialOffset + baseGlyph;
 }
 
 void main()

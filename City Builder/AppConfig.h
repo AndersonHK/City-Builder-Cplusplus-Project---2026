@@ -23,6 +23,7 @@ struct HotkeyConfig {
     int placeFactory;
     int placeHouse;
     int roadStreet;
+    int roadRoad;
     int roadAvenue;
     int roadHighway;
     int toggleTrafficOverlay;

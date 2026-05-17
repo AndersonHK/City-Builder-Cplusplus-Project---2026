@@ -13,6 +13,7 @@ enum class CommuterMode : std::uint8_t {
 class Lane {
 public:
     CommuterMode mode;
+    RoadLaneTypeId laneType;
     int capacity;
     std::uint8_t directionMask;
     std::uint8_t travelDirectionMask;

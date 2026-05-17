@@ -4,7 +4,7 @@
 
 namespace {
 bool LaneTypeCollapsesToOneTile(RoadLaneTypeId laneType) {
-    return laneType == RoadLaneTypeId::Car ||
+    return IsRoadCarLaneType(laneType) ||
         laneType == RoadLaneTypeId::Pedestrian ||
         laneType == RoadLaneTypeId::Separator;
 }
@@ -79,8 +79,9 @@ RoadTileLaneAddResult TransportTile::tryAddLane(const RoadLanePlacement& lanePla
             return RoadTileLaneAddResult::Replay;
         }
 
-        if (existingLane.laneType == lanePlacement.laneType &&
-            LaneTypeCollapsesToOneTile(existingLane.laneType)) {
+        const bool sameLaneCollisionClass = existingLane.laneType == lanePlacement.laneType ||
+            (IsRoadCarLaneType(existingLane.laneType) && IsRoadCarLaneType(lanePlacement.laneType));
+        if (sameLaneCollisionClass && LaneTypeCollapsesToOneTile(existingLane.laneType)) {
             if (RoadAxesOverlap(existingLane.axis, lanePlacement.axis) &&
                 existingLane.sideOverlaps(lanePlacement)) {
                 return RoadTileLaneAddResult::Rejected;
@@ -134,7 +135,15 @@ std::vector<RoadLanePlacement>& TransportTile::lanesForMutation() {
 bool TransportTile::hasLaneType(RoadLaneTypeId laneType) const {
     std::size_t laneIndex = 0;
     for (; laneIndex < lanes_.size(); ++laneIndex) {
-        if (lanes_[laneIndex].active && lanes_[laneIndex].laneType == laneType) {
+        if (!lanes_[laneIndex].active) {
+            continue;
+        }
+
+        if (IsRoadCarLaneType(laneType) && IsRoadCarLaneType(lanes_[laneIndex].laneType)) {
+            return true;
+        }
+
+        if (lanes_[laneIndex].laneType == laneType) {
             return true;
         }
     }

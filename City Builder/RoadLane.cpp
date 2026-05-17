@@ -55,7 +55,7 @@ void RoadLane::setTravel(std::uint8_t laneTravelMask) {
 }
 
 bool RoadLane::isCar() const {
-    return element_.laneType == RoadLaneTypeId::Car;
+    return IsRoadCarLaneType(element_.laneType);
 }
 
 bool RoadLane::isPedestrian() const {
@@ -67,7 +67,7 @@ bool RoadLane::isSeparator() const {
 }
 
 bool RoadLane::usesRoadArrows() const {
-    return element_.laneType == RoadLaneTypeId::Car || element_.laneType == RoadLaneTypeId::Bus;
+    return IsRoadCarLaneType(element_.laneType) || element_.laneType == RoadLaneTypeId::Bus;
 }
 
 bool RoadLane::usesDirectedFlow() const {
@@ -76,8 +76,12 @@ bool RoadLane::usesDirectedFlow() const {
 
 std::uint16_t RoadLane::traversalCost(RoadFamily family) const {
     switch (element_.laneType) {
-        case RoadLaneTypeId::Car:
-            return family == RoadFamily::Highway ? kTravelCostScale / 14u : kTravelCostScale / 10u;
+        case RoadLaneTypeId::Slow:
+            return kTravelCostScale / 9u;
+        case RoadLaneTypeId::Medium:
+            return kTravelCostScale / 11u;
+        case RoadLaneTypeId::Fast:
+            return family == RoadFamily::Highway ? kTravelCostScale / 14u : kTravelCostScale / 13u;
         case RoadLaneTypeId::Pedestrian:
             return kTravelCostScale / 2u;
         case RoadLaneTypeId::Bike:
@@ -102,7 +106,7 @@ RoadLanePlacement::RoadLanePlacement()
       laneIndex(0),
       axis(RoadAxis::None),
       crossSectionMask(0),
-      laneType(RoadLaneTypeId::Car),
+      laneType(RoadLaneTypeId::Slow),
       surface(RoadLaneSurface::Asphalt),
       role(RoadLaneRole::Through),
       separatorStyle(RoadSeparatorStyle::None),
@@ -117,7 +121,7 @@ RoadLanePlacement::RoadLanePlacement()
 }
 
 bool RoadLanePlacement::isCar() const {
-    return laneType == RoadLaneTypeId::Car;
+    return IsRoadCarLaneType(laneType);
 }
 
 bool RoadLanePlacement::isPedestrian() const {

@@ -17,7 +17,7 @@ struct RoadAtlasImage {
 };
 
 constexpr int kRoadAtlasColumns = 32;
-constexpr int kRoadAtlasRows = 32;
+constexpr int kRoadAtlasRows = 128;
 constexpr int kRoadAtlasTileSize = 32;
 
 int RoadAtlasGlyphIndex(std::uint8_t baseGlyph, std::uint8_t laneGraphicMask, std::uint8_t dividerMask);

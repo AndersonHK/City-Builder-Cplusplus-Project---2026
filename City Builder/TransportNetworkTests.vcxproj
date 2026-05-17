@@ -79,6 +79,7 @@
     <ClCompile Include="RoadGraphic.cpp" />
     <ClCompile Include="RoadLane.cpp" />
     <ClCompile Include="RoadLaneCell.cpp" />
+    <ClCompile Include="RoadTemplateDefinition.cpp" />
     <ClCompile Include="RoadRenderState.cpp" />
     <ClCompile Include="RoadToolSandbox.cpp" />
     <ClCompile Include="TestAssetXml.cpp" />
@@ -100,6 +101,8 @@
     <ClInclude Include="RoadGraphic.h" />
     <ClInclude Include="RoadLane.h" />
     <ClInclude Include="RoadLaneCell.h" />
+    <ClInclude Include="RoadTemplate.h" />
+    <ClInclude Include="RoadTemplateDefinition.h" />
     <ClInclude Include="RoadRenderState.h" />
     <ClInclude Include="RoadToolSandbox.h" />
     <ClInclude Include="SimulationTime.h" />

@@ -89,7 +89,9 @@ void RoadGraphic::applyToRenderState(RoadRenderState& renderState, std::uint8_t 
     } else if (primitive_ == RoadGraphicPrimitive::Crosswalk) {
         renderState.laneGraphicMask = PackLaneGraphicMask(SidewalkMask(renderState), static_cast<std::uint8_t>(CrosswalkMask(renderState) | mask));
     } else if (primitive_ == RoadGraphicPrimitive::Median) {
-        renderState.dividerMask = PackDividerMask(WhiteDividerMask(renderState), static_cast<std::uint8_t>(YellowDividerMask(renderState) | mask));
+        renderState.dividerMask = PackDividerMask(
+            static_cast<std::uint8_t>(WhiteDividerMask(renderState) | mask),
+            static_cast<std::uint8_t>(YellowDividerMask(renderState) | mask));
     } else if (primitive_ == RoadGraphicPrimitive::Divider) {
         renderState.dividerMask = PackDividerMask(static_cast<std::uint8_t>(WhiteDividerMask(renderState) | mask), YellowDividerMask(renderState));
     }
