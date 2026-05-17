@@ -1,0 +1,8 @@
+<module id="distribution_center_module">
+  <size width="4" height="4" />
+  <effects airPollution="10000" landValue="-2200" />
+  <render height="1.05" colorR="0.36" colorG="0.39" colorB="0.41" />
+  <parameters>
+    <driver id="jobs.dirty_industry" amount="36" />
+  </parameters>
+</module>

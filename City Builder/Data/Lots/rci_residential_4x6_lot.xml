@@ -1,0 +1,15 @@
+<lot id="rci_residential_4x6_lot" zoningType="residential" constructionTicks="18">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="4" height="6" />
+  <modules>
+    <moduleRef id="walkup_apartment_module" x="0" y="0" />
+    <moduleRef id="walkup_apartment_module" x="2" y="0" />
+    <moduleRef id="row_house_module" x="0" y="3" />
+    <moduleRef id="row_house_module" x="2" y="3" />
+    <moduleRef id="pathway_module" x="1" y="5" />
+    <moduleRef id="driveway_module" x="2" y="5" />
+  </modules>
+  <access>
+    <perimeter modes="pedestrian,car" />
+  </access>
+</lot>

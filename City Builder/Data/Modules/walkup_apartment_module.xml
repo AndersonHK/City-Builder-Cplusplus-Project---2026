@@ -1,0 +1,8 @@
+<module id="walkup_apartment_module">
+  <size width="2" height="3" />
+  <effects airPollution="0" landValue="5600" />
+  <render height="1.35" colorR="0.48" colorG="0.59" colorB="0.64" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="16" />
+  </parameters>
+</module>

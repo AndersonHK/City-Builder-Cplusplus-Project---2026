@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "AssetLoader.h"
 #include "ChunkConfig.h"
 #include "City.h"
 #include "CityParameters.h"
@@ -320,6 +321,47 @@ private:
         }
     };
 
+    struct RciDevelopmentSource {
+        RciRect rect;
+        bool isBuilt;
+        std::size_t sourceIndex;
+        int lotId;
+        float capacity;
+
+        RciDevelopmentSource()
+            : isBuilt(false),
+              sourceIndex(0),
+              lotId(-1),
+              capacity(0.0f) {
+        }
+    };
+
+    struct RciConstructionCandidate {
+        bool isValid;
+        RciRect rect;
+        const LotAsset* lotAsset;
+        int rotationSteps;
+        float capacity;
+        float consumedBuiltCapacity;
+        float standaloneEmptyCapacity;
+        float netGrowth;
+        int desirability;
+        std::vector<std::size_t> sourceIndices;
+        std::vector<RciDevelopmentSource> consumedSources;
+        Lot lot;
+
+        RciConstructionCandidate()
+            : isValid(false),
+              lotAsset(0),
+              rotationSteps(0),
+              capacity(0.0f),
+              consumedBuiltCapacity(0.0f),
+              standaloneEmptyCapacity(0.0f),
+              netGrowth(0.0f),
+              desirability(0) {
+        }
+    };
+
     enum class WorkerTaskType {
         None,
         NeighborPass,
@@ -375,10 +417,19 @@ private:
     bool tryPlaceLot(const LotAsset& lotAsset, int clickedTileX, int clickedTileY, int rotationSteps, TileBuffer& writeBuffer);
     void runRciConstructor(TileBuffer& writeBuffer);
     bool tryConstructOneRciLot(std::uint16_t zoningType, TileBuffer& writeBuffer);
-    bool tryConstructRciLotAtIndex(std::size_t zoningLotIndex, float demandBudget, TileBuffer& writeBuffer, float& constructedCapacity);
-    const LotAsset* findRciConstructorLotAsset(std::uint16_t zoningType, int width, int height, float demandBudget, int& rotationSteps, float& capacity) const;
+    bool tryConstructRciDevelopmentFromSource(std::uint16_t zoningType, std::size_t seedSourceIndex, const std::vector<RciDevelopmentSource>& sources, float demandBudget, TileBuffer& writeBuffer, float& constructedCapacity);
+    std::vector<RciDevelopmentSource> collectRciDevelopmentSources(std::uint16_t zoningType) const;
+    std::vector<std::size_t> buildRciDevelopmentBlock(std::size_t seedSourceIndex, const std::vector<RciDevelopmentSource>& sources) const;
+    bool evaluateRciConstructionCandidate(std::uint16_t zoningType, const RciRect& candidateRect, std::size_t seedSourceIndex, const std::vector<std::size_t>& blockSourceIndices, const std::vector<RciDevelopmentSource>& sources, float demandBudget, const TileBuffer& writeBuffer, RciConstructionCandidate& candidate) const;
+    bool commitRciConstructionCandidate(const RciConstructionCandidate& candidate, TileBuffer& writeBuffer);
+    bool rciCandidateTilesAreDevelopable(std::uint16_t zoningType, const RciRect& rect, const std::vector<std::size_t>& consumedSourceIndices, const std::vector<RciDevelopmentSource>& sources, const TileBuffer& writeBuffer) const;
+    const LotAsset* findRciConstructorLotAsset(std::uint16_t zoningType, int width, int height, float demandBudget, float maxDensityPerTile, std::uint32_t variationSeed, int& rotationSteps, float& capacity) const;
     const RciTool* findRciToolByZoningType(std::uint16_t zoningType) const;
     bool hasRciConstructorLotAsset(std::uint16_t zoningType, int width, int height) const;
+    const RciGrowthRule* findRciGrowthRule(std::uint16_t zoningType) const;
+    float rciMaxDensityPerTile(std::uint16_t zoningType) const;
+    int rciDesirabilityForCandidate(const Lot& lot, const LotAsset& lotAsset) const;
+    std::uint32_t rciVariationSeedForRect(std::uint16_t zoningType, const RciRect& rect) const;
     bool rciParcelTileIsAvailable(int tileX, int tileY, std::uint16_t zoningType, const TileBuffer& writeBuffer, const std::vector<std::uint8_t>& blockedTiles) const;
     bool rciParcelRectIsAvailable(const RciRect& rect, std::uint16_t zoningType, const TileBuffer& writeBuffer, const std::vector<std::uint8_t>& blockedTiles) const;
     void markRciParcelBlocked(const RciRect& rect, std::vector<std::uint8_t>& blockedTiles) const;
@@ -455,6 +506,7 @@ private:
 
     std::vector<LotModule> moduleAssets_;
     std::vector<LotAsset> lotAssets_;
+    std::vector<RciGrowthRule> rciGrowthRules_;
     RciToolCatalog rciTools_;
     std::unordered_map<std::string, std::size_t> moduleAssetIndexById_;
     std::unordered_map<std::string, std::size_t> lotAssetIndexById_;

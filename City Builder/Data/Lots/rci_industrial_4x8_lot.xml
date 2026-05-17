@@ -1,0 +1,11 @@
+<lot id="rci_industrial_4x8_lot" zoningType="industrial" constructionTicks="28">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="4" height="8" />
+  <modules>
+    <moduleRef id="large_factory_module" x="0" y="0" />
+    <moduleRef id="large_factory_module" x="0" y="4" />
+  </modules>
+  <access>
+    <perimeter modes="pedestrian,car" />
+  </access>
+</lot>

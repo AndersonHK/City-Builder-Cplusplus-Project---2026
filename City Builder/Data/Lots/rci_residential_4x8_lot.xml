@@ -1,0 +1,11 @@
+<lot id="rci_residential_4x8_lot" zoningType="residential" constructionTicks="24">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="4" height="8" />
+  <modules>
+    <moduleRef id="apartment_block_module" x="0" y="0" />
+    <moduleRef id="apartment_block_module" x="0" y="4" />
+  </modules>
+  <access>
+    <perimeter modes="pedestrian,car" />
+  </access>
+</lot>

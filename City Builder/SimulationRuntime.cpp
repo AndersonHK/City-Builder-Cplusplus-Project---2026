@@ -9,6 +9,7 @@
 #include <cmath>
 #include <ctime>
 #include <iostream>
+#include <limits>
 #include <random>
 #include <stdexcept>
 
@@ -27,6 +28,8 @@ const float kMaximumCommuteTime = 300.0f;
 const float kMaximumCommuteCost = kMaximumCommuteTime * kTransportCostUnitsPerCommuteTime;
 const float kLongCommuteComplaintCost = kMaximumCommuteCost * 0.5f;
 const int kRciRedevelopmentGraceDays = 30;
+const int kRciConstructorBlockLimit = 8;
+const float kDirtyIndustryDemandPerLowWealthWorker = 1.05f;
 const int kRciRoadFacingNorth = 0;
 const int kRciRoadFacingSouth = 1;
 const int kRciRoadFacingWest = 2;
@@ -106,6 +109,59 @@ bool CommuteRouteSegmentTouchesTile(const CommuteRouteSegment& segment, int tile
     const int maxTileY = std::max(segment.startTileY, segment.endTileY);
     return tileX >= minTileX && tileX <= maxTileX &&
         tileY >= minTileY && tileY <= maxTileY;
+}
+
+bool RciRectContainsRect(const RciRect& outer, const RciRect& inner) {
+    return outer.isValid() && inner.isValid() &&
+        inner.minTileX >= outer.minTileX &&
+        inner.maxTileX <= outer.maxTileX &&
+        inner.minTileY >= outer.minTileY &&
+        inner.maxTileY <= outer.maxTileY;
+}
+
+bool RciRectContainsTile(const RciRect& rect, int tileX, int tileY) {
+    return rect.isValid() &&
+        tileX >= rect.minTileX &&
+        tileX <= rect.maxTileX &&
+        tileY >= rect.minTileY &&
+        tileY <= rect.maxTileY;
+}
+
+RciRect RciUnionRect(const RciRect& first, const RciRect& second) {
+    if (!first.isValid()) {
+        return second;
+    }
+    if (!second.isValid()) {
+        return first;
+    }
+
+    return RciRect(
+        std::min(first.minTileX, second.minTileX),
+        std::min(first.minTileY, second.minTileY),
+        std::max(first.maxTileX, second.maxTileX),
+        std::max(first.maxTileY, second.maxTileY));
+}
+
+bool RciRectsAreEdgeAdjacent(const RciRect& first, const RciRect& second) {
+    if (!first.isValid() || !second.isValid()) {
+        return false;
+    }
+
+    const bool verticalOverlap = first.minTileY <= second.maxTileY && first.maxTileY >= second.minTileY;
+    const bool horizontalOverlap = first.minTileX <= second.maxTileX && first.maxTileX >= second.minTileX;
+    return (verticalOverlap && (first.maxTileX + 1 == second.minTileX || second.maxTileX + 1 == first.minTileX)) ||
+        (horizontalOverlap && (first.maxTileY + 1 == second.minTileY || second.maxTileY + 1 == first.minTileY));
+}
+
+void AddUniqueBoundary(std::vector<int>& boundaries, int value) {
+    if (std::find(boundaries.begin(), boundaries.end(), value) == boundaries.end()) {
+        boundaries.push_back(value);
+    }
+}
+
+void MixRciHash(std::uint32_t& hash, std::uint32_t value) {
+    hash ^= value;
+    hash *= 16777619u;
 }
 
 // Finds the executable directory so data assets can be loaded beside the binary.
@@ -968,6 +1024,7 @@ void SimulationRuntime::loadAssets() {
 
     moduleAssets_ = loadedAssets.modules;
     lotAssets_ = loadedAssets.lots;
+    rciGrowthRules_ = loadedAssets.rciGrowthRules;
     initialCityDemands_ = loadedAssets.initialDemands;
     if (initialCityDemands_.size() < cityParameterRegistry_.count()) {
         initialCityDemands_.resize(cityParameterRegistry_.count(), 0.0f);
@@ -2548,7 +2605,7 @@ void SimulationRuntime::runRciConstructor(TileBuffer& writeBuffer) {
 }
 
 bool SimulationRuntime::tryConstructOneRciLot(std::uint16_t zoningType, TileBuffer& writeBuffer) {
-    if (zoningType == TileZoningNone || zoningLots_.empty()) {
+    if (zoningType == TileZoningNone || findRciGrowthRule(zoningType) == 0) {
         return false;
     }
 
@@ -2566,106 +2623,502 @@ bool SimulationRuntime::tryConstructOneRciLot(std::uint16_t zoningType, TileBuff
 
     bool constructedAny = false;
     int attempts = 0;
-    std::size_t zoningLotIndex = 0;
-    while (zoningLotIndex < zoningLots_.size() && attempts < rciConstructorAttemptsPerTick_ && remainingBudget > 0.0f) {
-        const RciLot& zoningLot = zoningLots_[zoningLotIndex];
-        if (zoningLot.zoningType != zoningType || zoningLot.availableAfterTick > simulationTick_) {
-            ++zoningLotIndex;
-            continue;
+    while (attempts < rciConstructorAttemptsPerTick_ && remainingBudget > 0.0f) {
+        const std::vector<RciDevelopmentSource> sources = collectRciDevelopmentSources(zoningType);
+        if (sources.empty()) {
+            break;
         }
 
-        ++attempts;
-        float constructedCapacity = 0.0f;
-        if (tryConstructRciLotAtIndex(zoningLotIndex, remainingBudget, writeBuffer, constructedCapacity)) {
+        bool constructedThisPass = false;
+        std::size_t sourceIndex = 0;
+        for (; sourceIndex < sources.size() && attempts < rciConstructorAttemptsPerTick_ && remainingBudget > 0.0f; ++sourceIndex) {
+            ++attempts;
+            float constructedCapacity = 0.0f;
+            if (!tryConstructRciDevelopmentFromSource(zoningType, sourceIndex, sources, remainingBudget, writeBuffer, constructedCapacity)) {
+                continue;
+            }
+
             constructedAny = true;
-            remainingBudget -= constructedCapacity;
-            continue;
+            constructedThisPass = true;
+            remainingBudget = std::max(0.0f, remainingBudget - constructedCapacity);
+            break;
         }
 
-        ++zoningLotIndex;
+        if (!constructedThisPass) {
+            break;
+        }
     }
 
     return constructedAny;
 }
 
-bool SimulationRuntime::tryConstructRciLotAtIndex(std::size_t zoningLotIndex, float demandBudget, TileBuffer& writeBuffer, float& constructedCapacity) {
+bool SimulationRuntime::tryConstructRciDevelopmentFromSource(std::uint16_t zoningType, std::size_t seedSourceIndex, const std::vector<RciDevelopmentSource>& sources, float demandBudget, TileBuffer& writeBuffer, float& constructedCapacity) {
     constructedCapacity = 0.0f;
-    if (zoningLotIndex >= zoningLots_.size()) {
+    if (seedSourceIndex >= sources.size() || demandBudget <= 0.0f) {
         return false;
     }
 
-    const RciLot zoningLot = zoningLots_[zoningLotIndex];
-    if (zoningLot.zoningType == TileZoningNone || !zoningLot.rect.isValid() || zoningLot.availableAfterTick > simulationTick_) {
+    const std::vector<std::size_t> blockSourceIndices = buildRciDevelopmentBlock(seedSourceIndex, sources);
+    if (blockSourceIndices.empty()) {
         return false;
     }
 
-    int rotationSteps = 0;
-    float lotCapacity = 0.0f;
-    const LotAsset* lotAsset = findRciConstructorLotAsset(zoningLot.zoningType, zoningLot.rect.width(), zoningLot.rect.height(), demandBudget, rotationSteps, lotCapacity);
-    if (lotAsset == 0) {
+    std::vector<int> xBoundaries;
+    std::vector<int> yBoundaries;
+    std::size_t blockIndex = 0;
+    for (; blockIndex < blockSourceIndices.size(); ++blockIndex) {
+        const RciRect& sourceRect = sources[blockSourceIndices[blockIndex]].rect;
+        AddUniqueBoundary(xBoundaries, sourceRect.minTileX);
+        AddUniqueBoundary(xBoundaries, sourceRect.maxTileX + 1);
+        AddUniqueBoundary(yBoundaries, sourceRect.minTileY);
+        AddUniqueBoundary(yBoundaries, sourceRect.maxTileY + 1);
+    }
+    std::sort(xBoundaries.begin(), xBoundaries.end());
+    std::sort(yBoundaries.begin(), yBoundaries.end());
+
+    RciConstructionCandidate bestCandidate;
+    const float kCapacityEpsilon = 0.001f;
+    std::size_t minXIndex = 0;
+    for (; minXIndex < xBoundaries.size(); ++minXIndex) {
+        std::size_t maxXIndex = minXIndex + 1u;
+        for (; maxXIndex < xBoundaries.size(); ++maxXIndex) {
+            const int candidateWidth = xBoundaries[maxXIndex] - xBoundaries[minXIndex];
+            if (candidateWidth <= 0 || candidateWidth > kRciConstructorBlockLimit) {
+                continue;
+            }
+
+            std::size_t minYIndex = 0;
+            for (; minYIndex < yBoundaries.size(); ++minYIndex) {
+                std::size_t maxYIndex = minYIndex + 1u;
+                for (; maxYIndex < yBoundaries.size(); ++maxYIndex) {
+                    const int candidateHeight = yBoundaries[maxYIndex] - yBoundaries[minYIndex];
+                    if (candidateHeight <= 0 || candidateHeight > kRciConstructorBlockLimit) {
+                        continue;
+                    }
+
+                    const RciRect candidateRect(
+                        xBoundaries[minXIndex],
+                        yBoundaries[minYIndex],
+                        xBoundaries[maxXIndex] - 1,
+                        yBoundaries[maxYIndex] - 1);
+
+                    RciConstructionCandidate candidate;
+                    if (!evaluateRciConstructionCandidate(zoningType, candidateRect, seedSourceIndex, blockSourceIndices, sources, demandBudget, writeBuffer, candidate)) {
+                        continue;
+                    }
+
+                    const int candidateArea = candidate.rect.width() * candidate.rect.height();
+                    const int bestArea = bestCandidate.rect.width() * bestCandidate.rect.height();
+                    if (!bestCandidate.isValid ||
+                        candidate.capacity > bestCandidate.capacity + kCapacityEpsilon ||
+                        (std::fabs(candidate.capacity - bestCandidate.capacity) <= kCapacityEpsilon &&
+                            (candidate.netGrowth > bestCandidate.netGrowth + kCapacityEpsilon ||
+                                (std::fabs(candidate.netGrowth - bestCandidate.netGrowth) <= kCapacityEpsilon &&
+                                    (candidateArea < bestArea ||
+                                        (candidateArea == bestArea &&
+                                            (candidate.rect.minTileY < bestCandidate.rect.minTileY ||
+                                                (candidate.rect.minTileY == bestCandidate.rect.minTileY && candidate.rect.minTileX < bestCandidate.rect.minTileX)))))))) {
+                        bestCandidate = candidate;
+                    }
+                }
+            }
+        }
+    }
+
+    if (!bestCandidate.isValid || !commitRciConstructionCandidate(bestCandidate, writeBuffer)) {
+        return false;
+    }
+
+    constructedCapacity = bestCandidate.netGrowth;
+    return true;
+}
+
+std::vector<SimulationRuntime::RciDevelopmentSource> SimulationRuntime::collectRciDevelopmentSources(std::uint16_t zoningType) const {
+    std::vector<RciDevelopmentSource> sources;
+    std::size_t zoningLotIndex = 0;
+    for (; zoningLotIndex < zoningLots_.size(); ++zoningLotIndex) {
+        const RciLot& zoningLot = zoningLots_[zoningLotIndex];
+        if (zoningLot.zoningType != zoningType || !zoningLot.rect.isValid() || zoningLot.availableAfterTick > simulationTick_) {
+            continue;
+        }
+
+        RciDevelopmentSource source;
+        source.rect = zoningLot.rect;
+        source.isBuilt = false;
+        source.sourceIndex = zoningLotIndex;
+        source.lotId = kInvalidLotId;
+        source.capacity = 0.0f;
+        sources.push_back(source);
+    }
+
+    std::size_t lotIndex = 0;
+    for (; lotIndex < lots_.size(); ++lotIndex) {
+        const Lot& lot = lots_[lotIndex];
+        if (lot.isUnderConstruction()) {
+            continue;
+        }
+
+        const LotAsset* lotAsset = findLotAssetById(lot.assetId());
+        if (lotAsset == 0 || lotAsset->zoningType != zoningType) {
+            continue;
+        }
+
+        RciDevelopmentSource source;
+        source.rect = RciRect(
+            lot.minimumTileX(),
+            lot.minimumTileY(),
+            lot.minimumTileX() + lot.footprintWidth() - 1,
+            lot.minimumTileY() + lot.footprintHeight() - 1);
+        source.isBuilt = true;
+        source.sourceIndex = lotIndex;
+        source.lotId = lot.id();
+        source.capacity = rciCapacityForLotAsset(*lotAsset, zoningType);
+        if (source.rect.isValid()) {
+            sources.push_back(source);
+        }
+    }
+
+    std::sort(sources.begin(), sources.end(), [](const RciDevelopmentSource& left, const RciDevelopmentSource& right) {
+        if (left.isBuilt != right.isBuilt) {
+            return !left.isBuilt;
+        }
+        if (left.rect.minTileY != right.rect.minTileY) {
+            return left.rect.minTileY < right.rect.minTileY;
+        }
+        if (left.rect.minTileX != right.rect.minTileX) {
+            return left.rect.minTileX < right.rect.minTileX;
+        }
+        return left.sourceIndex < right.sourceIndex;
+    });
+
+    return sources;
+}
+
+std::vector<std::size_t> SimulationRuntime::buildRciDevelopmentBlock(std::size_t seedSourceIndex, const std::vector<RciDevelopmentSource>& sources) const {
+    std::vector<std::size_t> blockSourceIndices;
+    if (seedSourceIndex >= sources.size()) {
+        return blockSourceIndices;
+    }
+
+    blockSourceIndices.push_back(seedSourceIndex);
+    RciRect blockBounds = sources[seedSourceIndex].rect;
+    bool addedSource = true;
+    while (addedSource) {
+        addedSource = false;
+        std::size_t sourceIndex = 0;
+        for (; sourceIndex < sources.size(); ++sourceIndex) {
+            if (std::find(blockSourceIndices.begin(), blockSourceIndices.end(), sourceIndex) != blockSourceIndices.end()) {
+                continue;
+            }
+
+            bool touchesBlock = false;
+            std::size_t blockIndex = 0;
+            for (; blockIndex < blockSourceIndices.size(); ++blockIndex) {
+                if (RciRectsAreEdgeAdjacent(sources[sourceIndex].rect, sources[blockSourceIndices[blockIndex]].rect)) {
+                    touchesBlock = true;
+                    break;
+                }
+            }
+
+            if (!touchesBlock) {
+                continue;
+            }
+
+            const RciRect expandedBounds = RciUnionRect(blockBounds, sources[sourceIndex].rect);
+            if (expandedBounds.width() > kRciConstructorBlockLimit || expandedBounds.height() > kRciConstructorBlockLimit) {
+                continue;
+            }
+
+            blockBounds = expandedBounds;
+            blockSourceIndices.push_back(sourceIndex);
+            addedSource = true;
+        }
+    }
+
+    return blockSourceIndices;
+}
+
+bool SimulationRuntime::evaluateRciConstructionCandidate(std::uint16_t zoningType, const RciRect& candidateRect, std::size_t seedSourceIndex, const std::vector<std::size_t>& blockSourceIndices, const std::vector<RciDevelopmentSource>& sources, float demandBudget, const TileBuffer& writeBuffer, RciConstructionCandidate& candidate) const {
+    candidate = RciConstructionCandidate();
+    if (!candidateRect.isValid() ||
+        candidateRect.width() > kRciConstructorBlockLimit ||
+        candidateRect.height() > kRciConstructorBlockLimit ||
+        seedSourceIndex >= sources.size() ||
+        !RciRectContainsRect(candidateRect, sources[seedSourceIndex].rect)) {
+        return false;
+    }
+
+    bool consumesSeed = false;
+    std::size_t blockIndex = 0;
+    for (; blockIndex < blockSourceIndices.size(); ++blockIndex) {
+        const std::size_t sourceIndex = blockSourceIndices[blockIndex];
+        if (sourceIndex >= sources.size()) {
+            continue;
+        }
+
+        const RciDevelopmentSource& source = sources[sourceIndex];
+        if (!source.rect.intersects(candidateRect)) {
+            continue;
+        }
+        if (!RciRectContainsRect(candidateRect, source.rect)) {
+            return false;
+        }
+
+        candidate.sourceIndices.push_back(sourceIndex);
+        candidate.consumedSources.push_back(source);
+        consumesSeed = consumesSeed || sourceIndex == seedSourceIndex;
+    }
+
+    if (!consumesSeed || candidate.sourceIndices.empty()) {
+        return false;
+    }
+
+    std::size_t sourceIndex = 0;
+    for (; sourceIndex < sources.size(); ++sourceIndex) {
+        if (std::find(candidate.sourceIndices.begin(), candidate.sourceIndices.end(), sourceIndex) != candidate.sourceIndices.end()) {
+            continue;
+        }
+        if (sources[sourceIndex].rect.intersects(candidateRect)) {
+            return false;
+        }
+    }
+
+    int tileY = candidateRect.minTileY;
+    for (; tileY <= candidateRect.maxTileY; ++tileY) {
+        int tileX = candidateRect.minTileX;
+        for (; tileX <= candidateRect.maxTileX; ++tileX) {
+            bool coveredBySource = false;
+            std::size_t consumedIndex = 0;
+            for (; consumedIndex < candidate.sourceIndices.size(); ++consumedIndex) {
+                if (RciRectContainsTile(sources[candidate.sourceIndices[consumedIndex]].rect, tileX, tileY)) {
+                    coveredBySource = true;
+                    break;
+                }
+            }
+            if (!coveredBySource) {
+                return false;
+            }
+        }
+    }
+
+    if (!rciCandidateTilesAreDevelopable(zoningType, candidateRect, candidate.sourceIndices, sources, writeBuffer)) {
+        return false;
+    }
+
+    const float maxDensityPerTile = rciMaxDensityPerTile(zoningType);
+    if (maxDensityPerTile <= 0.0f) {
+        return false;
+    }
+
+    std::size_t consumedIndex = 0;
+    for (; consumedIndex < candidate.sourceIndices.size(); ++consumedIndex) {
+        const RciDevelopmentSource& source = sources[candidate.sourceIndices[consumedIndex]];
+        if (source.isBuilt) {
+            candidate.consumedBuiltCapacity += source.capacity;
+            continue;
+        }
+
+        int standaloneRotationSteps = 0;
+        float standaloneCapacity = 0.0f;
+        const LotAsset* standaloneAsset = findRciConstructorLotAsset(
+            zoningType,
+            source.rect.width(),
+            source.rect.height(),
+            std::numeric_limits<float>::max(),
+            maxDensityPerTile,
+            rciVariationSeedForRect(zoningType, source.rect),
+            standaloneRotationSteps,
+            standaloneCapacity);
+        if (standaloneAsset != 0) {
+            candidate.standaloneEmptyCapacity += standaloneCapacity;
+        }
+    }
+
+    const float grossDemandBudget = demandBudget + candidate.consumedBuiltCapacity;
+    candidate.lotAsset = findRciConstructorLotAsset(
+        zoningType,
+        candidateRect.width(),
+        candidateRect.height(),
+        grossDemandBudget,
+        maxDensityPerTile,
+        rciVariationSeedForRect(zoningType, candidateRect),
+        candidate.rotationSteps,
+        candidate.capacity);
+    if (candidate.lotAsset == 0) {
+        return false;
+    }
+
+    const bool requiresCapacityImprovement = candidate.consumedBuiltCapacity > 0.0f || candidate.sourceIndices.size() > 1u;
+    if (requiresCapacityImprovement &&
+        candidate.capacity <= candidate.consumedBuiltCapacity + candidate.standaloneEmptyCapacity + 0.001f) {
         return false;
     }
 
     Int2 footprintMinimum;
     Int2 footprintMaximum;
-    RotatedRectangleBounds(lotAsset->footprintOrigin, lotAsset->footprintWidth, lotAsset->footprintHeight, rotationSteps, footprintMinimum, footprintMaximum);
-    if (footprintMaximum.x - footprintMinimum.x + 1 != zoningLot.rect.width() ||
-        footprintMaximum.y - footprintMinimum.y + 1 != zoningLot.rect.height()) {
+    RotatedRectangleBounds(candidate.lotAsset->footprintOrigin, candidate.lotAsset->footprintWidth, candidate.lotAsset->footprintHeight, candidate.rotationSteps, footprintMinimum, footprintMaximum);
+    if (footprintMaximum.x - footprintMinimum.x + 1 != candidateRect.width() ||
+        footprintMaximum.y - footprintMinimum.y + 1 != candidateRect.height()) {
         return false;
     }
 
-    const int anchorTileX = zoningLot.rect.minTileX - footprintMinimum.x;
-    const int anchorTileY = zoningLot.rect.minTileY - footprintMinimum.y;
-    Lot candidateLot;
-    if (!buildLotCandidate(*lotAsset, anchorTileX, anchorTileY, rotationSteps, nextLotId_, candidateLot)) {
+    const int anchorTileX = candidateRect.minTileX - footprintMinimum.x;
+    const int anchorTileY = candidateRect.minTileY - footprintMinimum.y;
+    if (!buildLotCandidate(*candidate.lotAsset, anchorTileX, anchorTileY, candidate.rotationSteps, nextLotId_, candidate.lot)) {
         return false;
     }
 
-    if (candidateLot.minimumTileX() != zoningLot.rect.minTileX ||
-        candidateLot.minimumTileY() != zoningLot.rect.minTileY ||
-        candidateLot.footprintWidth() != zoningLot.rect.width() ||
-        candidateLot.footprintHeight() != zoningLot.rect.height()) {
+    if (candidate.lot.minimumTileX() != candidateRect.minTileX ||
+        candidate.lot.minimumTileY() != candidateRect.minTileY ||
+        candidate.lot.footprintWidth() != candidateRect.width() ||
+        candidate.lot.footprintHeight() != candidateRect.height()) {
         return false;
     }
 
-    const std::vector<int>& occupiedTileIndices = candidateLot.occupiedTileIndices();
-    std::size_t tileIndexValue = 0;
-    for (; tileIndexValue < occupiedTileIndices.size(); ++tileIndexValue) {
-        const int tileLinearIndex = occupiedTileIndices[tileIndexValue];
-        if (tileLinearIndex < 0 || tileLinearIndex >= static_cast<int>(writeBuffer.tiles.size())) {
-            return false;
-        }
-
-        if (writeBuffer.tiles[tileLinearIndex].zoningType != zoningLot.zoningType) {
-            return false;
-        }
-    }
-
-    if (!canPlaceLot(candidateLot)) {
+    const RciGrowthRule* growthRule = findRciGrowthRule(zoningType);
+    if (growthRule == 0) {
         return false;
     }
 
-    candidateLot.startConstruction(lotAsset->constructionTicks, mapWidth_);
-    lots_.push_back(candidateLot);
-    setLotOccupancy(candidateLot.id(), candidateLot.occupiedTileIndices());
-    markChunksDirtyByTileIndices(writeBuffer.chunkRevisions, candidateLot.occupiedTileIndices());
-    ++nextLotId_;
-    ++lotsRevision_;
-    constructedCapacity = lotCapacity;
-    if (!candidateLot.isUnderConstruction()) {
-        queueCommuteRecalculationForLot(candidateLot.id());
+    candidate.desirability = rciDesirabilityForCandidate(candidate.lot, *candidate.lotAsset);
+    if (candidate.desirability < growthRule->desirabilityThreshold) {
+        return false;
     }
 
-    zoningLots_.erase(zoningLots_.begin() + static_cast<std::ptrdiff_t>(zoningLotIndex));
-    ++zoningLotsRevision_;
+    candidate.rect = candidateRect;
+    candidate.netGrowth = std::max(0.0f, candidate.capacity - candidate.consumedBuiltCapacity);
+    candidate.isValid = true;
     return true;
 }
 
-const LotAsset* SimulationRuntime::findRciConstructorLotAsset(std::uint16_t zoningType, int width, int height, float demandBudget, int& rotationSteps, float& capacity) const {
+bool SimulationRuntime::commitRciConstructionCandidate(const RciConstructionCandidate& candidate, TileBuffer& writeBuffer) {
+    if (!candidate.isValid || candidate.lotAsset == 0) {
+        return false;
+    }
+
+    std::vector<std::size_t> builtLotIndices;
+    std::vector<std::size_t> zoningLotIndices;
+    std::size_t consumedIndex = 0;
+    for (; consumedIndex < candidate.consumedSources.size(); ++consumedIndex) {
+        const RciDevelopmentSource& source = candidate.consumedSources[consumedIndex];
+        if (source.isBuilt) {
+            builtLotIndices.push_back(source.sourceIndex);
+        } else {
+            zoningLotIndices.push_back(source.sourceIndex);
+        }
+    }
+
+    std::sort(builtLotIndices.begin(), builtLotIndices.end());
+    builtLotIndices.erase(std::unique(builtLotIndices.begin(), builtLotIndices.end()), builtLotIndices.end());
+    std::sort(zoningLotIndices.begin(), zoningLotIndices.end());
+    zoningLotIndices.erase(std::unique(zoningLotIndices.begin(), zoningLotIndices.end()), zoningLotIndices.end());
+
+    std::vector<int> dirtyTiles;
+    for (std::vector<std::size_t>::reverse_iterator builtIndex = builtLotIndices.rbegin(); builtIndex != builtLotIndices.rend(); ++builtIndex) {
+        if (*builtIndex >= lots_.size()) {
+            continue;
+        }
+
+        const int lotId = lots_[*builtIndex].id();
+        const std::vector<int> occupiedTiles = lots_[*builtIndex].occupiedTileIndices();
+        queueCommuteSourcesForDestination(lotId);
+        removeCommuteLoadsForLot(lots_[*builtIndex]);
+        clearLotOccupancy(occupiedTiles);
+        dirtyTiles.insert(dirtyTiles.end(), occupiedTiles.begin(), occupiedTiles.end());
+
+        std::size_t occupiedIndex = 0;
+        for (; occupiedIndex < occupiedTiles.size(); ++occupiedIndex) {
+            const int tileLinearIndex = occupiedTiles[occupiedIndex];
+            if (tileLinearIndex < 0 || tileLinearIndex >= static_cast<int>(writeBuffer.tiles.size())) {
+                continue;
+            }
+            writeBuffer.tiles[tileLinearIndex].zoningType = candidate.lotAsset->zoningType;
+            writeBuffer.tiles[tileLinearIndex].isVacant = true;
+        }
+
+        lots_.erase(lots_.begin() + static_cast<std::ptrdiff_t>(*builtIndex));
+    }
+
+    for (std::vector<std::size_t>::reverse_iterator zoningIndex = zoningLotIndices.rbegin(); zoningIndex != zoningLotIndices.rend(); ++zoningIndex) {
+        if (*zoningIndex < zoningLots_.size()) {
+            zoningLots_.erase(zoningLots_.begin() + static_cast<std::ptrdiff_t>(*zoningIndex));
+        }
+    }
+
+    Lot newLot = candidate.lot;
+    newLot.startConstruction(candidate.lotAsset->constructionTicks, mapWidth_);
+    lots_.push_back(newLot);
+    setLotOccupancy(newLot.id(), newLot.occupiedTileIndices());
+    dirtyTiles.insert(dirtyTiles.end(), newLot.occupiedTileIndices().begin(), newLot.occupiedTileIndices().end());
+    markChunksDirtyByTileIndices(writeBuffer.chunkRevisions, dirtyTiles);
+    ++nextLotId_;
+    ++lotsRevision_;
+    if (!zoningLotIndices.empty()) {
+        ++zoningLotsRevision_;
+    }
+    if (!newLot.isUnderConstruction()) {
+        queueCommuteRecalculationForLot(newLot.id());
+    }
+    return true;
+}
+
+bool SimulationRuntime::rciCandidateTilesAreDevelopable(std::uint16_t zoningType, const RciRect& rect, const std::vector<std::size_t>& consumedSourceIndices, const std::vector<RciDevelopmentSource>& sources, const TileBuffer& writeBuffer) const {
+    std::vector<int> allowedBuiltLotIds;
+    std::size_t consumedIndex = 0;
+    for (; consumedIndex < consumedSourceIndices.size(); ++consumedIndex) {
+        const RciDevelopmentSource& source = sources[consumedSourceIndices[consumedIndex]];
+        if (source.isBuilt) {
+            allowedBuiltLotIds.push_back(source.lotId);
+        }
+    }
+
+    int tileY = rect.minTileY;
+    for (; tileY <= rect.maxTileY; ++tileY) {
+        int tileX = rect.minTileX;
+        for (; tileX <= rect.maxTileX; ++tileX) {
+            if (!isTileInsideMap(tileX, tileY)) {
+                return false;
+            }
+
+            const int tileLinearIndex = tileIndex(tileX, tileY);
+            if (tileLinearIndex < 0 ||
+                tileLinearIndex >= static_cast<int>(writeBuffer.tiles.size()) ||
+                tileLinearIndex >= static_cast<int>(lotOccupancy_.size())) {
+                return false;
+            }
+
+            const Tile& tile = writeBuffer.tiles[static_cast<std::size_t>(tileLinearIndex)];
+            if (tile.zoningType != zoningType || transportNetwork_.hasGroundOccupancy(tileLinearIndex)) {
+                return false;
+            }
+
+            const int lotId = lotOccupancy_[static_cast<std::size_t>(tileLinearIndex)];
+            if (lotId == kInvalidLotId) {
+                if (!isTileZoneableForRci(tileLinearIndex, tile)) {
+                    return false;
+                }
+                continue;
+            }
+
+            if (std::find(allowedBuiltLotIds.begin(), allowedBuiltLotIds.end(), lotId) == allowedBuiltLotIds.end()) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+const LotAsset* SimulationRuntime::findRciConstructorLotAsset(std::uint16_t zoningType, int width, int height, float demandBudget, float maxDensityPerTile, std::uint32_t variationSeed, int& rotationSteps, float& capacity) const {
     rotationSteps = 0;
     capacity = 0.0f;
-    const LotAsset* bestMatch = 0;
-    int bestRotationSteps = 0;
+    if (width <= 0 || height <= 0 || demandBudget <= 0.0f || maxDensityPerTile <= 0.0f) {
+        return 0;
+    }
+
+    std::vector<const LotAsset*> bestMatches;
+    std::vector<int> bestRotations;
+    const float densityCapacityLimit = maxDensityPerTile * static_cast<float>(width * height);
     std::size_t lotAssetIndex = 0;
     for (; lotAssetIndex < lotAssets_.size(); ++lotAssetIndex) {
         const LotAsset& lotAsset = lotAssets_[lotAssetIndex];
@@ -2685,21 +3138,31 @@ const LotAsset* SimulationRuntime::findRciConstructorLotAsset(std::uint16_t zoni
         }
 
         const float candidateCapacity = rciCapacityForLotAsset(lotAsset, zoningType);
-        if (candidateCapacity <= 0.0f || candidateCapacity > demandBudget + 0.001f) {
+        if (candidateCapacity <= 0.0f ||
+            candidateCapacity > demandBudget + 0.001f ||
+            candidateCapacity > densityCapacityLimit + 0.001f) {
             continue;
         }
 
-        if (bestMatch == 0 || candidateCapacity > capacity) {
-            bestMatch = &lotAsset;
-            bestRotationSteps = candidateRotationSteps;
+        if (bestMatches.empty() || candidateCapacity > capacity + 0.001f) {
+            bestMatches.clear();
+            bestRotations.clear();
+            bestMatches.push_back(&lotAsset);
+            bestRotations.push_back(candidateRotationSteps);
             capacity = candidateCapacity;
+        } else if (std::fabs(candidateCapacity - capacity) <= 0.001f) {
+            bestMatches.push_back(&lotAsset);
+            bestRotations.push_back(candidateRotationSteps);
         }
     }
 
-    if (bestMatch != 0) {
-        rotationSteps = bestRotationSteps;
+    if (bestMatches.empty()) {
+        return 0;
     }
-    return bestMatch;
+
+    const std::size_t selectedIndex = static_cast<std::size_t>(variationSeed % static_cast<std::uint32_t>(bestMatches.size()));
+    rotationSteps = bestRotations[selectedIndex];
+    return bestMatches[selectedIndex];
 }
 
 const RciTool* SimulationRuntime::findRciToolByZoningType(std::uint16_t zoningType) const {
@@ -2717,7 +3180,65 @@ const RciTool* SimulationRuntime::findRciToolByZoningType(std::uint16_t zoningTy
 bool SimulationRuntime::hasRciConstructorLotAsset(std::uint16_t zoningType, int width, int height) const {
     int rotationSteps = 0;
     float capacity = 0.0f;
-    return findRciConstructorLotAsset(zoningType, width, height, 1000000000.0f, rotationSteps, capacity) != 0;
+    return findRciConstructorLotAsset(zoningType, width, height, 1000000000.0f, 1000000.0f, 0u, rotationSteps, capacity) != 0;
+}
+
+const RciGrowthRule* SimulationRuntime::findRciGrowthRule(std::uint16_t zoningType) const {
+    std::size_t ruleIndex = 0;
+    for (; ruleIndex < rciGrowthRules_.size(); ++ruleIndex) {
+        if (rciGrowthRules_[ruleIndex].zoningType == zoningType) {
+            return &rciGrowthRules_[ruleIndex];
+        }
+    }
+
+    return 0;
+}
+
+float SimulationRuntime::rciMaxDensityPerTile(std::uint16_t zoningType) const {
+    const RciGrowthRule* growthRule = findRciGrowthRule(zoningType);
+    if (growthRule == 0 || growthRule->densityPoints.empty()) {
+        return 0.0f;
+    }
+
+    const std::vector<RciDensityPoint>& points = growthRule->densityPoints;
+    if (cityPopulation_ <= points.front().population || points.size() == 1u) {
+        return points.front().maxDensityPerTile;
+    }
+
+    std::size_t pointIndex = 1;
+    for (; pointIndex < points.size(); ++pointIndex) {
+        if (cityPopulation_ > points[pointIndex].population) {
+            continue;
+        }
+
+        const RciDensityPoint& lower = points[pointIndex - 1u];
+        const RciDensityPoint& upper = points[pointIndex];
+        const float populationSpan = static_cast<float>(upper.population - lower.population);
+        if (populationSpan <= 0.0f) {
+            return upper.maxDensityPerTile;
+        }
+
+        const float interpolation = static_cast<float>(cityPopulation_ - lower.population) / populationSpan;
+        return lower.maxDensityPerTile + ((upper.maxDensityPerTile - lower.maxDensityPerTile) * interpolation);
+    }
+
+    return points.back().maxDensityPerTile;
+}
+
+int SimulationRuntime::rciDesirabilityForCandidate(const Lot& lot, const LotAsset& lotAsset) const {
+    std::vector<std::uint32_t> accessNodes;
+    collectLotAccessNodes(lot, lotAsset, static_cast<std::uint8_t>(kTransportModeCar | kTransportModePedestrian), accessNodes);
+    return accessNodes.empty() ? 0 : 100;
+}
+
+std::uint32_t SimulationRuntime::rciVariationSeedForRect(std::uint16_t zoningType, const RciRect& rect) const {
+    std::uint32_t hash = 2166136261u;
+    MixRciHash(hash, static_cast<std::uint32_t>(zoningType));
+    MixRciHash(hash, static_cast<std::uint32_t>(rect.minTileX));
+    MixRciHash(hash, static_cast<std::uint32_t>(rect.minTileY));
+    MixRciHash(hash, static_cast<std::uint32_t>(rect.maxTileX));
+    MixRciHash(hash, static_cast<std::uint32_t>(rect.maxTileY));
+    return hash;
 }
 
 bool SimulationRuntime::rciParcelTileIsAvailable(int tileX, int tileY, std::uint16_t zoningType, const TileBuffer& writeBuffer, const std::vector<std::uint8_t>& blockedTiles) const {
@@ -3102,7 +3623,7 @@ float SimulationRuntime::rciDemandForZoningType(std::uint16_t zoningType) const 
     }
 
     if (zoningType == TileZoningIndustrial) {
-        return std::max(0.0f, initialDemand(jobsDirtyIndustryId) + parameterValue(residentsLowWealthId) - parameterValue(jobsDirtyIndustryId));
+        return std::max(0.0f, initialDemand(jobsDirtyIndustryId) + (parameterValue(residentsLowWealthId) * kDirtyIndustryDemandPerLowWealthWorker) - parameterValue(jobsDirtyIndustryId));
     }
 
     return 0.0f;

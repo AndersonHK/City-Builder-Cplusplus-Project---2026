@@ -149,6 +149,21 @@
     <None Include="Data\Lots\rci_industrial_3x8_lot.xml">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="Data\Lots\rci_industrial_4x4_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x4_smokestacks_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x6_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x8_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x8_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
     <None Include="Data\Lots\rci_residential_2x2_lot.xml">
       <Filter>Resource Files</Filter>
     </None>
@@ -191,7 +206,31 @@
     <None Include="Data\Lots\rci_residential_3x8_lot.xml">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="Data\Lots\rci_residential_4x4_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x4_courtyard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x4_walkup_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x6_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x8_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x8_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\apartment_block_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
     <None Include="Data\Modules\compact_house_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\distribution_center_module.xml">
       <Filter>Resource Files</Filter>
     </None>
     <None Include="Data\Modules\driveway_module.xml">
@@ -200,10 +239,16 @@
     <None Include="Data\Modules\duplex_module.xml">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="Data\Modules\freight_warehouse_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
     <None Include="Data\Modules\garden_module.xml">
       <Filter>Resource Files</Filter>
     </None>
     <None Include="Data\Modules\house_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\large_factory_module.xml">
       <Filter>Resource Files</Filter>
     </None>
     <None Include="Data\Modules\large_warehouse_module.xml">
@@ -218,7 +263,13 @@
     <None Include="Data\Modules\park_module.xml">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="Data\Modules\row_house_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
     <None Include="Data\Modules\small_apartment_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\smokestack_row_module.xml">
       <Filter>Resource Files</Filter>
     </None>
     <None Include="Data\Modules\smokestack_module.xml">
@@ -228,6 +279,9 @@
       <Filter>Resource Files</Filter>
     </None>
     <None Include="Data\Modules\warehouse_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\walkup_apartment_module.xml">
       <Filter>Resource Files</Filter>
     </None>
     <None Include="Data\Modules\wide_trailer_module.xml">

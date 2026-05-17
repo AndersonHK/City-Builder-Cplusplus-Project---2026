@@ -1044,6 +1044,17 @@ const LotAsset* FindLotAsset(const LoadedGameAssets& assets, const std::string& 
     return 0;
 }
 
+const RciGrowthRule* FindGrowthRule(const LoadedGameAssets& assets, std::uint16_t zoningType) {
+    std::size_t ruleIndex = 0;
+    for (; ruleIndex < assets.rciGrowthRules.size(); ++ruleIndex) {
+        if (assets.rciGrowthRules[ruleIndex].zoningType == zoningType) {
+            return &assets.rciGrowthRules[ruleIndex];
+        }
+    }
+
+    return 0;
+}
+
 float ModuleParameterAmount(const LotModule& module, int parameterId) {
     float amount = 0.0f;
     std::size_t contributionIndex = 0;
@@ -1054,6 +1065,47 @@ float ModuleParameterAmount(const LotModule& module, int parameterId) {
     }
 
     return amount;
+}
+
+float LotAssetCapacity(const LoadedGameAssets& assets, const LotAsset& lotAsset, int parameterId) {
+    float capacity = 0.0f;
+    std::size_t placementIndex = 0;
+    for (; placementIndex < lotAsset.initialModules.size(); ++placementIndex) {
+        const LotModule* module = FindModule(assets, lotAsset.initialModules[placementIndex].moduleId);
+        if (module != 0) {
+            capacity += ModuleParameterAmount(*module, parameterId);
+        }
+    }
+
+    return capacity;
+}
+
+float InterpolatedDensity(const RciGrowthRule& rule, int population) {
+    if (rule.densityPoints.empty()) {
+        return 0.0f;
+    }
+    if (population <= rule.densityPoints.front().population || rule.densityPoints.size() == 1u) {
+        return rule.densityPoints.front().maxDensityPerTile;
+    }
+
+    std::size_t pointIndex = 1;
+    for (; pointIndex < rule.densityPoints.size(); ++pointIndex) {
+        if (population > rule.densityPoints[pointIndex].population) {
+            continue;
+        }
+
+        const RciDensityPoint& lower = rule.densityPoints[pointIndex - 1u];
+        const RciDensityPoint& upper = rule.densityPoints[pointIndex];
+        const float span = static_cast<float>(upper.population - lower.population);
+        if (span <= 0.0f) {
+            return upper.maxDensityPerTile;
+        }
+
+        const float t = static_cast<float>(population - lower.population) / span;
+        return lower.maxDensityPerTile + ((upper.maxDensityPerTile - lower.maxDensityPerTile) * t);
+    }
+
+    return rule.densityPoints.back().maxDensityPerTile;
 }
 
 void WriteTextAssetFile(const std::string& path, const std::string& text) {
@@ -1073,6 +1125,7 @@ std::string MakeTempAssetDirectory(const std::string& name) {
     CreateDirectoryA(root.c_str(), 0);
     CreateDirectoryA((root + "\\Modules").c_str(), 0);
     CreateDirectoryA((root + "\\Lots").c_str(), 0);
+    CreateDirectoryA((root + "\\RCI").c_str(), 0);
     CreateDirectoryA((root + "\\TransportNetwork").c_str(), 0);
     return root;
 }
@@ -1991,8 +2044,28 @@ void TestFactoryHouseAssetsAndParameters(TestRunner& runner) {
     const LotModule* smallApartmentModule = FindModule(assets, "small_apartment_module");
     const LotModule* workshopModule = FindModule(assets, "workshop_module");
     const LotModule* largeWarehouseModule = FindModule(assets, "large_warehouse_module");
+    const LotModule* rowHouseModule = FindModule(assets, "row_house_module");
+    const LotModule* walkupApartmentModule = FindModule(assets, "walkup_apartment_module");
+    const LotModule* apartmentBlockModule = FindModule(assets, "apartment_block_module");
+    const LotModule* freightWarehouseModule = FindModule(assets, "freight_warehouse_module");
+    const LotModule* largeFactoryModule = FindModule(assets, "large_factory_module");
+    const LotModule* distributionCenterModule = FindModule(assets, "distribution_center_module");
+    const LotModule* smokestackRowModule = FindModule(assets, "smokestack_row_module");
     const LotAsset* factoryLot = FindLotAsset(assets, "factory_lot");
     const LotAsset* houseLot = FindLotAsset(assets, "house_lot");
+    const LotAsset* residential4x4Lot = FindLotAsset(assets, "rci_residential_4x4_lot");
+    const LotAsset* residential4x4CourtyardLot = FindLotAsset(assets, "rci_residential_4x4_courtyard_lot");
+    const LotAsset* residential4x4WalkupLot = FindLotAsset(assets, "rci_residential_4x4_walkup_lot");
+    const LotAsset* residential4x6Lot = FindLotAsset(assets, "rci_residential_4x6_lot");
+    const LotAsset* residential4x8Lot = FindLotAsset(assets, "rci_residential_4x8_lot");
+    const LotAsset* residential8x8Lot = FindLotAsset(assets, "rci_residential_8x8_lot");
+    const LotAsset* industrial4x4Lot = FindLotAsset(assets, "rci_industrial_4x4_lot");
+    const LotAsset* industrial4x4SmokestacksLot = FindLotAsset(assets, "rci_industrial_4x4_smokestacks_lot");
+    const LotAsset* industrial4x6Lot = FindLotAsset(assets, "rci_industrial_4x6_lot");
+    const LotAsset* industrial4x8Lot = FindLotAsset(assets, "rci_industrial_4x8_lot");
+    const LotAsset* industrial8x8Lot = FindLotAsset(assets, "rci_industrial_8x8_lot");
+    const RciGrowthRule* residentialGrowthRule = FindGrowthRule(assets, TileZoningResidential);
+    const RciGrowthRule* industrialGrowthRule = FindGrowthRule(assets, TileZoningIndustrial);
 
     runner.expect(warehouseModule != 0, "warehouse module exists");
     runner.expect(smokestackModule != 0, "smokestack module exists");
@@ -2004,8 +2077,28 @@ void TestFactoryHouseAssetsAndParameters(TestRunner& runner) {
     runner.expect(smallApartmentModule != 0, "small apartment module exists");
     runner.expect(workshopModule != 0, "workshop module exists");
     runner.expect(largeWarehouseModule != 0, "large warehouse module exists");
+    runner.expect(rowHouseModule != 0, "row house module exists");
+    runner.expect(walkupApartmentModule != 0, "walkup apartment module exists");
+    runner.expect(apartmentBlockModule != 0, "apartment block module exists");
+    runner.expect(freightWarehouseModule != 0, "freight warehouse module exists");
+    runner.expect(largeFactoryModule != 0, "large factory module exists");
+    runner.expect(distributionCenterModule != 0, "distribution center module exists");
+    runner.expect(smokestackRowModule != 0, "smokestack row module exists");
     runner.expect(factoryLot != 0, "factory lot exists");
     runner.expect(houseLot != 0, "house lot exists");
+    runner.expect(residential4x4Lot != 0, "residential 4x4 lot exists");
+    runner.expect(residential4x4CourtyardLot != 0, "residential 4x4 courtyard variation exists");
+    runner.expect(residential4x4WalkupLot != 0, "residential 4x4 walkup lot exists");
+    runner.expect(residential4x6Lot != 0, "residential 4x6 lot exists");
+    runner.expect(residential4x8Lot != 0, "residential 4x8 lot exists");
+    runner.expect(residential8x8Lot != 0, "residential 8x8 lot exists");
+    runner.expect(industrial4x4Lot != 0, "industrial 4x4 lot exists");
+    runner.expect(industrial4x4SmokestacksLot != 0, "industrial 4x4 smokestacks variation exists");
+    runner.expect(industrial4x6Lot != 0, "industrial 4x6 lot exists");
+    runner.expect(industrial4x8Lot != 0, "industrial 4x8 lot exists");
+    runner.expect(industrial8x8Lot != 0, "industrial 8x8 lot exists");
+    runner.expect(residentialGrowthRule != 0, "residential RCI growth rule exists");
+    runner.expect(industrialGrowthRule != 0, "industrial RCI growth rule exists");
     if (warehouseModule == 0 || smokestackModule == 0 || houseModule == 0 || drivewayModule == 0 || gardenModule == 0 || factoryLot == 0 || houseLot == 0) {
         return;
     }
@@ -2027,11 +2120,72 @@ void TestFactoryHouseAssetsAndParameters(TestRunner& runner) {
     if (largeWarehouseModule != 0) {
         runner.expect(ModuleParameterAmount(*largeWarehouseModule, registry.jobsDirtyIndustryId()) == 12.0f, "large warehouse contributes twelve dirty industry jobs");
     }
+    if (rowHouseModule != 0) {
+        runner.expect(ModuleParameterAmount(*rowHouseModule, registry.residentsLowWealthId()) == 8.0f, "row house contributes eight low wealth residents");
+    }
+    if (walkupApartmentModule != 0) {
+        runner.expect(ModuleParameterAmount(*walkupApartmentModule, registry.residentsLowWealthId()) == 16.0f, "walkup apartment contributes sixteen low wealth residents");
+    }
+    if (apartmentBlockModule != 0) {
+        runner.expect(ModuleParameterAmount(*apartmentBlockModule, registry.residentsLowWealthId()) == 40.0f, "apartment block contributes forty low wealth residents");
+    }
+    if (freightWarehouseModule != 0) {
+        runner.expect(ModuleParameterAmount(*freightWarehouseModule, registry.jobsDirtyIndustryId()) == 30.0f, "freight warehouse contributes thirty dirty industry jobs");
+    }
+    if (largeFactoryModule != 0) {
+        runner.expect(ModuleParameterAmount(*largeFactoryModule, registry.jobsDirtyIndustryId()) == 40.0f, "large factory contributes forty dirty industry jobs");
+    }
+    if (distributionCenterModule != 0) {
+        runner.expect(ModuleParameterAmount(*distributionCenterModule, registry.jobsDirtyIndustryId()) == 36.0f, "distribution center contributes dirty industry jobs");
+    }
+    if (smokestackRowModule != 0) {
+        runner.expect(ModuleParameterAmount(*smokestackRowModule, registry.jobsDirtyIndustryId()) == 0.0f, "smokestack row is decorative capacity");
+    }
     runner.expect(factoryLot->footprintWidth == 3 && factoryLot->footprintHeight == 2, "factory footprint fits warehouse and adjacent smokestack");
     runner.expect(houseLot->footprintWidth == 2 && houseLot->footprintHeight == 4, "house footprint is 2x4");
     runner.expect(factoryLot->accessDefinitions.size() == 8u, "factory declares car and pedestrian access around all warehouse edges");
     runner.expect(houseLot->accessDefinitions.size() == 2u, "house declares driveway and garden access");
     runner.expect(!assets.congestionCurve.points.empty() && assets.congestionCurve.points[0].speedMultiplier > 0.0f, "transport congestion XML loads");
+
+    if (residentialGrowthRule != 0) {
+        runner.expect(residentialGrowthRule->desirabilityThreshold == 60, "residential desirability threshold loads");
+        runner.expect(residentialGrowthRule->densityPoints.size() == 3u, "residential density has three population points");
+        runner.expect(std::fabs(InterpolatedDensity(*residentialGrowthRule, 0) - 1.0f) < 0.001f, "residential density starts at one per tile");
+        runner.expect(std::fabs(InterpolatedDensity(*residentialGrowthRule, 2000) - 2.0f) < 0.001f, "residential density reaches two per tile at 2000 population");
+        runner.expect(std::fabs(InterpolatedDensity(*residentialGrowthRule, 10000) - 3.0f) < 0.001f, "residential density reaches three per tile at 10000 population");
+        runner.expect(std::fabs(InterpolatedDensity(*residentialGrowthRule, 6000) - 2.5f) < 0.001f, "residential density interpolates between XML points");
+    }
+    if (industrialGrowthRule != 0) {
+        runner.expect(industrialGrowthRule->desirabilityThreshold == 60, "industrial desirability threshold loads");
+        runner.expect(industrialGrowthRule->densityPoints.size() == 1u, "industrial density has one flat point");
+        runner.expect(std::fabs(InterpolatedDensity(*industrialGrowthRule, 0) - 3.0f) < 0.001f, "industrial density starts at three per tile");
+        runner.expect(std::fabs(InterpolatedDensity(*industrialGrowthRule, 10000) - 3.0f) < 0.001f, "industrial density remains flat");
+    }
+
+    if (residential4x4Lot != 0 && residential4x4CourtyardLot != 0 && residential4x4WalkupLot != 0 && residential4x6Lot != 0 && residential4x8Lot != 0 && residential8x8Lot != 0) {
+        runner.expect(residential4x4Lot->footprintWidth == 4 && residential4x4Lot->footprintHeight == 4, "residential 4x4 footprint loads");
+        runner.expect(residential4x4Lot->accessDefinitions.size() == 16u, "residential 4x4 perimeter access expands");
+        runner.expect(residential8x8Lot->footprintWidth == 8 && residential8x8Lot->footprintHeight == 8, "residential 8x8 footprint loads");
+        runner.expect(residential8x8Lot->accessDefinitions.size() == 32u, "residential 8x8 perimeter access expands");
+        runner.expect(LotAssetCapacity(assets, *residential4x4Lot, registry.residentsLowWealthId()) == 16.0f, "residential 4x4 stays within zero-population density cap");
+        runner.expect(LotAssetCapacity(assets, *residential4x4CourtyardLot, registry.residentsLowWealthId()) == 16.0f, "residential 4x4 decorative variation preserves capacity");
+        runner.expect(LotAssetCapacity(assets, *residential4x4WalkupLot, registry.residentsLowWealthId()) == 32.0f, "residential 4x4 walkup is denser than row houses");
+        runner.expect(LotAssetCapacity(assets, *residential4x6Lot, registry.residentsLowWealthId()) == 48.0f, "residential 4x6 capacity loads");
+        runner.expect(LotAssetCapacity(assets, *residential4x8Lot, registry.residentsLowWealthId()) == 80.0f, "residential 4x8 capacity loads");
+        runner.expect(LotAssetCapacity(assets, *residential8x8Lot, registry.residentsLowWealthId()) == 160.0f, "residential 8x8 capacity loads");
+    }
+
+    if (industrial4x4Lot != 0 && industrial4x4SmokestacksLot != 0 && industrial4x6Lot != 0 && industrial4x8Lot != 0 && industrial8x8Lot != 0) {
+        runner.expect(industrial4x4Lot->footprintWidth == 4 && industrial4x4Lot->footprintHeight == 4, "industrial 4x4 footprint loads");
+        runner.expect(industrial4x4Lot->accessDefinitions.size() == 16u, "industrial 4x4 perimeter access expands");
+        runner.expect(industrial8x8Lot->footprintWidth == 8 && industrial8x8Lot->footprintHeight == 8, "industrial 8x8 footprint loads");
+        runner.expect(industrial8x8Lot->accessDefinitions.size() == 32u, "industrial 8x8 perimeter access expands");
+        runner.expect(LotAssetCapacity(assets, *industrial4x4Lot, registry.jobsDirtyIndustryId()) == 40.0f, "industrial 4x4 capacity loads");
+        runner.expect(LotAssetCapacity(assets, *industrial4x4SmokestacksLot, registry.jobsDirtyIndustryId()) == 30.0f, "industrial smokestack variation capacity loads");
+        runner.expect(LotAssetCapacity(assets, *industrial4x6Lot, registry.jobsDirtyIndustryId()) == 40.0f, "industrial 4x6 capacity loads");
+        runner.expect(LotAssetCapacity(assets, *industrial4x8Lot, registry.jobsDirtyIndustryId()) == 80.0f, "industrial 4x8 capacity loads");
+        runner.expect(LotAssetCapacity(assets, *industrial8x8Lot, registry.jobsDirtyIndustryId()) == 136.0f, "industrial 8x8 capacity loads under density cap");
+    }
 
     bool foundFactoryWarehousePlacement = false;
     bool foundFactorySmokestackPlacement = false;
@@ -2246,6 +2400,65 @@ void TestInvalidAssetValidation(TestRunner& runner) {
         "<modules><moduleRef id=\"test_module\" x=\"0\" y=\"0\" /></modules>"
         "</lot>";
     runner.expect(InvalidAssetsRejected(validModule, badZoningLot, registry), "unknown lot zoning type rejects at load");
+
+    const std::string rciModule =
+        "<module id=\"test_module\">"
+        "<size width=\"1\" height=\"1\" />"
+        "<effects airPollution=\"0\" landValue=\"0\" />"
+        "<parameters><driver id=\"residents.low_wealth\" amount=\"1\" /></parameters>"
+        "</module>";
+    const std::string rciLot =
+        "<lot id=\"test_lot\" zoningType=\"residential\">"
+        "<anchor x=\"0\" y=\"0\" />"
+        "<footprint x=\"0\" y=\"0\" width=\"1\" height=\"1\" />"
+        "<modules><moduleRef id=\"test_module\" x=\"0\" y=\"0\" /></modules>"
+        "</lot>";
+
+    {
+        const std::string root = MakeTempAssetDirectory("CityBuilderAssetMissingRciGrowth");
+        WriteTextAssetFile(root + "\\Modules\\test_module.xml", rciModule);
+        WriteTextAssetFile(root + "\\Lots\\test_lot.xml", rciLot);
+        LoadedGameAssets assets;
+        std::string errorMessage;
+        ScopedCrashLogSuppression suppressExpectedAssetErrors;
+        runner.expect(!LoadGameAssets(root, registry, assets, errorMessage) && !errorMessage.empty(), "constructor-enabled RCI lot without growth rule rejects at load");
+    }
+
+    {
+        const std::string root = MakeTempAssetDirectory("CityBuilderAssetBadRciGrowth");
+        WriteTextAssetFile(root + "\\Modules\\test_module.xml", rciModule);
+        WriteTextAssetFile(root + "\\Lots\\test_lot.xml", rciLot);
+        WriteTextAssetFile(
+            root + "\\RCI\\rci_tools.xml",
+            "<rciTools>"
+            "<tool id=\"residential\" zoningType=\"residential\" />"
+            "<rciGrowth zoningType=\"residential\" desirabilityThreshold=\"60\">"
+            "</rciGrowth>"
+            "</rciTools>");
+        LoadedGameAssets assets;
+        std::string errorMessage;
+        ScopedCrashLogSuppression suppressExpectedAssetErrors;
+        runner.expect(!LoadGameAssets(root, registry, assets, errorMessage) && !errorMessage.empty(), "RCI growth rule without density entries rejects at load");
+    }
+
+    {
+        const std::string root = MakeTempAssetDirectory("CityBuilderAssetDuplicateRciGrowthDensity");
+        WriteTextAssetFile(root + "\\Modules\\test_module.xml", rciModule);
+        WriteTextAssetFile(root + "\\Lots\\test_lot.xml", rciLot);
+        WriteTextAssetFile(
+            root + "\\RCI\\rci_tools.xml",
+            "<rciTools>"
+            "<tool id=\"residential\" zoningType=\"residential\" />"
+            "<rciGrowth zoningType=\"residential\" desirabilityThreshold=\"60\">"
+            "<maxDensityPerTile population=\"0\" value=\"1\" />"
+            "<maxDensityPerTile population=\"0\" value=\"2\" />"
+            "</rciGrowth>"
+            "</rciTools>");
+        LoadedGameAssets assets;
+        std::string errorMessage;
+        ScopedCrashLogSuppression suppressExpectedAssetErrors;
+        runner.expect(!LoadGameAssets(root, registry, assets, errorMessage) && !errorMessage.empty(), "duplicate RCI density population rejects at load");
+    }
 }
 }
 

@@ -10,7 +10,7 @@ Use this guide when changing `AssetLoader`, data XML files, lot/module archetype
 ## Current Shape
 - `AssetLoader` reads module XML from `Data/Modules`, lot XML from `Data/Lots`, initial RCI demand XML from `Data/RCI/initial_demands.xml` when present, and the congestion curve from `Data/TransportNetwork/congestion.xml` when present.
 - UI window/menu XML lives under `Data/UI` and is parsed by `InGameWindow` and `UiLayout`, not `AssetLoader`.
-- RCI zoning tool XML lives under `Data/RCI` and is parsed by `RciToolCatalog`. It defines tool id/name/color plus min/preferred/max lot depth and width. `AssetLoader` also reads constructor knobs from the same root, currently `constructorAttemptsPerTick` and `constructorOverbuildPercent`.
+- RCI zoning tool XML lives under `Data/RCI` and is parsed by `RciToolCatalog`. It defines tool id/name/color plus min/preferred/max lot depth and width. `AssetLoader` also reads constructor knobs and growth rules from the same root: `constructorAttemptsPerTick`, `constructorOverbuildPercent`, and strict `<rciGrowth>` entries.
 - App preferences are intentionally not XML-backed. Startup window options, hotkeys, date display format, and query debug output live in `Data/config.ini` and are parsed by `AppConfig`.
 - File stems are fallback ids when an explicit `id` attribute is absent.
 - Modules define size, effects, and placeholder render values.
@@ -21,6 +21,8 @@ Use this guide when changing `AssetLoader`, data XML files, lot/module archetype
 - The congestion XML defines `<point utilization="..." speedMultiplier="..." />` rows. Invalid or duplicate utilization points fail asset load.
 - Initial demand XML defines `<demand id="..." amount="..." />` rows keyed by city parameter id. The checked-in defaults seed 20 low-wealth residents and 20 dirty-industry demand.
 - RCI constructor overbuild is stored as a multiplier internally. XML may spell `constructorOverbuildPercent="120"` for 120 percent, or `constructorOverbuildMultiplier="1.2"` for the same result.
+- Each constructor-enabled RCI type must have a matching `<rciGrowth zoningType="..." desirabilityThreshold="...">` block. It contains one or more `<maxDensityPerTile population="..." value="..." />` rows, sorted and linearly interpolated at runtime by current city population. The density value is a hard lot-capacity ceiling: `capacity <= maxDensityPerTile * footprintArea`.
+- The checked-in residential rule requires desirability 60 and defines max density 1 at population 0, 2 at 2000, and 3 at 10000. The checked-in industrial rule requires desirability 60 and stays at 3 per tile from population 0.
 - The query window XML defines one `<window>` plus flat `<textField>` entries. City tool XML defines flat `<menu>` containers plus `<button>` children, action strings, optional named icons, and top-left/bottom-left/center anchors. Both UI parsers are tolerant and fall back to built-in layouts when missing or malformed.
 
 ## Rules
@@ -30,6 +32,7 @@ Use this guide when changing `AssetLoader`, data XML files, lot/module archetype
 - Validate explicit footprints: positive dimensions, anchor inside footprint, and initial modules fully inside the footprint.
 - Validate access declarations before normalizing the lot anchor, then store them relative to the normalized anchor so placement rotation can transform them.
 - Validate lot zoning type names when present; unknown `zoningType` / `rciType` values should fail asset load.
+- Validate RCI growth rules for constructor-enabled zoning types. Missing rules, duplicate zoning entries, invalid thresholds, duplicate/non-increasing populations, and non-positive density values should fail asset load.
 - Prefer `constructionDays` for authored lot construction duration. `AssetLoader` converts logical days to stored runtime ticks with `SimulationTime::daysToTicks()` at load time. Legacy `constructionTicks` remains supported as raw ticks for compatibility. A zero duration is immediately active; positive values render construction growth and delay city-parameter effects.
 - Keep runtime fields such as construction remaining ticks and save-state tick counters in ticks because they represent elapsed simulation state, not authored logical duration.
 - Prefer simple explicit schema additions over implicit behavior.

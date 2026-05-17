@@ -771,7 +771,46 @@ std::vector<float> LoadInitialDemands(const std::string& filePath, const CityPar
     return demands;
 }
 
-void LoadRciConstructorSettings(const std::string& filePath, int& attemptsPerTick, float& overbuildMultiplier) {
+const RciGrowthRule* FindGrowthRule(const std::vector<RciGrowthRule>& growthRules, std::uint16_t zoningType) {
+    std::size_t ruleIndex = 0;
+    for (; ruleIndex < growthRules.size(); ++ruleIndex) {
+        if (growthRules[ruleIndex].zoningType == zoningType) {
+            return &growthRules[ruleIndex];
+        }
+    }
+
+    return 0;
+}
+
+void ValidateRciGrowthRule(const RciGrowthRule& rule, const std::string& filePath) {
+    if (rule.zoningType == TileZoningNone) {
+        throw std::runtime_error("RCI growth rule has no zoning type in " + filePath);
+    }
+    if (rule.desirabilityThreshold < 0 || rule.desirabilityThreshold > 100) {
+        throw std::runtime_error("RCI growth desirabilityThreshold must be between 0 and 100 in " + filePath);
+    }
+    if (rule.densityPoints.empty()) {
+        throw std::runtime_error("RCI growth rule is missing maxDensityPerTile entries in " + filePath);
+    }
+
+    int previousPopulation = -1;
+    std::size_t pointIndex = 0;
+    for (; pointIndex < rule.densityPoints.size(); ++pointIndex) {
+        const RciDensityPoint& point = rule.densityPoints[pointIndex];
+        if (point.population < 0) {
+            throw std::runtime_error("RCI maxDensityPerTile population must be non-negative in " + filePath);
+        }
+        if (point.maxDensityPerTile <= 0.0f) {
+            throw std::runtime_error("RCI maxDensityPerTile value must be positive in " + filePath);
+        }
+        if (point.population <= previousPopulation) {
+            throw std::runtime_error("RCI maxDensityPerTile population entries must be unique and increasing in " + filePath);
+        }
+        previousPopulation = point.population;
+    }
+}
+
+void LoadRciConstructorSettings(const std::string& filePath, int& attemptsPerTick, float& overbuildMultiplier, std::vector<RciGrowthRule>& growthRules) {
     const std::vector<std::string> tokens = ExtractTagTokens(ReadTextFile(filePath));
     if (tokens.empty()) {
         throw std::runtime_error("Empty RCI XML: " + filePath);
@@ -786,13 +825,20 @@ void LoadRciConstructorSettings(const std::string& filePath, int& attemptsPerTic
     attemptsPerTick = ParseOptionalInt(rootTag.attributes, "constructorRetries", attemptsPerTick);
     overbuildMultiplier = ParseOptionalRatio(rootTag.attributes, "constructorOverbuildPercent", overbuildMultiplier);
     overbuildMultiplier = ParseOptionalRatio(rootTag.attributes, "constructorOverbuildMultiplier", overbuildMultiplier);
+    growthRules.clear();
 
+    RciGrowthRule* activeGrowthRule = 0;
     std::size_t tokenIndex = 1;
     for (; tokenIndex < tokens.size(); ++tokenIndex) {
         const ParsedTag tag = ParseTag(tokens[tokenIndex]);
         if (tag.isClosing) {
             if (tag.name == "rciTools") {
                 break;
+            }
+
+            if (tag.name == "rciGrowth") {
+                activeGrowthRule = 0;
+                continue;
             }
 
             continue;
@@ -803,7 +849,44 @@ void LoadRciConstructorSettings(const std::string& filePath, int& attemptsPerTic
             attemptsPerTick = ParseOptionalInt(tag.attributes, "retries", attemptsPerTick);
             overbuildMultiplier = ParseOptionalRatio(tag.attributes, "overbuildPercent", overbuildMultiplier);
             overbuildMultiplier = ParseOptionalRatio(tag.attributes, "overbuildMultiplier", overbuildMultiplier);
+            continue;
         }
+
+        if (tag.name == "rciGrowth" && !tag.isClosing) {
+            RciGrowthRule growthRule;
+            growthRule.zoningType = ParseZoningTypeName(GetRequiredAttribute(tag.attributes, "zoningType"));
+            growthRule.desirabilityThreshold = ParseRequiredInt(tag.attributes, "desirabilityThreshold");
+            if (FindGrowthRule(growthRules, growthRule.zoningType) != 0) {
+                throw std::runtime_error("Duplicate RCI growth rule in " + filePath);
+            }
+            growthRules.push_back(growthRule);
+            activeGrowthRule = &growthRules.back();
+            if (tag.isSelfClosing) {
+                activeGrowthRule = 0;
+            }
+            continue;
+        }
+
+        if ((tag.name == "maxDensityPerTile" || tag.name == "density") && tag.isSelfClosing && activeGrowthRule != 0) {
+            RciDensityPoint densityPoint;
+            densityPoint.population = ParseRequiredInt(tag.attributes, "population");
+            densityPoint.maxDensityPerTile = ParseOptionalFloat(tag.attributes, "value", -1.0f);
+            densityPoint.maxDensityPerTile = ParseOptionalFloat(tag.attributes, "perTile", densityPoint.maxDensityPerTile);
+            densityPoint.maxDensityPerTile = ParseOptionalFloat(tag.attributes, "density", densityPoint.maxDensityPerTile);
+            if (densityPoint.maxDensityPerTile <= 0.0f) {
+                throw std::runtime_error("RCI maxDensityPerTile entry must define value, perTile, or density in " + filePath);
+            }
+            activeGrowthRule->densityPoints.push_back(densityPoint);
+            continue;
+        }
+    }
+
+    std::size_t ruleIndex = 0;
+    for (; ruleIndex < growthRules.size(); ++ruleIndex) {
+        std::sort(growthRules[ruleIndex].densityPoints.begin(), growthRules[ruleIndex].densityPoints.end(), [](const RciDensityPoint& left, const RciDensityPoint& right) {
+            return left.population < right.population;
+        });
+        ValidateRciGrowthRule(growthRules[ruleIndex], filePath);
     }
 }
 
@@ -837,6 +920,7 @@ bool LoadGameAssets(const std::string& dataDirectory, const CityParameterRegistr
     CrashScope crashScope("LoadGameAssets");
     assets.modules.clear();
     assets.lots.clear();
+    assets.rciGrowthRules.clear();
     assets.initialDemands.assign(parameterRegistry.count(), 0.0f);
     assets.congestionCurve = TransportCongestionCurve();
     assets.rciConstructorAttemptsPerTick = 5;
@@ -889,7 +973,21 @@ bool LoadGameAssets(const std::string& dataDirectory, const CityParameterRegistr
             assets.initialDemands = LoadInitialDemands(initialDemandsPath, parameterRegistry);
         }
         if (FileExists(rciToolsPath)) {
-            LoadRciConstructorSettings(rciToolsPath, assets.rciConstructorAttemptsPerTick, assets.rciConstructorOverbuildMultiplier);
+            LoadRciConstructorSettings(rciToolsPath, assets.rciConstructorAttemptsPerTick, assets.rciConstructorOverbuildMultiplier, assets.rciGrowthRules);
+        }
+
+        std::set<std::uint16_t> constructorZoningTypes;
+        std::size_t lotIndex = 0;
+        for (; lotIndex < assets.lots.size(); ++lotIndex) {
+            if (assets.lots[lotIndex].zoningType != TileZoningNone) {
+                constructorZoningTypes.insert(assets.lots[lotIndex].zoningType);
+            }
+        }
+        std::set<std::uint16_t>::const_iterator zoningTypeIterator = constructorZoningTypes.begin();
+        for (; zoningTypeIterator != constructorZoningTypes.end(); ++zoningTypeIterator) {
+            if (FindGrowthRule(assets.rciGrowthRules, *zoningTypeIterator) == 0) {
+                throw std::runtime_error("RCI constructor lot assets require a matching rciGrowth rule in " + rciToolsPath);
+            }
         }
 
         assets.rciConstructorAttemptsPerTick = std::max(1, assets.rciConstructorAttemptsPerTick);
@@ -899,6 +997,7 @@ bool LoadGameAssets(const std::string& dataDirectory, const CityParameterRegistr
         errorMessage = error.what();
         assets.modules.clear();
         assets.lots.clear();
+        assets.rciGrowthRules.clear();
         assets.initialDemands.clear();
         assets.congestionCurve = TransportCongestionCurve();
         return false;

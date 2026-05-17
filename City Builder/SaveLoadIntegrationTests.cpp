@@ -115,6 +115,119 @@ CitySaveState BuildInitialSandboxState() {
     return state;
 }
 
+int SaveTileIndex(const CitySaveState& state, int tileX, int tileY) {
+    return (tileY * state.width) + tileX;
+}
+
+void ZoneSaveRect(CitySaveState& state, const RciRect& rect, std::uint16_t zoningType) {
+    int tileY = rect.minTileY;
+    for (; tileY <= rect.maxTileY; ++tileY) {
+        int tileX = rect.minTileX;
+        for (; tileX <= rect.maxTileX; ++tileX) {
+            state.tiles[SaveTileIndex(state, tileX, tileY)].zoningType = zoningType;
+        }
+    }
+}
+
+RciLot MakeSandboxRciLot(const RciRect& rect, std::uint16_t zoningType) {
+    RciLot lot;
+    lot.toolId = zoningType == TileZoningIndustrial ? "industrial" : "residential";
+    lot.name = zoningType == TileZoningIndustrial ? "Industry" : "Residence";
+    lot.zoningType = zoningType;
+    lot.color = zoningType == TileZoningIndustrial
+        ? RciColor(0.92f, 0.76f, 0.15f, 0.50f)
+        : RciColor(0.18f, 0.86f, 0.32f, 0.50f);
+    lot.rect = rect;
+    lot.availableAfterTick = 17u;
+    return lot;
+}
+
+void AddModuleState(CitySaveLotState& lot, const std::string& moduleAssetId, int localX, int localY) {
+    CitySaveLotModuleState module;
+    module.moduleAssetId = moduleAssetId;
+    module.localOrigin = Int2(localX, localY);
+    lot.modules.push_back(module);
+}
+
+CitySaveLotState MakeResidential2x4SaveLot(int lotId, int anchorTileX, int anchorTileY) {
+    CitySaveLotState lot;
+    lot.lotId = lotId;
+    lot.assetId = "rci_residential_2x4_lot";
+    lot.anchorTileX = anchorTileX;
+    lot.anchorTileY = anchorTileY;
+    AddModuleState(lot, "pathway_module", 0, 0);
+    AddModuleState(lot, "driveway_module", 1, 0);
+    AddModuleState(lot, "larger_house_module", 0, 1);
+    return lot;
+}
+
+CitySaveLotState MakeResidential8x8SaveLot(int lotId, int anchorTileX, int anchorTileY) {
+    CitySaveLotState lot;
+    lot.lotId = lotId;
+    lot.assetId = "rci_residential_8x8_lot";
+    lot.anchorTileX = anchorTileX;
+    lot.anchorTileY = anchorTileY;
+    AddModuleState(lot, "apartment_block_module", 0, 0);
+    AddModuleState(lot, "apartment_block_module", 4, 0);
+    AddModuleState(lot, "apartment_block_module", 0, 4);
+    AddModuleState(lot, "apartment_block_module", 4, 4);
+    return lot;
+}
+
+CitySaveLotState MakeIndustrial8x8SaveLot(int lotId, int anchorTileX, int anchorTileY) {
+    CitySaveLotState lot;
+    lot.lotId = lotId;
+    lot.assetId = "rci_industrial_8x8_lot";
+    lot.anchorTileX = anchorTileX;
+    lot.anchorTileY = anchorTileY;
+    AddModuleState(lot, "large_factory_module", 0, 0);
+    AddModuleState(lot, "distribution_center_module", 4, 0);
+    AddModuleState(lot, "freight_warehouse_module", 0, 4);
+    AddModuleState(lot, "freight_warehouse_module", 4, 4);
+    AddModuleState(lot, "smokestack_row_module", 0, 7);
+    AddModuleState(lot, "smokestack_row_module", 4, 7);
+    return lot;
+}
+
+CitySaveLotState MakeIndustrial4x4SaveLot(int lotId, int anchorTileX, int anchorTileY) {
+    CitySaveLotState lot;
+    lot.lotId = lotId;
+    lot.assetId = "rci_industrial_4x4_lot";
+    lot.anchorTileX = anchorTileX;
+    lot.anchorTileY = anchorTileY;
+    AddModuleState(lot, "large_factory_module", 0, 0);
+    return lot;
+}
+
+CitySaveState BuildCleanSandboxState(int width = 32, int height = 32) {
+    CitySaveState state = City::createDefaultSaveState(City::seedForRegionCoordinate(0, 0), width, height);
+    state.cameraX = 4;
+    state.cameraY = 5;
+    state.visibleTiles = width;
+    state.simulationTick = 17u;
+    state.cityParameters.assign(7, 0.0f);
+    state.zoningLots.clear();
+    state.lots.clear();
+    state.previewLots.clear();
+    return state;
+}
+
+bool HasLotAsset(const CitySaveState& state, const std::string& assetId) {
+    std::size_t lotIndex = 0;
+    for (; lotIndex < state.lots.size(); ++lotIndex) {
+        if (state.lots[lotIndex].assetId == assetId) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool HasResidential4x4LowDensityLot(const CitySaveState& state) {
+    return HasLotAsset(state, "rci_residential_4x4_lot") ||
+        HasLotAsset(state, "rci_residential_4x4_courtyard_lot");
+}
+
 void AddSandboxCity(GameSession& session, const CitySaveState& initialState) {
     session.region().clear();
     std::unique_ptr<City> city(new City("Sandbox", 0, 0, initialState.width, initialState.height));
@@ -476,6 +589,218 @@ void RunPausedCommandAndUnzoneTest(TestRunner& runner) {
     }
 }
 
+void RunRciConstructorAreaGrowthTest(TestRunner& runner) {
+    const RuntimeOptions options = BuildSandboxRuntimeOptions();
+
+    try {
+        GameSession session(options);
+        AddSandboxCity(session, BuildCleanSandboxState());
+        runner.expect(session.enterCity(0, 0), "RCI area growth sandbox city enters");
+
+        session.runtime().queuePlaceStreetRoad(Int2(4, 3), Int2(8, 3), Int2(8, 3));
+        session.runtime().queueZoneLot(MakeSandboxRciLot(RciRect(4, 5, 5, 8), TileZoningResidential));
+        session.runtime().queueZoneLot(MakeSandboxRciLot(RciRect(6, 5, 7, 8), TileZoningResidential));
+
+        CitySaveState state;
+        runner.expect(
+            WaitForSandboxState(session, state, [](const CitySaveState& candidate) {
+                return candidate.simulationTick == 17u &&
+                    candidate.zoningLots.size() == 2u &&
+                    !candidate.transport.tiles.empty();
+            }),
+            "RCI merge setup creates two adjacent parcels with road access");
+
+        session.runtime().setGameSpeed(GameSpeed::FastForward);
+        runner.expect(
+            WaitForSandboxState(session, state, [](const CitySaveState& candidate) {
+                return candidate.simulationTick > 17u &&
+                    HasResidential4x4LowDensityLot(candidate) &&
+                    candidate.lots.size() == 1u &&
+                    candidate.zoningLots.empty();
+            }),
+            "two adjacent residential 2x4 parcels merge into one valid 4x4 lot");
+        session.runtime().setGameSpeed(GameSpeed::Paused);
+        session.shutdown();
+    } catch (const std::exception& error) {
+        runner.expect(false, std::string("RCI area growth test threw exception: ") + error.what());
+    } catch (...) {
+        runner.expect(false, "RCI area growth test threw unknown exception");
+    }
+}
+
+void RunRciConstructorDesirabilityTest(TestRunner& runner) {
+    const RuntimeOptions options = BuildSandboxRuntimeOptions();
+
+    try {
+        GameSession session(options);
+        AddSandboxCity(session, BuildCleanSandboxState());
+        runner.expect(session.enterCity(0, 0), "RCI desirability sandbox city enters");
+
+        session.runtime().queueZoneLot(MakeSandboxRciLot(RciRect(4, 5, 5, 8), TileZoningResidential));
+        session.runtime().queueZoneLot(MakeSandboxRciLot(RciRect(6, 5, 7, 8), TileZoningResidential));
+
+        CitySaveState state;
+        runner.expect(
+            WaitForSandboxState(session, state, [](const CitySaveState& candidate) {
+                return candidate.simulationTick == 17u && candidate.zoningLots.size() == 2u;
+            }),
+            "RCI landlocked setup creates two parcels without road access");
+
+        session.runtime().setGameSpeed(GameSpeed::FastForward);
+        runner.expect(
+            WaitForSandboxState(session, state, [](const CitySaveState& candidate) {
+                return candidate.simulationTick > 24u &&
+                    candidate.lots.empty() &&
+                    candidate.zoningLots.size() == 2u;
+            }),
+            "landlocked residential candidate fails desirability and does not grow");
+        session.runtime().setGameSpeed(GameSpeed::Paused);
+        session.shutdown();
+    } catch (const std::exception& error) {
+        runner.expect(false, std::string("RCI desirability test threw exception: ") + error.what());
+    } catch (...) {
+        runner.expect(false, "RCI desirability test threw unknown exception");
+    }
+}
+
+void RunRciConstructorRedevelopmentTest(TestRunner& runner) {
+    const RuntimeOptions options = BuildSandboxRuntimeOptions();
+
+    try {
+        CitySaveState initialState = BuildCleanSandboxState();
+        ZoneSaveRect(initialState, RciRect(4, 5, 5, 8), TileZoningResidential);
+        ZoneSaveRect(initialState, RciRect(6, 5, 7, 8), TileZoningResidential);
+        initialState.lots.push_back(MakeResidential2x4SaveLot(1, 4, 5));
+        initialState.lots.push_back(MakeResidential2x4SaveLot(2, 6, 5));
+        initialState.nextLotId = 3;
+
+        GameSession session(options);
+        AddSandboxCity(session, initialState);
+        runner.expect(session.enterCity(0, 0), "RCI redevelopment sandbox city enters");
+        session.runtime().queuePlaceStreetRoad(Int2(4, 3), Int2(8, 3), Int2(8, 3));
+
+        CitySaveState state;
+        runner.expect(
+            WaitForSandboxState(session, state, [](const CitySaveState& candidate) {
+                return candidate.simulationTick == 17u &&
+                    candidate.lots.size() == 2u &&
+                    !candidate.transport.tiles.empty();
+            }),
+            "RCI redevelopment setup preserves two completed source buildings");
+
+        session.runtime().setGameSpeed(GameSpeed::FastForward);
+        runner.expect(
+            WaitForSandboxState(session, state, [](const CitySaveState& candidate) {
+                return candidate.simulationTick > 17u &&
+                    HasResidential4x4LowDensityLot(candidate) &&
+                    candidate.lots.size() == 1u;
+            }),
+            "completed lower-capacity RCI buildings redevelop into a higher-capacity merged lot");
+        session.runtime().setGameSpeed(GameSpeed::Paused);
+        session.shutdown();
+    } catch (const std::exception& error) {
+        runner.expect(false, std::string("RCI redevelopment test threw exception: ") + error.what());
+    } catch (...) {
+        runner.expect(false, "RCI redevelopment test threw unknown exception");
+    }
+}
+
+void RunRciConstructorDensityCapTest(TestRunner& runner) {
+    RuntimeOptions options = BuildSandboxRuntimeOptions();
+
+    try {
+        CitySaveState lowPopulationState = BuildCleanSandboxState();
+        ZoneSaveRect(lowPopulationState, RciRect(20, 20, 23, 23), TileZoningIndustrial);
+        lowPopulationState.lots.push_back(MakeIndustrial4x4SaveLot(1, 20, 20));
+        lowPopulationState.nextLotId = 2;
+
+        GameSession lowPopulationSession(options);
+        AddSandboxCity(lowPopulationSession, lowPopulationState);
+        runner.expect(lowPopulationSession.enterCity(0, 0), "RCI density low-population sandbox city enters");
+        lowPopulationSession.runtime().queuePlaceStreetRoad(Int2(4, 3), Int2(8, 3), Int2(8, 3));
+        lowPopulationSession.runtime().queueZoneLot(MakeSandboxRciLot(RciRect(4, 5, 7, 8), TileZoningResidential));
+
+        CitySaveState state;
+        runner.expect(
+            WaitForSandboxState(lowPopulationSession, state, [](const CitySaveState& candidate) {
+                return candidate.simulationTick == 17u &&
+                    candidate.zoningLots.size() == 1u &&
+                    !candidate.transport.tiles.empty();
+            }),
+            "RCI density low-population setup creates one 4x4 residential parcel");
+
+        lowPopulationSession.runtime().setGameSpeed(GameSpeed::FastForward);
+        runner.expect(
+            WaitForSandboxState(lowPopulationSession, state, [](const CitySaveState& candidate) {
+                return candidate.simulationTick > 17u &&
+                    HasResidential4x4LowDensityLot(candidate) &&
+                    !HasLotAsset(candidate, "rci_residential_4x4_walkup_lot");
+            }),
+            "high-density residential 4x4 is rejected at population zero by the density cap");
+        lowPopulationSession.runtime().setGameSpeed(GameSpeed::Paused);
+        lowPopulationSession.shutdown();
+
+        options.mapWidth = 64;
+        options.mapHeight = 64;
+        CitySaveState highPopulationState = BuildCleanSandboxState(64, 64);
+        int lotId = 1;
+        int placedResidentialLots = 0;
+        int row = 0;
+        for (; row < 3 && placedResidentialLots < 13; ++row) {
+            int column = 0;
+            for (; column < 5 && placedResidentialLots < 13; ++column) {
+                const int x = 16 + (column * 8);
+                const int y = row * 8;
+                ZoneSaveRect(highPopulationState, RciRect(x, y, x + 7, y + 7), TileZoningResidential);
+                highPopulationState.lots.push_back(MakeResidential8x8SaveLot(lotId++, x, y));
+                ++placedResidentialLots;
+            }
+        }
+
+        int placedIndustrialLots = 0;
+        row = 0;
+        for (; row < 4 && placedIndustrialLots < 18; ++row) {
+            int column = 0;
+            for (; column < 5 && placedIndustrialLots < 18; ++column) {
+                const int x = 16 + (column * 8);
+                const int y = 24 + (row * 8);
+                ZoneSaveRect(highPopulationState, RciRect(x, y, x + 7, y + 7), TileZoningIndustrial);
+                highPopulationState.lots.push_back(MakeIndustrial8x8SaveLot(lotId++, x, y));
+                ++placedIndustrialLots;
+            }
+        }
+        highPopulationState.nextLotId = lotId;
+
+        GameSession highPopulationSession(options);
+        AddSandboxCity(highPopulationSession, highPopulationState);
+        runner.expect(highPopulationSession.enterCity(0, 0), "RCI density high-population sandbox city enters");
+        highPopulationSession.runtime().queuePlaceStreetRoad(Int2(4, 3), Int2(8, 3), Int2(8, 3));
+        highPopulationSession.runtime().queueZoneLot(MakeSandboxRciLot(RciRect(4, 5, 7, 8), TileZoningResidential));
+
+        runner.expect(
+            WaitForSandboxState(highPopulationSession, state, [](const CitySaveState& candidate) {
+                return candidate.simulationTick == 17u &&
+                    !candidate.transport.tiles.empty() &&
+                    candidate.zoningLots.size() == 1u;
+            }),
+            "RCI density high-population setup creates one 4x4 residential parcel");
+
+        highPopulationSession.runtime().setGameSpeed(GameSpeed::FastForward);
+        runner.expect(
+            WaitForSandboxState(highPopulationSession, state, [](const CitySaveState& candidate) {
+                return candidate.simulationTick > 17u &&
+                    HasLotAsset(candidate, "rci_residential_4x4_walkup_lot");
+            }),
+            "high-density residential 4x4 is accepted once population raises the interpolated density cap");
+        highPopulationSession.runtime().setGameSpeed(GameSpeed::Paused);
+        highPopulationSession.shutdown();
+    } catch (const std::exception& error) {
+        runner.expect(false, std::string("RCI density cap test threw exception: ") + error.what());
+    } catch (...) {
+        runner.expect(false, "RCI density cap test threw unknown exception");
+    }
+}
+
 void RunDiscardInvalidatesPreviewTest(TestRunner& runner) {
     const std::string saveDirectory = MakeTemporarySaveDirectory();
     const RuntimeOptions options = BuildSandboxRuntimeOptions();
@@ -523,6 +848,10 @@ int main() {
     TestRunner runner;
     RunSaveLoadRoundTripTest(runner);
     RunPausedCommandAndUnzoneTest(runner);
+    RunRciConstructorAreaGrowthTest(runner);
+    RunRciConstructorDesirabilityTest(runner);
+    RunRciConstructorRedevelopmentTest(runner);
+    RunRciConstructorDensityCapTest(runner);
     RunDiscardInvalidatesPreviewTest(runner);
     return runner.finish();
 }

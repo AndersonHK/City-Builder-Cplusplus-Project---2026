@@ -1,0 +1,8 @@
+<module id="freight_warehouse_module">
+  <size width="4" height="3" />
+  <effects airPollution="12000" landValue="-2600" />
+  <render height="1.15" colorR="0.39" colorG="0.38" colorB="0.34" />
+  <parameters>
+    <driver id="jobs.dirty_industry" amount="30" />
+  </parameters>
+</module>

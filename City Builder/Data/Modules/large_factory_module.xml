@@ -1,0 +1,8 @@
+<module id="large_factory_module">
+  <size width="4" height="4" />
+  <effects airPollution="18000" landValue="-3600" />
+  <render height="1.45" colorR="0.44" colorG="0.41" colorB="0.37" />
+  <parameters>
+    <driver id="jobs.dirty_industry" amount="40" />
+  </parameters>
+</module>

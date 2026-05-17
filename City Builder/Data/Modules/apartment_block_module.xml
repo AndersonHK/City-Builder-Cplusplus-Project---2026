@@ -1,0 +1,8 @@
+<module id="apartment_block_module">
+  <size width="4" height="4" />
+  <effects airPollution="0" landValue="8800" />
+  <render height="1.75" colorR="0.50" colorG="0.54" colorB="0.60" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="40" />
+  </parameters>
+</module>
