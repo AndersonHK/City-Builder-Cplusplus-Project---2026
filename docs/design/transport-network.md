@@ -16,7 +16,7 @@ Use this guide when changing road placement, lane topology, road render data, or
 - `Road` owns road-template construction and stroke expansion. It converts the current tool inputs into clipped per-tile lane placements.
 - `TransportTile` owns the authored lanes on one tile/layer and validates merge/replay rules locally, including replayed stroke identity updates during upgrades.
 - `RoadRenderState` owns base glyph, arrow glyph, lane graphic mask, and divider packing.
-- `TransportCostMap` owns dense outgoing directional costs, capacities, old/new load buffers, sparse transfer edges, A* scratch reuse, and traffic-overlay generation.
+- `TransportCostMap` owns dense outgoing directional costs, capacities, building access, sparse transfer edges, morning/evening traffic load states, A* scratch reuse, and traffic-overlay generation.
 - `TransportNetwork` owns layer storage, lot-occupancy rejection, dirty tile neighborhoods, chunk revisions, resolved-cell publication, affected-tile cost-map rebuilding, traffic-overlay publication, and packed ground-road bytes.
 - `Data/TransportNetwork/congestion.xml` owns the utilization-to-speed-multiplier table used when old load turns base lane travel time into congested A* cost.
 
@@ -37,11 +37,14 @@ Use this guide when changing road placement, lane topology, road render data, or
 - The cost map stores eight outgoing direction slots. Current road lanes populate cardinal directions; diagonal slots are reserved for future connectors.
 - A* expands movement edges within one layer/mode and sparse transfer edges for mode/layer changes. There is no implicit connection between overlapping layers.
 - A* seeds each candidate start node with a mode start cost before movement: car starts currently add 2 commute-time units, while pedestrian starts add 0. This lets multi-mode access compare the up-front cost of choosing a car against walking.
-- Congestion reads immutable old load, converts `oldLoad / capacity` through the XML speed table, and writes reassigned traffic into a separate new-load buffer so future per-building path recalculation can run in parallel and reduce deltas afterward.
+- Congestion reads immutable committed load for the requested commute time, converts `oldLoad / capacity` through the XML speed table, and writes reassigned traffic into that commute time's touched new-load edges. Morning and evening loads are parallel states over one stable base cost/capacity graph.
 - Route tie-breaking uses tiny deterministic jitter from the route seed so equivalent alternatives can distribute statistically over repeated sampled updates.
-- The first commute pass routes low-wealth residential demand to compatible low-wealth job destinations, then commits accepted aggregate demand back into road loads and the traffic capacity overlay.
-- Querying a lot can publish coalesced commute route segments; rendering turns those tile/layer/mode/direction segments into mode-colored arrows above roads, buildings, and overlays. Querying a road tile summarizes all published commute segments that pass through that tile's lanes and draws those selected segments as route arrows.
-- Runtime commute assignment preserves valid accepted routes instead of clearing every lot after ordinary building edits. Removed or invalid source/destination routes are forced back through assignment, and otherwise a deterministic rolling queue rebalances about 1 percent of source lots per tick so all source lots are visited over roughly 100 ticks without random repeats.
+- Commute assignment routes low-wealth residential demand to compatible low-wealth job destinations as a round trip. A destination is valid only when the morning home-to-job path and evening job-to-home path both succeed within the maximum commute cost.
+- Each route stores morning and evening path results, coalesced segments, and medium-retry flags. Short directions are preserved and clear their retry flag. Medium directions are rerouted only for the offending commute time; invalid, long, or already-retried medium directions force destination reassignment.
+- Simulation ticks alternate commute times through `SimulationTime::ticksPerDay() == 2`: morning on the first tick of a logical day and evening on the second. Gameplay durations should be authored in logical days where possible, then converted to runtime ticks at load/setup boundaries.
+- Querying a lot can publish coalesced morning commute route segments; rendering turns those tile/layer/mode/direction segments into mode-colored arrows above roads, buildings, and overlays. Querying a road tile summarizes morning commuters that pass through that tile's lanes and draws those selected morning segments as route arrows.
+- Runtime commute assignment preserves valid accepted round-trip routes instead of clearing every lot after ordinary building edits. Removed or invalid source/destination routes are forced back through assignment, and otherwise a deterministic rolling queue rebalances about 1 percent of source lots per tick so all source lots are visited over roughly 100 ticks without random repeats.
+- Traffic overlay pixels are congestion summaries, not query-route data: each tile displays the worst utilization across morning/evening, modes, layers, and directions.
 
 ## Crosswalk Rule
 A pedestrian lane renders as a crosswalk only when all of these are true:
@@ -117,7 +120,7 @@ A car intersection node is a resolved car junction with at least three cardinal 
 - Build `x64 Release`.
 - Build and run `TransportNetworkTests.vcxproj`.
 - Verify straight one-way and two-way local streets, elevated highways, corners, tees, crosses, same-axis overlap rejection, exact replay revision stability, and lot-road occupancy rejection.
-- Verify directional one-way costs, lower-cost merge behavior, mode start costs, capacity accumulation, no implicit layer connection, explicit transfer edges, load add/subtract, congestion rerouting, traffic-overlay colors, and affected-only overlay chunk updates after road removal.
+- Verify directional one-way costs, lower-cost merge behavior, mode start costs, capacity accumulation, no implicit layer connection, explicit transfer edges, independent morning/evening load add/subtract, congestion rerouting, worst-case traffic-overlay colors, and affected-only overlay chunk updates after road removal.
 - Verify congestion XML keeps car cost at 10 tiles/time and pedestrian cost at 2 tiles/time at 100 percent capacity before applying over-capacity slowdowns.
 - In game, pan away and back after road edits to confirm deferred chunk uploads still catch up when visible.
 

@@ -491,22 +491,27 @@ void TransportNetwork::setCongestionCurve(const TransportCongestionCurve& conges
     costMap_.setCongestionCurve(congestionCurve);
 }
 
-void TransportNetwork::beginTrafficAssignmentFromOldLoad() {
-    costMap_.beginNextLoadFromOldLoad();
+void TransportNetwork::beginTrafficAssignmentFromOldLoad(CommuteTimeOfDay commuteTimeOfDay) {
+    costMap_.beginNextLoadFromOldLoad(commuteTimeOfDay);
 }
 
-void TransportNetwork::beginTrafficAssignmentFromZero() {
-    costMap_.beginNextLoadFromZero();
+void TransportNetwork::beginTrafficAssignmentFromZero(CommuteTimeOfDay commuteTimeOfDay) {
+    costMap_.beginNextLoadFromZero(commuteTimeOfDay);
 }
 
-void TransportNetwork::applyTrafficPathLoad(const TransportPathResult& pathResult, std::uint16_t demand, bool addLoad) {
-    costMap_.applyPathLoad(pathResult, demand, addLoad);
+void TransportNetwork::applyTrafficPathLoad(CommuteTimeOfDay commuteTimeOfDay, const TransportPathResult& pathResult, std::uint16_t demand, bool addLoad) {
+    costMap_.applyPathLoad(commuteTimeOfDay, pathResult, demand, addLoad);
 }
 
-void TransportNetwork::commitTrafficAssignment() {
-    costMap_.commitNextLoad();
-    refreshTrafficOverlayState();
-    bumpAllTrafficOverlayChunkRevisions();
+void TransportNetwork::commitTrafficAssignment(CommuteTimeOfDay commuteTimeOfDay) {
+    std::vector<int> touchedTileIndices;
+    costMap_.commitNextLoad(commuteTimeOfDay, &touchedTileIndices);
+    if (touchedTileIndices.empty()) {
+        return;
+    }
+
+    costMap_.buildTrafficOverlayForTiles(touchedTileIndices, trafficOverlayState_);
+    bumpTrafficOverlayChunkRevisionsForTiles(touchedTileIndices);
     ++trafficOverlayRevision_;
 }
 

@@ -28,6 +28,13 @@ enum class GameSpeed {
     FastForward
 };
 
+enum class CommuteCategory {
+    None,
+    Short,
+    Medium,
+    Long
+};
+
 struct RuntimeOptions {
     bool fastForward;
     bool detectL2CacheSize;
@@ -104,6 +111,7 @@ struct TileQueryResult {
     std::string parameterSummary;
     int commuteDemand;
     int commuteSatisfied;
+    CommuteCategory worstCommuteCategory;
     int residentsLowWealthCurrent;
     int residentsLowWealthTotal;
     int jobsLowWealthCurrent;
@@ -129,6 +137,7 @@ struct TileQueryResult {
           rciZoningType(TileZoningNone),
           commuteDemand(0),
           commuteSatisfied(0),
+          worstCommuteCategory(CommuteCategory::None),
           residentsLowWealthCurrent(0),
           residentsLowWealthTotal(0),
           jobsLowWealthCurrent(0),
@@ -145,6 +154,7 @@ struct PublishedLotInfo {
     std::string parameterSummary;
     int commuteDemand;
     int commuteSatisfied;
+    CommuteCategory worstCommuteCategory;
     int residentsLowWealthCurrent;
     int residentsLowWealthTotal;
     int jobsLowWealthCurrent;
@@ -159,6 +169,7 @@ struct PublishedLotInfo {
           isEmpty(false),
           commuteDemand(0),
           commuteSatisfied(0),
+          worstCommuteCategory(CommuteCategory::None),
           residentsLowWealthCurrent(0),
           residentsLowWealthTotal(0),
           jobsLowWealthCurrent(0),

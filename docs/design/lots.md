@@ -13,7 +13,7 @@ Use this guide when changing `Lot`, lot placement, module expansion/removal, lot
 - `Lot` owns module placements, occupied offsets, occupied tile indices, aggregate effects, render height, render color, and construction progress for constructor-built lots.
 - Module placements store the placed footprint width/height separately from the source module archetype so non-square modules rotate correctly.
 - `Lot` stores clockwise quarter-turn placement rotation so commute access can be evaluated in the same orientation as the placed footprint.
-- `Lot` also caches module-backed city-parameter contributions, accepted commute route records, and coalesced route segments for query visualization.
+- `Lot` also caches module-backed city-parameter contributions, accepted round-trip commute route records, and morning coalesced route segments for query visualization.
 - `SimulationRuntime` owns the live lot list and the global lot-occupancy map.
 - Lot render snapshots rebuild only when `lotsRevision_` changes.
 - Tile lift for occupied lots is rendered through the renderer's lift mask texture rather than tile geometry rebuilds.
@@ -22,8 +22,8 @@ Use this guide when changing `Lot`, lot placement, module expansion/removal, lot
 - Lots still draw through a global placeholder-prism instance path.
 - RCI zoning lots start as separate empty parcel records. They have no modules, do not reserve building occupancy, and exist only to mark zoning boundaries over tiles until the constructor pass finds a matching RCI lot archetype and instantiates a real `Lot`.
 - Plain RCI area zoning now creates those empty parcel records too. `SimulationRuntime` fits parcels onto unoccupied, unparcelled RCI tiles with the XML-backed smart RCI tool dimensions, first trying frontage runs beside existing ground roads and then partitioning remaining RCI blocks.
-- Constructor-built RCI lots can be under construction. Their modules render as height-scaled growth from 0 percent to full height, but their city parameters, pollution, land-value effects, and commute demand are suppressed until construction completes.
-- Destroyed RCI building lots are removed and replaced by their former empty zoning parcel after a 30-day grace period. Bulldozing remains responsible for roads and building destruction; zoning and empty-parcel removal belong to the unzone tool.
+- Constructor-built RCI lots can be under construction. Their modules render as height-scaled growth from 0 percent to full height, but their city parameters, pollution, land-value effects, and commute demand are suppressed until construction completes. Authored construction durations should use logical `constructionDays` where possible and are stored as ticks after load.
+- Destroyed RCI building lots are removed and replaced by their former empty zoning parcel after a 30-day logical grace period converted to ticks through `SimulationTime`. Bulldozing remains responsible for roads and building destruction; zoning and empty-parcel removal belong to the unzone tool.
 - RCI constructor lot archetypes are tagged with `zoningType` and currently cover residential and industrial 2- and 3-tile widths for depths 2 through 8.
 
 ## Rules
@@ -48,5 +48,5 @@ Use this guide when changing `Lot`, lot placement, module expansion/removal, lot
 - Hover each lot placement tool before clicking to confirm the ghost footprint matches the eventual committed lot.
 - Rotate lot placement with `,` and `.` before clicking to verify rotated footprints still use the intended front/access side.
 - Rotate factories before placement and confirm the smokestack remains beside the warehouse rather than intersecting it.
-- Query a house after a successful commute to verify car and pedestrian route arrows are published with mode colors.
+- Query a house after a successful commute to verify morning car and pedestrian route arrows are published with mode colors.
 - Pan away and back after lot edits to confirm renderer lift masks update lazily but correctly.

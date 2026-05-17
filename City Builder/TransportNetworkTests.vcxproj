@@ -95,6 +95,7 @@
     <ClInclude Include="Road.h" />
     <ClInclude Include="RoadLane.h" />
     <ClInclude Include="RoadRenderState.h" />
+    <ClInclude Include="SimulationTime.h" />
     <ClInclude Include="TransportCostMap.h" />
     <ClInclude Include="TransportNetwork.h" />
     <ClInclude Include="TransportTile.h" />

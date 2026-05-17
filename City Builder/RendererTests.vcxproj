@@ -84,6 +84,7 @@
     <ClInclude Include="RciTool.h" />
     <ClInclude Include="RendererAlgorithms.h" />
     <ClInclude Include="SimulationDate.h" />
+    <ClInclude Include="SimulationTime.h" />
     <ClInclude Include="Tile.h" />
     <ClInclude Include="UiWidgets.h" />
   </ItemGroup>

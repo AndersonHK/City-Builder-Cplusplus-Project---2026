@@ -15,7 +15,7 @@ Use this guide when changing `AssetLoader`, data XML files, lot/module archetype
 - File stems are fallback ids when an explicit `id` attribute is absent.
 - Modules define size, effects, and placeholder render values.
 - Modules may also define city-parameter contributions inside `<parameters>` using `<driver>` or `<satisfaction>` tags.
-- Lots define an anchor, optional constructor-facing `zoningType` / `rciType`, optional `constructionTicks`, optional explicit footprint, optional render origin, optional front direction, initial module references, and optional access connections.
+- Lots define an anchor, optional constructor-facing `zoningType` / `rciType`, optional `constructionDays`, legacy optional `constructionTicks`, optional explicit footprint, optional render origin, optional front direction, initial module references, and optional access connections.
 - Lot access can be declared with individual `<connection>` rows or a compact `<perimeter modes="..." />` row inside `<access>`, which expands to all exterior footprint edges after the footprint has been declared.
 - Lot validation ensures module references exist, the anchor is inside the lot footprint, access tiles are inside the footprint, access directions point outside the footprint, and access modes are known.
 - The congestion XML defines `<point utilization="..." speedMultiplier="..." />` rows. Invalid or duplicate utilization points fail asset load.
@@ -30,7 +30,8 @@ Use this guide when changing `AssetLoader`, data XML files, lot/module archetype
 - Validate explicit footprints: positive dimensions, anchor inside footprint, and initial modules fully inside the footprint.
 - Validate access declarations before normalizing the lot anchor, then store them relative to the normalized anchor so placement rotation can transform them.
 - Validate lot zoning type names when present; unknown `zoningType` / `rciType` values should fail asset load.
-- Validate `constructionTicks` as non-negative. A zero-tick lot is immediately active; positive values render construction growth and delay city-parameter effects.
+- Prefer `constructionDays` for authored lot construction duration. `AssetLoader` converts logical days to stored runtime ticks with `SimulationTime::daysToTicks()` at load time. Legacy `constructionTicks` remains supported as raw ticks for compatibility. A zero duration is immediately active; positive values render construction growth and delay city-parameter effects.
+- Keep runtime fields such as construction remaining ticks and save-state tick counters in ticks because they represent elapsed simulation state, not authored logical duration.
 - Prefer simple explicit schema additions over implicit behavior.
 - Keep XML-backed archetypes separate from live runtime placement state.
 - Keep UI layout XML separate from gameplay archetype XML. UI parser fallbacks are acceptable for tools/debug windows, tool buttons, and the first RCI tool catalog; gameplay lot/module asset XML should continue to fail early.

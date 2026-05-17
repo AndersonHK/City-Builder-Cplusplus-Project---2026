@@ -1,5 +1,7 @@
 #include "SimulationDate.h"
 
+#include "SimulationTime.h"
+
 #include <algorithm>
 #include <sstream>
 
@@ -40,6 +42,8 @@ bool SimulationIsLeapYear(int year) {
 }
 
 SimulationDate CalculateSimulationDate(std::uint64_t tick) {
+    tick = SimulationTime::tickToDay(tick);
+
     SimulationDate date;
     date.year = SIMULATION_START_YEAR;
     date.month = SIMULATION_START_MONTH;

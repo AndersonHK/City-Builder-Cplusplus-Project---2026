@@ -304,6 +304,9 @@
     <ClInclude Include="SimulationDate.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="SimulationTime.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="SimulationRuntime.h">
       <Filter>Header Files</Filter>
     </ClInclude>

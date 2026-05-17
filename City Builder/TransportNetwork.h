@@ -33,10 +33,10 @@ public:
     std::uint64_t trafficOverlayRevision() const;
     void setCongestionCurve(const TransportCongestionCurve& congestionCurve);
 
-    void beginTrafficAssignmentFromOldLoad();
-    void beginTrafficAssignmentFromZero();
-    void applyTrafficPathLoad(const TransportPathResult& pathResult, std::uint16_t demand, bool addLoad);
-    void commitTrafficAssignment();
+    void beginTrafficAssignmentFromOldLoad(CommuteTimeOfDay commuteTimeOfDay);
+    void beginTrafficAssignmentFromZero(CommuteTimeOfDay commuteTimeOfDay);
+    void applyTrafficPathLoad(CommuteTimeOfDay commuteTimeOfDay, const TransportPathResult& pathResult, std::uint16_t demand, bool addLoad);
+    void commitTrafficAssignment(CommuteTimeOfDay commuteTimeOfDay);
 
     bool hasOccupancy(TransportLayerId layer, int tileIndex) const;
     bool hasGroundOccupancy(int tileIndex) const;

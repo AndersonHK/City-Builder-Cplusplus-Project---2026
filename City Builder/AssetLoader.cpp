@@ -1,6 +1,7 @@
 #include "AssetLoader.h"
 
 #include "CrashLogger.h"
+#include "SimulationTime.h"
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -158,6 +159,21 @@ int ParseOptionalInt(const std::string& attributes, const std::string& attribute
     }
 
     return std::stoi(value);
+}
+
+int ParseOptionalDayDurationAsTicks(const std::string& attributes, const std::string& attributeName, int defaultValue) {
+    const std::string value = GetOptionalAttribute(attributes, attributeName, "");
+    if (value.empty()) {
+        return defaultValue;
+    }
+
+    const int days = std::max(0, std::stoi(value));
+    return static_cast<int>(SimulationTime::daysToTicks(static_cast<std::uint64_t>(days)));
+}
+
+int ParseRequiredDayDurationAsTicks(const std::string& attributes, const std::string& attributeName) {
+    const int days = std::max(0, std::stoi(GetRequiredAttribute(attributes, attributeName)));
+    return static_cast<int>(SimulationTime::daysToTicks(static_cast<std::uint64_t>(days)));
 }
 
 // Parses an optional float XML attribute.
@@ -386,6 +402,7 @@ LotAsset LoadLotAsset(const std::string& filePath, const std::string& fileName) 
     lotAsset.id = GetOptionalAttribute(rootTag.attributes, "id", StripExtension(fileName));
     lotAsset.zoningType = ParseZoningTypeName(GetOptionalAttribute(rootTag.attributes, "zoningType", GetOptionalAttribute(rootTag.attributes, "rciType", "")));
     lotAsset.constructionTicks = ParseOptionalInt(rootTag.attributes, "constructionTicks", lotAsset.constructionTicks);
+    lotAsset.constructionTicks = ParseOptionalDayDurationAsTicks(rootTag.attributes, "constructionDays", lotAsset.constructionTicks);
     if (lotAsset.id.empty()) {
         throw std::runtime_error("Lot id cannot be empty: " + filePath);
     }
@@ -445,7 +462,17 @@ LotAsset LoadLotAsset(const std::string& filePath, const std::string& fileName) 
         }
 
         if (tag.name == "construction" && tag.isSelfClosing) {
-            lotAsset.constructionTicks = ParseRequiredInt(tag.attributes, "ticks");
+            const std::string constructionDaysValue = GetOptionalAttribute(tag.attributes, "constructionDays", "");
+            const std::string daysValue = GetOptionalAttribute(tag.attributes, "days", "");
+            if (!constructionDaysValue.empty()) {
+                lotAsset.constructionTicks = ParseRequiredDayDurationAsTicks(tag.attributes, "constructionDays");
+            } else if (!daysValue.empty()) {
+                lotAsset.constructionTicks = ParseRequiredDayDurationAsTicks(tag.attributes, "days");
+            } else if (!GetOptionalAttribute(tag.attributes, "constructionTicks", "").empty()) {
+                lotAsset.constructionTicks = ParseRequiredInt(tag.attributes, "constructionTicks");
+            } else {
+                lotAsset.constructionTicks = ParseRequiredInt(tag.attributes, "ticks");
+            }
             continue;
         }
 

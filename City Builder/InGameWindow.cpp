@@ -213,7 +213,7 @@ bool InGameWindow::loadFromXmlFile(const std::string& filePath) {
 void InGameWindow::setFallbackDefinition() {
     id_ = "lot_query";
     x_ = 24;
-    y_ = 24;
+    y_ = 96;
     width_ = 440;
     declaredHeight_ = 220;
     height_ = declaredHeight_;

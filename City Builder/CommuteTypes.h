@@ -33,13 +33,19 @@ struct CommuteRouteRecord {
     int demand;
     std::uint16_t transportLoad;
     bool longCommute;
-    TransportPathResult pathResult;
-    std::vector<CommuteRouteSegment> segments;
+    bool morningMediumRetry;
+    bool eveningMediumRetry;
+    TransportPathResult morningPathResult;
+    TransportPathResult eveningPathResult;
+    std::vector<CommuteRouteSegment> morningSegments;
+    std::vector<CommuteRouteSegment> eveningSegments;
 
     CommuteRouteRecord()
         : destinationLotId(-1),
           demand(0),
           transportLoad(0u),
-          longCommute(false) {
+          longCommute(false),
+          morningMediumRetry(false),
+          eveningMediumRetry(false) {
     }
 };

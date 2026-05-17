@@ -1,6 +1,6 @@
 # Codex long-term working memory
 
-Snapshot: 2026-04-22
+Snapshot: 2026-05-17
 
 ## Project identity
 This project is a modern heir to SC2000 and SC4 built around tile-based statistical simulation rather than full real-time object truth.
@@ -67,6 +67,7 @@ Primary design goals:
 
 ## Performance checkpoint
 - After the earlier architecture refactor to chunked tile simulation, separate renderer ownership, and `x64 Release`, observed simulation throughput improved from roughly `900` updates/sec to roughly `1800` updates/sec on the user's machine.
+- After the commute routing rework, the user's pathfinding-heavy test city improved from about `10` TPS before route/load work, to about `14` TPS with persistent scratch, then to about `200` TPS with sparse morning/evening load states and touched overlay updates. A city with no pathfinding can reach about `2000` TPS, which points back at tile-based updates as the broad ceiling when routing is idle.
 - This renderer/runtime pass removed several obvious structural costs:
   - snapshot lot-vector copying on acquire
   - hot-path `std::function` dispatch in chunk workers
@@ -102,6 +103,8 @@ Primary design goals:
 - Do not drift into object-heavy "simulate everything literally" design just because modern hardware allows more brute force.
 - Do not let graphics ambition erase the clarity and scalability of the tile-statistical core.
 - Keep traffic simulation statistical: pathfinding assigns aggregate loads, congestion reads old loads, and future building batches should write new loads through worker-local deltas before reduction.
+- Traffic load state is now split into morning and evening parallel states over one stable base transport graph. Commute destinations must be round-trip valid: morning home-to-job and evening job-to-home.
+- Logical days and simulation ticks are separate. `SimulationTime::ticksPerDay()` is currently `2`; authored day durations should be converted through `SimulationTime::daysToTicks()` at load/setup boundaries.
 - Prefer integration-style sandbox tests for complex systems. For roads, pathfinding, and commute assignment, exercise player-like action sequences and micro-simulations instead of relying mainly on isolated helper unit tests.
 - The sandbox harness should eventually become reusable across test targets with map size, tick count, scheduled actions, lot placement, bulldoze, query, and tool-level operations.
 - Do not overfit chunk sizing to one exact CPU; detect and override should coexist.

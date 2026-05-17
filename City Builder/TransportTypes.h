@@ -19,6 +19,12 @@ enum class TransportLayerId : std::uint8_t {
     Count
 };
 
+enum class CommuteTimeOfDay : std::uint8_t {
+    Morning = 0,
+    Evening,
+    Count
+};
+
 enum class RoadFamily : std::uint8_t {
     None = 0,
     LocalStreet,

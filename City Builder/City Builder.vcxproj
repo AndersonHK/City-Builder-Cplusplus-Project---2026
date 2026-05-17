@@ -237,6 +237,7 @@ copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\
     <ClInclude Include="Renderer.h" />
     <ClInclude Include="ShaderProgram.h" />
     <ClInclude Include="SimulationDate.h" />
+    <ClInclude Include="SimulationTime.h" />
     <ClInclude Include="SimulationRuntime.h" />
     <ClInclude Include="Tile.h" />
     <ClInclude Include="TransportCostMap.h" />

@@ -46,6 +46,9 @@
     <ClInclude Include="SimulationDate.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="SimulationTime.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="Tile.h">
       <Filter>Header Files</Filter>
     </ClInclude>

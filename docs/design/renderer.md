@@ -16,7 +16,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Lot occupancy lift comes from a persistent full-map `GL_R8` mask texture updated only for visible stale chunks.
 - Ground roads render in the tile pass from packed road-state bytes and generated road atlases. The ground-road upload path is `UpdateGroundRoadChunkTexture`.
 - Reusable tile overlays render from published RGBA tile textures. Zoning and traffic capacity both use visible-dirty chunk uploads.
-- Queried lot and road commutes render as coalesced route arrows above roads, lots, and tile overlays; car arrows are green and pedestrian arrows are pink.
+- Queried lot and road commutes render morning-only coalesced route arrows above roads, lots, and tile overlays; car arrows are green and pedestrian arrows are pink.
 - Elevated roads use separate per-chunk instance buffers and rebuild lazily for visible stale chunks. They consume the same resolved road glyph, lane graphic, and divider masks through `BuildRoadChunkInstances`.
 - Road placement ghost previews are transient renderer instances built from the active drag stroke and drawn with a blue alpha tint when valid or a red tint when invalid. They do not enter published road snapshots.
 - Lot placement ghost previews are transient renderer instances built from XML-backed, rotation-aware lot candidate geometry and drawn with a green alpha tint when valid or a red tint when invalid. They do not enter published lot snapshots.
@@ -60,7 +60,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Keep bulldoze previews presentation-only. They may reuse published lot render instances for tinting, but committed destruction must stay in queued simulation commands and must not clear zoning or empty parcels.
 - Keep zoning and unzone previews presentation-only. Committed zoning/clearing must stay in queued simulation commands, published tile snapshots, and published RCI parcel snapshots.
 - Draw overlays after roads and lots with depth disabled/restored so the tint remains presentation, not terrain truth.
-- Draw query route arrows after tile overlays with depth disabled/restored so selected commute paths remain inspectable.
+- Draw query route arrows after tile overlays with depth disabled/restored so selected morning commute paths remain inspectable.
 - Draw in-game windows last with a screen-space orthographic projection, depth disabled, and no simulation ownership.
 - Keep HUD values read-only from published snapshots or region metadata; do not query mutable simulation state directly from the renderer.
 - Keep date formatting presentation-only. The city simulation tick comes from snapshots; `AppConfig` only selects how the renderer formats that tick.
@@ -84,7 +84,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Toggle the bottom-left tool menu and confirm hidden menu buttons no longer draw or capture clicks.
 - Rotate lot placement with `,` and `.` while hovering to confirm the ghost footprint rotates before commit.
 - Toggle `T` to verify the traffic capacity overlay appears above roads/lots and starts green at zero load.
-- Query lots and roads with `A` to verify the in-game window draws above world content, hugs populated fields, summarizes road commuters, and disappears when the query selection has no lot, road, or RCI zoning.
+- Query lots and roads with `A` to verify the in-game window draws above world content, hugs populated fields, summarizes morning road commuters, and disappears when the query selection has no lot, road, or RCI zoning.
 - Use the date widget speed buttons to verify paused holds the date, play advances one day per second, fast advances at render lockstep, and fast-forward is uncapped.
 - Launch the game and confirm the first visible frame is the startup loading background with a horizontally centered progress bar near the lower quarter before the region appears.
 - Enter a city, reload with `F2`, save with `F1`, and return to region with `F3` to confirm the same loading bar appears around foreground disk/runtime/preview work.

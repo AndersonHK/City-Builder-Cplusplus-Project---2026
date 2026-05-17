@@ -133,7 +133,7 @@ public:
     void setLowWealthJobsRoadAccess(bool hasRoadAccess);
     void setCommuteDemand(int demand);
     void addCommuteDemand(int demand);
-    void addCommuteRoute(int destinationLotId, int demand, std::uint16_t transportLoad, bool longCommute, const TransportPathResult& pathResult, const std::vector<CommuteRouteSegment>& segments);
+    void addCommuteRoute(int destinationLotId, int demand, std::uint16_t transportLoad, bool longCommute, bool morningMediumRetry, bool eveningMediumRetry, const TransportPathResult& morningPathResult, const TransportPathResult& eveningPathResult, const std::vector<CommuteRouteSegment>& morningSegments, const std::vector<CommuteRouteSegment>& eveningSegments);
     void addLowWealthJobsFilled(int jobs);
     void flagLongCommute();
 

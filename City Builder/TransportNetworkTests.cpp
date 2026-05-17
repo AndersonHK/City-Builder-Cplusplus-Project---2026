@@ -1,5 +1,6 @@
 #include "AssetLoader.h"
 #include "CrashLogger.h"
+#include "SimulationTime.h"
 #include "TransportNetwork.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -1092,6 +1093,39 @@ bool InvalidAssetsRejected(const std::string& moduleXml, const std::string& lotX
     return !LoadGameAssets(root, registry, assets, errorMessage) && !errorMessage.empty();
 }
 
+void TestLotConstructionDurationLoading(TestRunner& runner) {
+    CityParameterRegistry registry;
+    const std::string root = MakeTempAssetDirectory("CityBuilderAssetDurations");
+    WriteTextAssetFile(
+        root + "\\Modules\\test_module.xml",
+        "<module id=\"test_module\">"
+        "<size width=\"1\" height=\"1\" />"
+        "<effects airPollution=\"0\" landValue=\"0\" />"
+        "</module>");
+    WriteTextAssetFile(
+        root + "\\Lots\\days_lot.xml",
+        "<lot id=\"days_lot\" constructionDays=\"3\">"
+        "<anchor x=\"0\" y=\"0\" />"
+        "<footprint x=\"0\" y=\"0\" width=\"1\" height=\"1\" />"
+        "<modules><moduleRef id=\"test_module\" x=\"0\" y=\"0\" /></modules>"
+        "</lot>");
+    WriteTextAssetFile(
+        root + "\\Lots\\ticks_lot.xml",
+        "<lot id=\"ticks_lot\" constructionTicks=\"5\">"
+        "<anchor x=\"0\" y=\"0\" />"
+        "<footprint x=\"0\" y=\"0\" width=\"1\" height=\"1\" />"
+        "<modules><moduleRef id=\"test_module\" x=\"0\" y=\"0\" /></modules>"
+        "</lot>");
+
+    LoadedGameAssets assets;
+    std::string errorMessage;
+    runner.expect(LoadGameAssets(root, registry, assets, errorMessage), "construction duration test assets load" + (errorMessage.empty() ? std::string() : "\nLoader error: " + errorMessage));
+    const LotAsset* daysLot = FindLotAsset(assets, "days_lot");
+    const LotAsset* ticksLot = FindLotAsset(assets, "ticks_lot");
+    runner.expect(daysLot != 0 && daysLot->constructionTicks == static_cast<int>(SimulationTime::daysToTicks(3u)), "constructionDays converts to stored ticks");
+    runner.expect(ticksLot != 0 && ticksLot->constructionTicks == 5, "legacy constructionTicks remains raw ticks");
+}
+
 void TestStraightTwoWayLocalStreet(TestRunner& runner) {
     TransportNetwork network = MakeNetwork(12, 12);
     std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
@@ -1716,7 +1750,7 @@ void TestCongestionCurveReducesSpeedFromTable(TestRunner& runner) {
     costMap.setCongestionCurve(congestionCurve);
 
     costMap.addDirectionalCost(TransportLayerId::Ground, TransportMode::Car, 0, kRoadDirectionEast, 100u, 10u);
-    costMap.cellForMutation(TransportLayerId::Ground, TransportMode::Car, 0).oldLoads[RoadDirectionIndex(kRoadDirectionEast)] = 20u;
+    costMap.trafficLoadStateForMutation(CommuteTimeOfDay::Morning).cells[costMap.nodeId(TransportLayerId::Ground, TransportMode::Car, 0)].oldLoads[RoadDirectionIndex(kRoadDirectionEast)] = 20u;
 
     TransportPathScratch scratch;
     TransportPathResult result;
@@ -1817,20 +1851,29 @@ void TestPathLoadAssignmentAndOverlay(TestRunner& runner) {
     TransportPathResult result;
     runner.expect(costMap.findPath(MakePathRequest(costMap.nodeId(TransportLayerId::Ground, TransportMode::Car, 0), costMap.nodeId(TransportLayerId::Ground, TransportMode::Car, 1)), scratch, result), "load assignment path finds simple edge");
 
-    costMap.beginNextLoadFromOldLoad();
-    costMap.applyPathLoad(result, 7u, true);
-    costMap.commitNextLoad();
-    runner.expect(costMap.cell(TransportLayerId::Ground, TransportMode::Car, 0).oldLoads[RoadDirectionIndex(kRoadDirectionEast)] == 7u, "path load adds to old load after commit");
+    costMap.beginNextLoadFromOldLoad(CommuteTimeOfDay::Morning);
+    costMap.applyPathLoad(CommuteTimeOfDay::Morning, result, 7u, true);
+    std::vector<int> touchedTiles;
+    costMap.commitNextLoad(CommuteTimeOfDay::Morning, &touchedTiles);
+    runner.expect(costMap.trafficLoadState(CommuteTimeOfDay::Morning).cells[costMap.nodeId(TransportLayerId::Ground, TransportMode::Car, 0)].oldLoads[RoadDirectionIndex(kRoadDirectionEast)] == 7u, "morning path load adds to old load after commit");
+    runner.expect(costMap.trafficLoadState(CommuteTimeOfDay::Evening).cells[costMap.nodeId(TransportLayerId::Ground, TransportMode::Car, 0)].oldLoads[RoadDirectionIndex(kRoadDirectionEast)] == 0u, "evening path load remains independent");
+    runner.expect(touchedTiles.size() == 1u && touchedTiles[0] == 0, "path load commit reports touched movement tile");
 
     std::vector<std::uint8_t> overlayPixels;
     costMap.buildTrafficOverlay(overlayPixels);
     runner.expect(overlayPixels[3] == kTrafficOverlayAlphaByte, "traffic overlay marks relevant tile alpha");
     runner.expect(overlayPixels[0] > overlayPixels[1], "traffic overlay shifts toward red under load");
 
-    costMap.beginNextLoadFromOldLoad();
-    costMap.applyPathLoad(result, 3u, false);
-    costMap.commitNextLoad();
-    runner.expect(costMap.cell(TransportLayerId::Ground, TransportMode::Car, 0).oldLoads[RoadDirectionIndex(kRoadDirectionEast)] == 4u, "path load subtraction removes previous assignment");
+    costMap.beginNextLoadFromOldLoad(CommuteTimeOfDay::Evening);
+    costMap.applyPathLoad(CommuteTimeOfDay::Evening, result, 10u, true);
+    costMap.commitNextLoad(CommuteTimeOfDay::Evening);
+    costMap.buildTrafficOverlay(overlayPixels);
+    runner.expect(overlayPixels[0] == 255u, "traffic overlay uses worst morning/evening utilization");
+
+    costMap.beginNextLoadFromOldLoad(CommuteTimeOfDay::Morning);
+    costMap.applyPathLoad(CommuteTimeOfDay::Morning, result, 3u, false);
+    costMap.commitNextLoad(CommuteTimeOfDay::Morning);
+    runner.expect(costMap.trafficLoadState(CommuteTimeOfDay::Morning).cells[costMap.nodeId(TransportLayerId::Ground, TransportMode::Car, 0)].oldLoads[RoadDirectionIndex(kRoadDirectionEast)] == 4u, "path load subtraction removes previous assignment");
 }
 
 void TestCongestionReroutesPath(TestRunner& runner) {
@@ -1843,8 +1886,8 @@ void TestCongestionReroutesPath(TestRunner& runner) {
     costMap.addDirectionalCost(TransportLayerId::Ground, TransportMode::Car, 3, kRoadDirectionEast, 1u, 100u);
     costMap.addDirectionalCost(TransportLayerId::Ground, TransportMode::Car, 4, kRoadDirectionEast, 1u, 100u);
     costMap.addDirectionalCost(TransportLayerId::Ground, TransportMode::Car, 5, kRoadDirectionNorth, 1u, 100u);
-    costMap.cellForMutation(TransportLayerId::Ground, TransportMode::Car, 0).oldLoads[RoadDirectionIndex(kRoadDirectionEast)] = 100u;
-    costMap.cellForMutation(TransportLayerId::Ground, TransportMode::Car, 1).oldLoads[RoadDirectionIndex(kRoadDirectionEast)] = 100u;
+    costMap.trafficLoadStateForMutation(CommuteTimeOfDay::Morning).cells[costMap.nodeId(TransportLayerId::Ground, TransportMode::Car, 0)].oldLoads[RoadDirectionIndex(kRoadDirectionEast)] = 100u;
+    costMap.trafficLoadStateForMutation(CommuteTimeOfDay::Morning).cells[costMap.nodeId(TransportLayerId::Ground, TransportMode::Car, 1)].oldLoads[RoadDirectionIndex(kRoadDirectionEast)] = 100u;
 
     TransportPathScratch scratch;
     TransportPathResult result;
@@ -2252,6 +2295,7 @@ int main() {
     TestEqualRouteJitterSpreadsChoices(runner);
     TestTrafficOverlayStartsGreenOnRoadCapacity(runner);
     TestRoadRemovalTouchesOnlyAffectedTrafficOverlayChunks(runner);
+    TestLotConstructionDurationLoading(runner);
     TestFactoryHouseAssetsAndParameters(runner);
     TestPopulationParameterAggregation(runner);
     TestInvalidAssetValidation(runner);

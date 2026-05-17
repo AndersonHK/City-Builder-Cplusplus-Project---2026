@@ -1,6 +1,6 @@
 # Codex repository map and implementation memory
 
-Snapshot: 2026-04-22
+Snapshot: 2026-05-17
 Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 
 ## Top-level layout that matters now
@@ -16,6 +16,9 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - per-chunk render revisions
   - transport network publication
   - per-pass timing
+- `City Builder/SimulationTime.h`
+  - tick/day conversion
+  - current day length of two ticks
 - `City Builder/TransportTypes.h`
 - `City Builder/RoadLane.h`
 - `City Builder/Road.h`
@@ -33,10 +36,11 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 - `City Builder/TransportCostMap.h`
 - `City Builder/TransportCostMap.cpp`
   - dense `(tile, layer, mode)` directional costs and capacities
-  - old/new traffic load buffers
+  - morning/evening old/new traffic load states stored separately from base topology
+  - sparse touched movement/transfer load commits
   - sparse transfer edges
   - A* pathfinding with reusable scratch arrays
-  - traffic overlay color generation
+  - traffic overlay color generation from worst morning/evening utilization
 - `City Builder/TransportNetworkTests.vcxproj`
   - standalone non-graphics transport topology tests
 - `City Builder/Renderer.h`
@@ -143,6 +147,8 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 - Use contiguous storage and chunk-based passes to improve cache behavior without jumping to full structure-of-arrays immediately.
 - Add comments only where they preserve future reasoning about cache sizing, swap rules, command timing, and render/sim ownership.
 - When changing architecture, update the nearest `docs/design/*.md` guide, keep `README.md` as the navigable index, and cite important code symbols/line references where practical so future sessions can find the source of truth quickly.
+- Commute query publishing is morning-only; traffic congestion overlay is worst-of morning/evening/mode/layer/direction.
+- Authored day durations should use logical days where possible and convert through `SimulationTime` at load/setup boundaries. Runtime elapsed counters and saves can stay in ticks.
 - When adding test coverage for transport/pathfinding/commutes, prefer reusable sandbox or micro-simulation scenarios over tiny function-only assertions.
 - The next likely renderer seam is one of:
   - split `Renderer.cpp` into smaller renderer support units

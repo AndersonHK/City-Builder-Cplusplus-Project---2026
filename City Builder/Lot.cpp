@@ -558,7 +558,17 @@ void Lot::addCommuteDemand(int demand) {
 }
 
 // Adds one accepted commute route to the lot's latest assignment data.
-void Lot::addCommuteRoute(int destinationLotId, int demand, std::uint16_t transportLoad, bool longCommute, const TransportPathResult& pathResult, const std::vector<CommuteRouteSegment>& segments) {
+void Lot::addCommuteRoute(
+    int destinationLotId,
+    int demand,
+    std::uint16_t transportLoad,
+    bool longCommute,
+    bool morningMediumRetry,
+    bool eveningMediumRetry,
+    const TransportPathResult& morningPathResult,
+    const TransportPathResult& eveningPathResult,
+    const std::vector<CommuteRouteSegment>& morningSegments,
+    const std::vector<CommuteRouteSegment>& eveningSegments) {
     if (demand <= 0) {
         return;
     }
@@ -568,8 +578,12 @@ void Lot::addCommuteRoute(int destinationLotId, int demand, std::uint16_t transp
     route.demand = demand;
     route.transportLoad = transportLoad;
     route.longCommute = longCommute;
-    route.pathResult = pathResult;
-    route.segments = segments;
+    route.morningMediumRetry = morningMediumRetry;
+    route.eveningMediumRetry = eveningMediumRetry;
+    route.morningPathResult = morningPathResult;
+    route.eveningPathResult = eveningPathResult;
+    route.morningSegments = morningSegments;
+    route.eveningSegments = eveningSegments;
     commuteRoutes_.push_back(route);
     rebuildCommuteRouteSummary();
 }
@@ -601,7 +615,7 @@ void Lot::rebuildCommuteRouteSummary() {
             hasLongCommuteComplaint_ = true;
         }
 
-        commuteRouteSegments_.insert(commuteRouteSegments_.end(), route.segments.begin(), route.segments.end());
+        commuteRouteSegments_.insert(commuteRouteSegments_.end(), route.morningSegments.begin(), route.morningSegments.end());
     }
 }
 

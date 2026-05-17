@@ -1,4 +1,4 @@
-<window id="lot_query" x="24" y="56" width="520" height="232" margin="16" spacing="6" hugElements="true">
+<window id="lot_query" x="24" y="96" width="520" height="232" margin="16" spacing="6" hugElements="true">
   <textField id="title" height="18" />
   <textField id="line0" height="18" />
   <textField id="line1" height="18" />

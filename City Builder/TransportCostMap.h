@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -20,13 +21,48 @@ enum class TransportPathStepKind : std::uint8_t {
 struct TransportCostCell {
     std::uint16_t costs[kRoadDirectionCount];
     std::uint16_t capacities[kRoadDirectionCount];
-    std::uint16_t oldLoads[kRoadDirectionCount];
-    std::uint16_t newLoads[kRoadDirectionCount];
     std::uint8_t buildingAccessMask;
 
     TransportCostCell();
     void clearCosts();
+};
+
+struct TransportTrafficLoadCell {
+    std::uint16_t oldLoads[kRoadDirectionCount];
+    std::uint16_t newLoads[kRoadDirectionCount];
+
+    TransportTrafficLoadCell();
     void clearLoads();
+};
+
+struct TransportTrafficTransferLoad {
+    std::uint16_t oldLoad;
+    std::uint16_t newLoad;
+
+    TransportTrafficTransferLoad();
+};
+
+struct TransportTouchedMovementLoad {
+    std::uint32_t nodeId;
+    std::uint8_t directionIndex;
+
+    TransportTouchedMovementLoad();
+    TransportTouchedMovementLoad(std::uint32_t nodeIdValue, std::uint8_t directionIndexValue);
+};
+
+struct TransportTrafficLoadState {
+    std::vector<TransportTrafficLoadCell> cells;
+    std::vector<TransportTrafficTransferLoad> transferLoads;
+    std::vector<TransportTouchedMovementLoad> touchedMovementLoads;
+    std::vector<std::uint32_t> touchedTransferLoads;
+    std::vector<bool> touchedMovementFlags;
+    std::vector<bool> touchedTransferFlags;
+    bool nextLoadStartsFromZero;
+
+    TransportTrafficLoadState();
+    void initialize(std::size_t nodeCount, std::size_t transferCount);
+    void clearLoads();
+    void resetTouchedLoads(bool startsFromZero);
 };
 
 struct TransportCongestionPoint {
@@ -48,8 +84,6 @@ struct TransportTransferEdge {
     std::uint32_t toNodeId;
     std::uint16_t cost;
     std::uint16_t capacity;
-    std::uint16_t oldLoad;
-    std::uint16_t newLoad;
 
     TransportTransferEdge();
 };
@@ -71,6 +105,7 @@ struct TransportPathRequest {
     std::uint16_t demand;
     float maximumCost;
     bool useCongestion;
+    CommuteTimeOfDay commuteTimeOfDay;
 
     TransportPathRequest();
 };
@@ -133,6 +168,8 @@ public:
 
     const TransportCostCell& cell(TransportLayerId layer, TransportMode mode, int tileIndex) const;
     TransportCostCell& cellForMutation(TransportLayerId layer, TransportMode mode, int tileIndex);
+    const TransportTrafficLoadState& trafficLoadState(CommuteTimeOfDay commuteTimeOfDay) const;
+    TransportTrafficLoadState& trafficLoadStateForMutation(CommuteTimeOfDay commuteTimeOfDay);
 
     void addDirectionalCost(TransportLayerId layer, TransportMode mode, int tileIndex, std::uint8_t roadDirection, std::uint16_t cost, std::uint16_t capacity);
     void addBuildingAccess(TransportLayerId layer, TransportMode mode, int tileIndex, std::uint8_t buildingAccessMask);
@@ -142,10 +179,10 @@ public:
     void collectBuildingAccessNodes(int footprintX, int footprintY, int footprintWidth, int footprintHeight, std::uint8_t allowedModeMask, std::vector<std::uint32_t>& nodeIds) const;
     void setCongestionCurve(const TransportCongestionCurve& congestionCurve);
 
-    void beginNextLoadFromOldLoad();
-    void beginNextLoadFromZero();
-    void commitNextLoad();
-    void applyPathLoad(const TransportPathResult& pathResult, std::uint16_t demand, bool addLoad);
+    void beginNextLoadFromOldLoad(CommuteTimeOfDay commuteTimeOfDay);
+    void beginNextLoadFromZero(CommuteTimeOfDay commuteTimeOfDay);
+    void commitNextLoad(CommuteTimeOfDay commuteTimeOfDay, std::vector<int>* touchedTileIndices = 0);
+    void applyPathLoad(CommuteTimeOfDay commuteTimeOfDay, const TransportPathResult& pathResult, std::uint16_t demand, bool addLoad);
 
     bool findPath(const TransportPathRequest& request, TransportPathScratch& scratch, TransportPathResult& result) const;
     void buildTrafficOverlay(std::vector<std::uint8_t>& overlayPixels) const;
@@ -154,10 +191,13 @@ public:
 private:
     bool isTileInsideMap(int tileX, int tileY) const;
     bool tryNeighborTile(int tileIndex, std::uint8_t roadDirection, int& neighborTileIndex) const;
-    float movementCostWithCongestion(const TransportCostCell& cell, int directionIndex, std::uint32_t routeSeed, std::uint32_t nodeIdValue) const;
-    float transferCostWithCongestion(const TransportTransferEdge& transferEdge, std::uint32_t routeSeed, std::uint32_t nodeIdValue) const;
+    float movementCostWithCongestion(const TransportCostCell& cell, const TransportTrafficLoadState& loadState, int directionIndex, std::uint32_t routeSeed, std::uint32_t nodeIdValue) const;
+    float transferCostWithCongestion(const TransportTransferEdge& transferEdge, const TransportTrafficTransferLoad& transferLoad, std::uint32_t routeSeed, std::uint32_t nodeIdValue) const;
     float routeJitter(std::uint32_t routeSeed, std::uint32_t nodeIdValue, std::uint32_t edgeSalt) const;
     void reconstructPath(std::uint32_t reachedNodeId, const TransportPathScratch& scratch, TransportPathResult& result) const;
+    std::size_t commuteTimeIndex(CommuteTimeOfDay commuteTimeOfDay) const;
+    void touchMovementLoad(TransportTrafficLoadState& loadState, std::uint32_t nodeIdValue, int directionIndex);
+    void touchTransferLoad(TransportTrafficLoadState& loadState, std::uint32_t transferEdgeIndex);
 
     int width_;
     int height_;
@@ -166,6 +206,7 @@ private:
     std::vector<TransportCostCell> cells_;
     std::vector<TransportTransferEdge> transferEdges_;
     std::vector<std::uint32_t> transferOffsets_;
+    std::array<TransportTrafficLoadState, static_cast<std::size_t>(CommuteTimeOfDay::Count)> trafficLoadStates_;
     TransportCongestionCurve congestionCurve_;
     bool transferOffsetsDirty_;
 };

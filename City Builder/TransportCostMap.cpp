@@ -96,7 +96,16 @@ void WriteTrafficOverlayPixel(const TransportCostMap& costMap, int tileIndex, st
                 }
 
                 relevant = true;
-                maxUtilization = std::max(maxUtilization, static_cast<float>(transportCell.oldLoads[directionIndex]) / static_cast<float>(transportCell.capacities[directionIndex]));
+                std::size_t commuteTimeIndex = 0;
+                for (; commuteTimeIndex < static_cast<std::size_t>(CommuteTimeOfDay::Count); ++commuteTimeIndex) {
+                    const TransportTrafficLoadState& loadState = costMap.trafficLoadState(static_cast<CommuteTimeOfDay>(commuteTimeIndex));
+                    const std::uint32_t nodeId = costMap.nodeId(static_cast<TransportLayerId>(layerIndex), static_cast<TransportMode>(modeIndex), tileIndex);
+                    if (nodeId >= loadState.cells.size()) {
+                        continue;
+                    }
+
+                    maxUtilization = std::max(maxUtilization, static_cast<float>(loadState.cells[nodeId].oldLoads[directionIndex]) / static_cast<float>(transportCell.capacities[directionIndex]));
+                }
             }
         }
     }
@@ -116,7 +125,6 @@ void WriteTrafficOverlayPixel(const TransportCostMap& costMap, int tileIndex, st
 TransportCostCell::TransportCostCell()
     : buildingAccessMask(0) {
     clearCosts();
-    clearLoads();
 }
 
 void TransportCostCell::clearCosts() {
@@ -128,12 +136,82 @@ void TransportCostCell::clearCosts() {
     buildingAccessMask = 0;
 }
 
-void TransportCostCell::clearLoads() {
+TransportTrafficLoadCell::TransportTrafficLoadCell() {
+    clearLoads();
+}
+
+void TransportTrafficLoadCell::clearLoads() {
     std::size_t directionIndex = 0;
     for (; directionIndex < kRoadDirectionCount; ++directionIndex) {
         oldLoads[directionIndex] = 0u;
         newLoads[directionIndex] = 0u;
     }
+}
+
+TransportTrafficTransferLoad::TransportTrafficTransferLoad()
+    : oldLoad(0),
+      newLoad(0) {
+}
+
+TransportTouchedMovementLoad::TransportTouchedMovementLoad()
+    : nodeId(0),
+      directionIndex(0u) {
+}
+
+TransportTouchedMovementLoad::TransportTouchedMovementLoad(std::uint32_t nodeIdValue, std::uint8_t directionIndexValue)
+    : nodeId(nodeIdValue),
+      directionIndex(directionIndexValue) {
+}
+
+TransportTrafficLoadState::TransportTrafficLoadState()
+    : nextLoadStartsFromZero(false) {
+}
+
+void TransportTrafficLoadState::initialize(std::size_t nodeCount, std::size_t transferCount) {
+    cells.assign(nodeCount, TransportTrafficLoadCell());
+    transferLoads.assign(transferCount, TransportTrafficTransferLoad());
+    touchedMovementLoads.clear();
+    touchedTransferLoads.clear();
+    touchedMovementFlags.assign(nodeCount * kRoadDirectionCount, false);
+    touchedTransferFlags.assign(transferCount, false);
+    nextLoadStartsFromZero = false;
+}
+
+void TransportTrafficLoadState::clearLoads() {
+    std::size_t cellIndex = 0;
+    for (; cellIndex < cells.size(); ++cellIndex) {
+        cells[cellIndex].clearLoads();
+    }
+
+    std::size_t transferIndex = 0;
+    for (; transferIndex < transferLoads.size(); ++transferIndex) {
+        transferLoads[transferIndex].oldLoad = 0u;
+        transferLoads[transferIndex].newLoad = 0u;
+    }
+
+    resetTouchedLoads(false);
+}
+
+void TransportTrafficLoadState::resetTouchedLoads(bool startsFromZero) {
+    std::size_t touchIndex = 0;
+    for (; touchIndex < touchedMovementLoads.size(); ++touchIndex) {
+        const TransportTouchedMovementLoad& touchedLoad = touchedMovementLoads[touchIndex];
+        const std::size_t flagIndex = static_cast<std::size_t>(touchedLoad.nodeId) * kRoadDirectionCount + touchedLoad.directionIndex;
+        if (flagIndex < touchedMovementFlags.size()) {
+            touchedMovementFlags[flagIndex] = false;
+        }
+    }
+
+    for (touchIndex = 0; touchIndex < touchedTransferLoads.size(); ++touchIndex) {
+        const std::uint32_t transferIndex = touchedTransferLoads[touchIndex];
+        if (transferIndex < touchedTransferFlags.size()) {
+            touchedTransferFlags[transferIndex] = false;
+        }
+    }
+
+    touchedMovementLoads.clear();
+    touchedTransferLoads.clear();
+    nextLoadStartsFromZero = startsFromZero;
 }
 
 TransportCongestionPoint::TransportCongestionPoint()
@@ -159,9 +237,7 @@ TransportTransferEdge::TransportTransferEdge()
     : fromNodeId(0),
       toNodeId(0),
       cost(0),
-      capacity(0),
-      oldLoad(0),
-      newLoad(0) {
+      capacity(0) {
 }
 
 TransportPathStep::TransportPathStep()
@@ -176,7 +252,8 @@ TransportPathRequest::TransportPathRequest()
     : routeSeed(0),
       demand(1),
       maximumCost(static_cast<float>(kTransportMaxCost)),
-      useCongestion(true) {
+      useCongestion(true),
+      commuteTimeOfDay(CommuteTimeOfDay::Morning) {
 }
 
 TransportPathResult::TransportPathResult()
@@ -229,6 +306,10 @@ void TransportCostMap::initialize(int width, int height) {
     cells_.assign(totalNodeCount_, TransportCostCell());
     transferEdges_.clear();
     transferOffsets_.assign(totalNodeCount_ + 1u, 0u);
+    std::size_t commuteTimeIndexValue = 0;
+    for (; commuteTimeIndexValue < trafficLoadStates_.size(); ++commuteTimeIndexValue) {
+        trafficLoadStates_[commuteTimeIndexValue].initialize(totalNodeCount_, 0u);
+    }
     transferOffsetsDirty_ = false;
 }
 
@@ -257,15 +338,9 @@ void TransportCostMap::clearCostsForTile(TransportLayerId layer, int tileIndex) 
 }
 
 void TransportCostMap::clearLoads() {
-    std::size_t cellIndex = 0;
-    for (; cellIndex < cells_.size(); ++cellIndex) {
-        cells_[cellIndex].clearLoads();
-    }
-
-    std::size_t transferIndex = 0;
-    for (; transferIndex < transferEdges_.size(); ++transferIndex) {
-        transferEdges_[transferIndex].oldLoad = 0u;
-        transferEdges_[transferIndex].newLoad = 0u;
+    std::size_t commuteTimeIndexValue = 0;
+    for (; commuteTimeIndexValue < trafficLoadStates_.size(); ++commuteTimeIndexValue) {
+        trafficLoadStates_[commuteTimeIndexValue].clearLoads();
     }
 }
 
@@ -317,6 +392,14 @@ TransportCostCell& TransportCostMap::cellForMutation(TransportLayerId layer, Tra
     return cells_[nodeId(layer, mode, tileIndex)];
 }
 
+const TransportTrafficLoadState& TransportCostMap::trafficLoadState(CommuteTimeOfDay commuteTimeOfDay) const {
+    return trafficLoadStates_[commuteTimeIndex(commuteTimeOfDay)];
+}
+
+TransportTrafficLoadState& TransportCostMap::trafficLoadStateForMutation(CommuteTimeOfDay commuteTimeOfDay) {
+    return trafficLoadStates_[commuteTimeIndex(commuteTimeOfDay)];
+}
+
 void TransportCostMap::addDirectionalCost(TransportLayerId layer, TransportMode mode, int tileIndex, std::uint8_t roadDirection, std::uint16_t cost, std::uint16_t capacity) {
     const int directionIndex = RoadDirectionIndex(roadDirection);
     if (tileIndex < 0 || tileIndex >= static_cast<int>(totalTileCount_) || directionIndex < 0 || cost == kTransportNoCost) {
@@ -356,6 +439,12 @@ std::uint32_t TransportCostMap::addTransferEdge(std::uint32_t fromNodeId, std::u
 void TransportCostMap::clearTransferEdges() {
     transferEdges_.clear();
     transferOffsets_.assign(totalNodeCount_ + 1u, 0u);
+    std::size_t commuteTimeIndexValue = 0;
+    for (; commuteTimeIndexValue < trafficLoadStates_.size(); ++commuteTimeIndexValue) {
+        trafficLoadStates_[commuteTimeIndexValue].transferLoads.clear();
+        trafficLoadStates_[commuteTimeIndexValue].touchedTransferLoads.clear();
+        trafficLoadStates_[commuteTimeIndexValue].touchedTransferFlags.clear();
+    }
     transferOffsetsDirty_ = false;
 }
 
@@ -379,6 +468,14 @@ void TransportCostMap::finalizeTransferEdges() {
     }
 
     transferOffsetsDirty_ = false;
+
+    std::size_t commuteTimeIndexValue = 0;
+    for (; commuteTimeIndexValue < trafficLoadStates_.size(); ++commuteTimeIndexValue) {
+        TransportTrafficLoadState& loadState = trafficLoadStates_[commuteTimeIndexValue];
+        loadState.transferLoads.assign(transferEdges_.size(), TransportTrafficTransferLoad());
+        loadState.touchedTransferLoads.clear();
+        loadState.touchedTransferFlags.assign(transferEdges_.size(), false);
+    }
 }
 
 void TransportCostMap::collectBuildingAccessNodes(int footprintX, int footprintY, int footprintWidth, int footprintHeight, std::uint8_t allowedModeMask, std::vector<std::uint32_t>& nodeIds) const {
@@ -445,69 +542,97 @@ void TransportCostMap::setCongestionCurve(const TransportCongestionCurve& conges
     });
 }
 
-void TransportCostMap::beginNextLoadFromOldLoad() {
-    std::size_t cellIndex = 0;
-    for (; cellIndex < cells_.size(); ++cellIndex) {
-        std::size_t directionIndex = 0;
-        for (; directionIndex < kRoadDirectionCount; ++directionIndex) {
-            cells_[cellIndex].newLoads[directionIndex] = cells_[cellIndex].oldLoads[directionIndex];
+void TransportCostMap::beginNextLoadFromOldLoad(CommuteTimeOfDay commuteTimeOfDay) {
+    trafficLoadStateForMutation(commuteTimeOfDay).resetTouchedLoads(false);
+}
+
+void TransportCostMap::beginNextLoadFromZero(CommuteTimeOfDay commuteTimeOfDay) {
+    trafficLoadStateForMutation(commuteTimeOfDay).resetTouchedLoads(true);
+}
+
+void TransportCostMap::commitNextLoad(CommuteTimeOfDay commuteTimeOfDay, std::vector<int>* touchedTileIndices) {
+    TransportTrafficLoadState& loadState = trafficLoadStateForMutation(commuteTimeOfDay);
+    if (touchedTileIndices != 0) {
+        touchedTileIndices->clear();
+    }
+
+    if (loadState.nextLoadStartsFromZero) {
+        std::size_t cellIndex = 0;
+        for (; cellIndex < loadState.cells.size(); ++cellIndex) {
+            std::size_t directionIndex = 0;
+            for (; directionIndex < kRoadDirectionCount; ++directionIndex) {
+                loadState.cells[cellIndex].oldLoads[directionIndex] = 0u;
+            }
+        }
+
+        std::size_t transferIndex = 0;
+        for (; transferIndex < loadState.transferLoads.size(); ++transferIndex) {
+            loadState.transferLoads[transferIndex].oldLoad = 0u;
         }
     }
 
-    std::size_t transferIndex = 0;
-    for (; transferIndex < transferEdges_.size(); ++transferIndex) {
-        transferEdges_[transferIndex].newLoad = transferEdges_[transferIndex].oldLoad;
-    }
-}
+    std::size_t touchIndex = 0;
+    for (; touchIndex < loadState.touchedMovementLoads.size(); ++touchIndex) {
+        const TransportTouchedMovementLoad& touchedLoad = loadState.touchedMovementLoads[touchIndex];
+        if (touchedLoad.nodeId >= loadState.cells.size() || touchedLoad.directionIndex >= kRoadDirectionCount) {
+            continue;
+        }
 
-void TransportCostMap::beginNextLoadFromZero() {
-    std::size_t cellIndex = 0;
-    for (; cellIndex < cells_.size(); ++cellIndex) {
-        std::size_t directionIndex = 0;
-        for (; directionIndex < kRoadDirectionCount; ++directionIndex) {
-            cells_[cellIndex].newLoads[directionIndex] = 0u;
+        loadState.cells[touchedLoad.nodeId].oldLoads[touchedLoad.directionIndex] = loadState.cells[touchedLoad.nodeId].newLoads[touchedLoad.directionIndex];
+        if (touchedTileIndices != 0) {
+            touchedTileIndices->push_back(nodeTileIndex(touchedLoad.nodeId));
         }
     }
 
-    std::size_t transferIndex = 0;
-    for (; transferIndex < transferEdges_.size(); ++transferIndex) {
-        transferEdges_[transferIndex].newLoad = 0u;
-    }
-}
+    for (touchIndex = 0; touchIndex < loadState.touchedTransferLoads.size(); ++touchIndex) {
+        const std::uint32_t transferIndex = loadState.touchedTransferLoads[touchIndex];
+        if (transferIndex >= loadState.transferLoads.size()) {
+            continue;
+        }
 
-void TransportCostMap::commitNextLoad() {
-    std::size_t cellIndex = 0;
-    for (; cellIndex < cells_.size(); ++cellIndex) {
-        std::size_t directionIndex = 0;
-        for (; directionIndex < kRoadDirectionCount; ++directionIndex) {
-            cells_[cellIndex].oldLoads[directionIndex] = cells_[cellIndex].newLoads[directionIndex];
+        loadState.transferLoads[transferIndex].oldLoad = loadState.transferLoads[transferIndex].newLoad;
+        if (touchedTileIndices != 0 && transferIndex < transferEdges_.size()) {
+            touchedTileIndices->push_back(nodeTileIndex(transferEdges_[transferIndex].fromNodeId));
+            touchedTileIndices->push_back(nodeTileIndex(transferEdges_[transferIndex].toNodeId));
         }
     }
 
-    std::size_t transferIndex = 0;
-    for (; transferIndex < transferEdges_.size(); ++transferIndex) {
-        transferEdges_[transferIndex].oldLoad = transferEdges_[transferIndex].newLoad;
+    if (touchedTileIndices != 0) {
+        if (loadState.nextLoadStartsFromZero) {
+            int tileIndexValue = 0;
+            for (; tileIndexValue < static_cast<int>(totalTileCount_); ++tileIndexValue) {
+                touchedTileIndices->push_back(tileIndexValue);
+            }
+        }
+
+        std::sort(touchedTileIndices->begin(), touchedTileIndices->end());
+        touchedTileIndices->erase(std::unique(touchedTileIndices->begin(), touchedTileIndices->end()), touchedTileIndices->end());
     }
+
+    loadState.resetTouchedLoads(false);
 }
 
-void TransportCostMap::applyPathLoad(const TransportPathResult& pathResult, std::uint16_t demand, bool addLoad) {
+void TransportCostMap::applyPathLoad(CommuteTimeOfDay commuteTimeOfDay, const TransportPathResult& pathResult, std::uint16_t demand, bool addLoad) {
     if (!pathResult.success || demand == 0u) {
         return;
     }
 
+    TransportTrafficLoadState& loadState = trafficLoadStateForMutation(commuteTimeOfDay);
     std::size_t stepIndex = 0;
     for (; stepIndex < pathResult.steps.size(); ++stepIndex) {
         const TransportPathStep& step = pathResult.steps[stepIndex];
         if (step.kind == TransportPathStepKind::Movement) {
             const int directionIndex = RoadDirectionIndex(step.roadDirection);
-            if (step.fromNodeId >= cells_.size() || directionIndex < 0) {
+            if (step.fromNodeId >= loadState.cells.size() || directionIndex < 0) {
                 continue;
             }
 
-            std::uint16_t& load = cells_[step.fromNodeId].newLoads[directionIndex];
+            touchMovementLoad(loadState, step.fromNodeId, directionIndex);
+            std::uint16_t& load = loadState.cells[step.fromNodeId].newLoads[directionIndex];
             load = addLoad ? SaturatingAdd(load, demand) : SaturatingSubtract(load, demand);
-        } else if (step.transferEdgeIndex < transferEdges_.size()) {
-            std::uint16_t& load = transferEdges_[step.transferEdgeIndex].newLoad;
+        } else if (step.transferEdgeIndex < loadState.transferLoads.size()) {
+            touchTransferLoad(loadState, step.transferEdgeIndex);
+            std::uint16_t& load = loadState.transferLoads[step.transferEdgeIndex].newLoad;
             load = addLoad ? SaturatingAdd(load, demand) : SaturatingSubtract(load, demand);
         }
     }
@@ -519,6 +644,7 @@ bool TransportCostMap::findPath(const TransportPathRequest& request, TransportPa
         return false;
     }
 
+    const TransportTrafficLoadState& loadState = trafficLoadState(request.commuteTimeOfDay);
     scratch.reset(totalNodeCount_);
     const std::uint32_t stamp = scratch.currentStamp;
 
@@ -594,7 +720,7 @@ bool TransportCostMap::findPath(const TransportPathRequest& request, TransportPa
 
             const std::uint32_t neighborNodeId = nodeId(currentLayer, currentMode, neighborTileIndex);
             const float edgeCost = request.useCongestion
-                ? movementCostWithCongestion(currentCell, static_cast<int>(directionIndex), request.routeSeed, currentNodeId)
+                ? movementCostWithCongestion(currentCell, loadState, static_cast<int>(directionIndex), request.routeSeed, currentNodeId)
                 : static_cast<float>(currentCell.costs[directionIndex]) + routeJitter(request.routeSeed, currentNodeId, roadDirection);
             const float candidateCost = scratch.costs[currentNodeId] + edgeCost;
             if (candidateCost > request.maximumCost) {
@@ -623,8 +749,10 @@ bool TransportCostMap::findPath(const TransportPathRequest& request, TransportPa
         std::uint32_t transferIndex = transferStart;
         for (; transferIndex < transferEnd; ++transferIndex) {
             const TransportTransferEdge& transferEdge = transferEdges_[transferIndex];
+            const TransportTrafficTransferLoad emptyTransferLoad;
+            const TransportTrafficTransferLoad& transferLoad = transferIndex < loadState.transferLoads.size() ? loadState.transferLoads[transferIndex] : emptyTransferLoad;
             const float edgeCost = request.useCongestion
-                ? transferCostWithCongestion(transferEdge, request.routeSeed, currentNodeId)
+                ? transferCostWithCongestion(transferEdge, transferLoad, request.routeSeed, currentNodeId)
                 : static_cast<float>(transferEdge.cost) + routeJitter(request.routeSeed, currentNodeId, transferIndex + 257u);
             const float candidateCost = scratch.costs[currentNodeId] + edgeCost;
             const std::uint32_t neighborNodeId = transferEdge.toNodeId;
@@ -702,15 +830,16 @@ bool TransportCostMap::tryNeighborTile(int tileIndex, std::uint8_t roadDirection
     return true;
 }
 
-float TransportCostMap::movementCostWithCongestion(const TransportCostCell& cell, int directionIndex, std::uint32_t routeSeed, std::uint32_t nodeIdValue) const {
+float TransportCostMap::movementCostWithCongestion(const TransportCostCell& cell, const TransportTrafficLoadState& loadState, int directionIndex, std::uint32_t routeSeed, std::uint32_t nodeIdValue) const {
     const float baseCost = static_cast<float>(cell.costs[directionIndex]);
-    return (baseCost / CongestionSpeedMultiplier(congestionCurve_, cell.oldLoads[directionIndex], cell.capacities[directionIndex])) +
+    const std::uint16_t load = nodeIdValue < loadState.cells.size() ? loadState.cells[nodeIdValue].oldLoads[directionIndex] : 0u;
+    return (baseCost / CongestionSpeedMultiplier(congestionCurve_, load, cell.capacities[directionIndex])) +
         routeJitter(routeSeed, nodeIdValue, RoadDirectionFromIndex(directionIndex));
 }
 
-float TransportCostMap::transferCostWithCongestion(const TransportTransferEdge& transferEdge, std::uint32_t routeSeed, std::uint32_t nodeIdValue) const {
+float TransportCostMap::transferCostWithCongestion(const TransportTransferEdge& transferEdge, const TransportTrafficTransferLoad& transferLoad, std::uint32_t routeSeed, std::uint32_t nodeIdValue) const {
     const float baseCost = static_cast<float>(transferEdge.cost);
-    return (baseCost / CongestionSpeedMultiplier(congestionCurve_, transferEdge.oldLoad, transferEdge.capacity)) +
+    return (baseCost / CongestionSpeedMultiplier(congestionCurve_, transferLoad.oldLoad, transferEdge.capacity)) +
         routeJitter(routeSeed, nodeIdValue, transferEdge.toNodeId);
 }
 
@@ -740,4 +869,38 @@ void TransportCostMap::reconstructPath(std::uint32_t reachedNodeId, const Transp
     }
 
     std::reverse(result.steps.begin(), result.steps.end());
+}
+
+std::size_t TransportCostMap::commuteTimeIndex(CommuteTimeOfDay commuteTimeOfDay) const {
+    const std::size_t index = static_cast<std::size_t>(commuteTimeOfDay);
+    return index < trafficLoadStates_.size() ? index : 0u;
+}
+
+void TransportCostMap::touchMovementLoad(TransportTrafficLoadState& loadState, std::uint32_t nodeIdValue, int directionIndex) {
+    if (nodeIdValue >= loadState.cells.size() || directionIndex < 0 || directionIndex >= static_cast<int>(kRoadDirectionCount)) {
+        return;
+    }
+
+    const std::size_t flagIndex = static_cast<std::size_t>(nodeIdValue) * kRoadDirectionCount + static_cast<std::size_t>(directionIndex);
+    if (flagIndex >= loadState.touchedMovementFlags.size() || loadState.touchedMovementFlags[flagIndex]) {
+        return;
+    }
+
+    loadState.touchedMovementFlags[flagIndex] = true;
+    loadState.touchedMovementLoads.push_back(TransportTouchedMovementLoad(nodeIdValue, static_cast<std::uint8_t>(directionIndex)));
+    loadState.cells[nodeIdValue].newLoads[directionIndex] = loadState.nextLoadStartsFromZero ? 0u : loadState.cells[nodeIdValue].oldLoads[directionIndex];
+}
+
+void TransportCostMap::touchTransferLoad(TransportTrafficLoadState& loadState, std::uint32_t transferEdgeIndex) {
+    if (transferEdgeIndex >= loadState.transferLoads.size()) {
+        return;
+    }
+
+    if (transferEdgeIndex >= loadState.touchedTransferFlags.size() || loadState.touchedTransferFlags[transferEdgeIndex]) {
+        return;
+    }
+
+    loadState.touchedTransferFlags[transferEdgeIndex] = true;
+    loadState.touchedTransferLoads.push_back(transferEdgeIndex);
+    loadState.transferLoads[transferEdgeIndex].newLoad = loadState.nextLoadStartsFromZero ? 0u : loadState.transferLoads[transferEdgeIndex].oldLoad;
 }

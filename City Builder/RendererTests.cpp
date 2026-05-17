@@ -1,6 +1,7 @@
 #include "RendererAlgorithms.h"
 #include "RciTool.h"
 #include "SimulationDate.h"
+#include "SimulationTime.h"
 
 #include <algorithm>
 #include <cmath>
@@ -173,16 +174,24 @@ void TestUtf8Decoder(TestRunner& runner) {
 
 void TestSimulationDateCalculation(TestRunner& runner) {
     SimulationDateSettings dateSettings;
+    runner.expect(SimulationTime::ticksPerDay() == 2u, "simulation days are two ticks long");
+    runner.expect(SimulationTime::daysToTicks(31u) == 62u, "logical days convert to ticks");
+    runner.expect(SimulationTime::tickToDay(63u) == 31u, "tick converts back to whole elapsed day");
+
     SimulationDate startDate = CalculateSimulationDate(0u);
     runner.expect(startDate.year == 1900 && startDate.month == 1 && startDate.day == 1, "tick zero starts on January 1 1900");
 
-    SimulationDate februaryDate = CalculateSimulationDate(31u);
-    runner.expect(februaryDate.year == 1900 && februaryDate.month == 2 && februaryDate.day == 1, "tick 31 advances to February 1 1900");
+    SimulationDate firstHalfTickDate = CalculateSimulationDate(1u);
+    runner.expect(firstHalfTickDate.year == 1900 && firstHalfTickDate.month == 1 && firstHalfTickDate.day == 1, "first tick stays on January 1 with two ticks per day");
 
-    SimulationDate nextYearDate = CalculateSimulationDate(365u);
+    SimulationDate februaryDate = CalculateSimulationDate(SimulationTime::daysToTicks(31u));
+    runner.expect(februaryDate.year == 1900 && februaryDate.month == 2 && februaryDate.day == 1, "day 31 advances to February 1 1900");
+    runner.expect(FormatSimulationDateForTick(SimulationTime::daysToTicks(31u), dateSettings) == "1900/02/01", "formatted simulation date uses logical days");
+
+    SimulationDate nextYearDate = CalculateSimulationDate(SimulationTime::daysToTicks(365u));
     runner.expect(nextYearDate.year == 1901 && nextYearDate.month == 1 && nextYearDate.day == 1, "1900 is not treated as a leap year");
 
-    SimulationDate leapDate = CalculateSimulationDate(1519u);
+    SimulationDate leapDate = CalculateSimulationDate(SimulationTime::daysToTicks(1519u));
     runner.expect(leapDate.year == 1904 && leapDate.month == 2 && leapDate.day == 29, "1904 leap day is reachable");
     runner.expect(FormatSimulationDate(leapDate, dateSettings) == "1904/02/29", "default simulation date formats as YYYY/MM/DD");
 
@@ -203,7 +212,7 @@ void TestWindowQuads(TestRunner& runner) {
     window.setVisible(true);
     std::vector<UiQuadInstanceData> quads = RendererBuildWindowQuads(window);
     runner.expect(quads.size() > 5u, "visible window produces frame and text quads");
-    runner.expect(AlmostEqual(quads[0].x, 24.0f) && AlmostEqual(quads[0].y, 24.0f), "window background starts at fallback origin");
+    runner.expect(AlmostEqual(quads[0].x, 24.0f) && AlmostEqual(quads[0].y, 96.0f), "window background starts at fallback origin");
     runner.expect(AlmostEqual(quads[0].width, 440.0f), "window background uses fallback width");
     runner.expect(quads[0].height > 30.0f && quads[0].height < 80.0f, "hugging window height follows visible text");
     runner.expect(AlmostEqual(quads[0].colorA, 0.90f), "window background alpha is stable");

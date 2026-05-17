@@ -216,6 +216,26 @@ const char* ZoningTypeName(std::uint16_t zoningType) {
     return "Unzoned";
 }
 
+const char* CommuteCategoryName(CommuteCategory category) {
+    switch (category) {
+        case CommuteCategory::Short:
+            return "short";
+
+        case CommuteCategory::Medium:
+            return "medium";
+
+        case CommuteCategory::Long:
+            return "long";
+
+        default:
+            return "none";
+    }
+}
+
+std::string BuildCommuteCategoryLine(const TileQueryResult& queryResult) {
+    return std::string("Worst commute: ") + CommuteCategoryName(queryResult.worstCommuteCategory);
+}
+
 std::vector<std::string> BuildLotQueryWindowLines(const TileQueryResult& queryResult) {
     std::vector<std::string> lines;
     {
@@ -235,10 +255,14 @@ std::vector<std::string> BuildLotQueryWindowLines(const TileQueryResult& queryRe
     if (!queryResult.moduleSummary.empty()) {
         lines.push_back("Modules: " + queryResult.moduleSummary);
     }
+    lines.push_back(BuildCommuteCategoryLine(queryResult));
     if (queryResult.residentsLowWealthTotal > 0) {
-        std::ostringstream residentsLine;
-        residentsLine << "Residents low wealth: " << queryResult.residentsLowWealthCurrent << "/" << queryResult.residentsLowWealthTotal;
-        lines.push_back(residentsLine.str());
+        std::ostringstream workersLine;
+        workersLine << "Workers low wealth: " << queryResult.commuteSatisfied << "/" << queryResult.commuteDemand;
+        lines.push_back(workersLine.str());
+        std::ostringstream residentTotalLine;
+        residentTotalLine << "Residents low wealth: " << queryResult.residentsLowWealthTotal;
+        lines.push_back(residentTotalLine.str());
     }
     if (queryResult.jobsLowWealthTotal > 0) {
         std::ostringstream jobsLine;
@@ -397,6 +421,7 @@ std::vector<std::string> BuildRciQueryWindowLines(const TileQueryResult& queryRe
     std::vector<std::string> lines;
     lines.push_back(queryResult.rciName.empty() ? ZoningTypeName(queryResult.rciZoningType) : queryResult.rciName);
     lines.push_back("Empty RCI lot");
+    lines.push_back(BuildCommuteCategoryLine(queryResult));
     lines.push_back(std::string("Zone: ") + ZoningTypeName(queryResult.rciZoningType));
     return lines;
 }
@@ -457,7 +482,7 @@ std::vector<std::string> BuildRoadQueryWindowLines(const TileQueryResult& queryR
     }
 
     if (commuterSummaries.empty()) {
-        lines.push_back("Commuters: none");
+        lines.push_back("Morning commuters: none");
         return lines;
     }
 
@@ -482,7 +507,7 @@ std::vector<std::string> BuildRoadQueryWindowLines(const TileQueryResult& queryR
 
     {
         std::ostringstream totalLine;
-        totalLine << "Commuters: " << totalDemand;
+        totalLine << "Morning commuters: " << totalDemand;
         lines.push_back(totalLine.str());
     }
 

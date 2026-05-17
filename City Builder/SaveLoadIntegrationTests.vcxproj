@@ -110,6 +110,7 @@
     <ClInclude Include="RoadLane.h" />
     <ClInclude Include="RoadRenderState.h" />
     <ClInclude Include="SimulationRuntime.h" />
+    <ClInclude Include="SimulationTime.h" />
     <ClInclude Include="Tile.h" />
     <ClInclude Include="TransportCostMap.h" />
     <ClInclude Include="TransportNetwork.h" />
