@@ -99,6 +99,7 @@ private:
     bool tileHasCarBodyAxis(TransportLayerId layer, int tileX, int tileY, RoadAxis axis, RoadFamily family) const;
     bool tileHasAnyCarBody(TransportLayerId layer, int tileX, int tileY, RoadFamily family) const;
     bool tileIsIntersectionGroupBody(TransportLayerId layer, int tileX, int tileY, RoadFamily family) const;
+    bool roadSegmentHasFourWayIntersection(TransportLayerId layer, int tileX, int tileY, RoadAxis axis, RoadFamily family) const;
     std::uint8_t buildIntersectionGroupApproachMask(TransportLayerId layer, int tileX, int tileY, RoadFamily family) const;
     bool roadAxisHasTerminalEnd(TransportLayerId layer, int tileX, int tileY, RoadAxis axis, RoadFamily family) const;
     bool separatorLaneIsCrossedByCarLane(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) const;
@@ -118,6 +119,7 @@ private:
     std::uint8_t buildTurnExitMaskThroughIntersection(TransportLayerId layer, int entryTileX, int entryTileY, std::uint8_t travelDirection) const;
     std::uint8_t buildTurnArrowIntentMask(TransportLayerId layer, int tileX, int tileY, const TransportTile& tile) const;
     std::uint8_t buildCarExitMask(TransportLayerId layer, int tileX, int tileY, const TransportTile& tile) const;
+    std::uint8_t buildPedestrianExitMask(TransportLayerId layer, int tileX, int tileY, const TransportTile& tile) const;
     std::uint8_t buildExitMask(TransportLayerId layer, int tileX, int tileY, const TransportTile& tile) const;
     std::uint8_t buildJunctionMask(TransportLayerId layer, int tileX, int tileY, const TransportTile& tile, std::uint8_t exitMask) const;
 

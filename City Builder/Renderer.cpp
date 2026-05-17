@@ -3068,17 +3068,28 @@ int Renderer::run() {
             allPreviewsReady = false;
             CitySaveState previewState;
             bool hasPreviewState = false;
+            bool canPersistRenderedPreview = false;
             if (city.hasSaveState()) {
                 previewState = city.saveState();
                 hasPreviewState = true;
+                canPersistRenderedPreview = !city.isSaveStateDirty();
+            } else if (gameSession_.loadCityPreviewPixels(city, cityPreviewReadPixels)) {
+                UploadRegionPreviewTexture(cache, city, cityPreviewReadPixels);
+                if (cache.previewRevision == city.previewRevision()) {
+                    continue;
+                }
             } else if (gameSession_.takeReadyCityPreviewState(city, previewState)) {
                 hasPreviewState = true;
+                canPersistRenderedPreview = true;
             } else {
                 gameSession_.requestCityPreviewBuild(city);
             }
 
             if (hasPreviewState && renderCityPreview(previewState)) {
                 UploadRegionPreviewTexture(cache, city, cityPreviewReadPixels);
+                if (canPersistRenderedPreview) {
+                    gameSession_.saveCityPreviewPixels(city, cityPreviewReadPixels);
+                }
                 city.unloadCleanSaveState();
                 if (cache.previewRevision == city.previewRevision()) {
                     continue;

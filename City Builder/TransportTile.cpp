@@ -23,7 +23,23 @@ bool IsSameAuthoredLaneReplay(const RoadLanePlacement& existingLane, const RoadL
         existingLane.templateId == lanePlacement.templateId &&
         existingLane.laneIndex == lanePlacement.laneIndex &&
         existingLane.axis == lanePlacement.axis &&
-        existingLane.crossSectionMask == lanePlacement.crossSectionMask &&
+        (existingLane.crossSectionMask & lanePlacement.crossSectionMask) == lanePlacement.crossSectionMask &&
+        existingLane.laneType == lanePlacement.laneType &&
+        existingLane.surface == lanePlacement.surface &&
+        existingLane.role == lanePlacement.role &&
+        existingLane.separatorStyle == lanePlacement.separatorStyle &&
+        existingLane.sideOverlaps(lanePlacement);
+}
+
+bool IsSameAuthoredLaneAxisSubsetReplay(const RoadLanePlacement& existingLane, const RoadLanePlacement& lanePlacement) {
+    const std::uint8_t existingAxisMask = AxisMaskFor(existingLane.axis);
+    const std::uint8_t laneAxisMask = AxisMaskFor(lanePlacement.axis);
+    return existingLane.family == lanePlacement.family &&
+        existingLane.layer == lanePlacement.layer &&
+        existingLane.templateId == lanePlacement.templateId &&
+        laneAxisMask != 0 &&
+        (existingAxisMask & laneAxisMask) == laneAxisMask &&
+        (existingLane.crossSectionMask & lanePlacement.crossSectionMask) == lanePlacement.crossSectionMask &&
         existingLane.laneType == lanePlacement.laneType &&
         existingLane.surface == lanePlacement.surface &&
         existingLane.role == lanePlacement.role &&
@@ -59,51 +75,18 @@ RoadTileLaneAddResult TransportTile::tryAddLane(const RoadLanePlacement& lanePla
             return RoadTileLaneAddResult::Replay;
         }
 
+        if (IsSameAuthoredLaneAxisSubsetReplay(existingLane, lanePlacement)) {
+            return RoadTileLaneAddResult::Replay;
+        }
+
         if (existingLane.laneType == lanePlacement.laneType &&
             LaneTypeCollapsesToOneTile(existingLane.laneType)) {
             if (RoadAxesOverlap(existingLane.axis, lanePlacement.axis) &&
-                (existingLane.crossSectionMask & lanePlacement.crossSectionMask) == 0) {
+                existingLane.sideOverlaps(lanePlacement)) {
                 return RoadTileLaneAddResult::Rejected;
             }
 
-            const std::uint8_t laneTravelMask = static_cast<std::uint8_t>(existingLane.laneTravelMask | lanePlacement.laneTravelMask);
-            const std::uint8_t arrowTravelMask = static_cast<std::uint8_t>(existingLane.arrowTravelMask | lanePlacement.arrowTravelMask);
-            const std::uint8_t sidewalkEdgeMask = static_cast<std::uint8_t>(existingLane.sidewalkEdgeMask | lanePlacement.sidewalkEdgeMask);
-            const std::uint8_t sameDirectionDividerMask = static_cast<std::uint8_t>(existingLane.sameDirectionDividerMask | lanePlacement.sameDirectionDividerMask);
-            const std::uint8_t opposingDirectionDividerMask = static_cast<std::uint8_t>(existingLane.opposingDirectionDividerMask | lanePlacement.opposingDirectionDividerMask);
-            const RoadAxis axis = MergeRoadAxes(existingLane.axis, lanePlacement.axis);
-            const std::uint8_t crossSectionMask = static_cast<std::uint8_t>(existingLane.crossSectionMask | lanePlacement.crossSectionMask);
-            const float sideMin = std::min(existingLane.sideMin, lanePlacement.sideMin);
-            const float sideMax = std::max(existingLane.sideMax, lanePlacement.sideMax);
-            const RoadSeparatorStyle separatorStyle = existingLane.separatorStyle == RoadSeparatorStyle::None ? lanePlacement.separatorStyle : existingLane.separatorStyle;
-            const bool active = existingLane.active || lanePlacement.active;
-
-            if (existingLane.laneTravelMask == laneTravelMask &&
-                existingLane.arrowTravelMask == arrowTravelMask &&
-                existingLane.sidewalkEdgeMask == sidewalkEdgeMask &&
-                existingLane.sameDirectionDividerMask == sameDirectionDividerMask &&
-                existingLane.opposingDirectionDividerMask == opposingDirectionDividerMask &&
-                existingLane.axis == axis &&
-                existingLane.crossSectionMask == crossSectionMask &&
-                existingLane.sideMin == sideMin &&
-                existingLane.sideMax == sideMax &&
-                existingLane.separatorStyle == separatorStyle &&
-                existingLane.active == active) {
-                return RoadTileLaneAddResult::Replay;
-            }
-
-            existingLane.laneTravelMask = laneTravelMask;
-            existingLane.arrowTravelMask = arrowTravelMask;
-            existingLane.sidewalkEdgeMask = sidewalkEdgeMask;
-            existingLane.sameDirectionDividerMask = sameDirectionDividerMask;
-            existingLane.opposingDirectionDividerMask = opposingDirectionDividerMask;
-            existingLane.axis = axis;
-            existingLane.crossSectionMask = crossSectionMask;
-            existingLane.sideMin = sideMin;
-            existingLane.sideMax = sideMax;
-            existingLane.separatorStyle = separatorStyle;
-            existingLane.active = active;
-            return RoadTileLaneAddResult::Added;
+            continue;
         }
 
         if (!LaneTypeCollapsesToOneTile(existingLane.laneType) &&

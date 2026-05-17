@@ -6,6 +6,7 @@
 #include <fstream>
 #include <future>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <vector>
@@ -21,7 +22,23 @@ const std::uint32_t kRegionSaveMagic = 0x52424743u; // CBGR
 const std::uint32_t kRegionSaveVersion = 3u;
 const std::uint32_t kCitySaveMagic = 0x59544243u; // CBTY
 const std::uint32_t kCitySaveVersion = 7u;
+const std::uint32_t kCityPreviewSaveMagic = 0x56504243u; // CBPV
+const std::uint32_t kCityPreviewSaveVersion = 1u;
 const int kMaximumPreviewBuildsInFlight = 2;
+
+struct SaveFileStamp {
+    bool exists;
+    std::uint64_t byteSize;
+    std::uint32_t lastWriteLow;
+    std::uint32_t lastWriteHigh;
+
+    SaveFileStamp()
+        : exists(false),
+          byteSize(0u),
+          lastWriteLow(0u),
+          lastWriteHigh(0u) {
+    }
+};
 
 std::string GetExecutableDirectory() {
     char modulePath[MAX_PATH];
@@ -33,6 +50,39 @@ std::string GetExecutableDirectory() {
     }
 
     return fullPath.substr(0, separatorIndex);
+}
+
+SaveFileStamp GetSaveFileStamp(const std::string& path) {
+    SaveFileStamp stamp;
+    WIN32_FILE_ATTRIBUTE_DATA attributes;
+    if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &attributes)) {
+        return stamp;
+    }
+
+    if ((attributes.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0u) {
+        return stamp;
+    }
+
+    stamp.exists = true;
+    stamp.byteSize =
+        (static_cast<std::uint64_t>(attributes.nFileSizeHigh) << 32) |
+        static_cast<std::uint64_t>(attributes.nFileSizeLow);
+    stamp.lastWriteLow = attributes.ftLastWriteTime.dwLowDateTime;
+    stamp.lastWriteHigh = attributes.ftLastWriteTime.dwHighDateTime;
+    return stamp;
+}
+
+bool SaveFileStampsMatch(const SaveFileStamp& left, const SaveFileStamp& right) {
+    return left.exists == right.exists &&
+        left.byteSize == right.byteSize &&
+        left.lastWriteLow == right.lastWriteLow &&
+        left.lastWriteHigh == right.lastWriteHigh;
+}
+
+std::size_t ExpectedPreviewPixelCount(const City& city) {
+    return static_cast<std::size_t>(city.previewWidth()) *
+        static_cast<std::size_t>(city.previewHeight()) *
+        4u;
 }
 
 template <typename T>
@@ -1045,6 +1095,130 @@ bool GameSession::takeReadyCityPreviewState(City& city, CitySaveState& saveState
     return true;
 }
 
+bool GameSession::loadCityPreviewPixels(const City& city, std::vector<std::uint8_t>& previewPixels) const {
+    std::ifstream stream(cityPreviewFilePath(city).c_str(), std::ios::in | std::ios::binary);
+    if (!stream) {
+        return false;
+    }
+
+    try {
+        std::uint32_t magic = 0u;
+        std::uint32_t version = 0u;
+        ReadValue(stream, magic);
+        ReadValue(stream, version);
+        if (magic != kCityPreviewSaveMagic || version != kCityPreviewSaveVersion) {
+            return false;
+        }
+
+        int regionX = 0;
+        int regionY = 0;
+        int cityWidth = 0;
+        int cityHeight = 0;
+        int previewWidth = 0;
+        int previewHeight = 0;
+        ReadValue(stream, regionX);
+        ReadValue(stream, regionY);
+        ReadValue(stream, cityWidth);
+        ReadValue(stream, cityHeight);
+        ReadValue(stream, previewWidth);
+        ReadValue(stream, previewHeight);
+        if (regionX != city.regionX() ||
+            regionY != city.regionY() ||
+            cityWidth != city.width() ||
+            cityHeight != city.height() ||
+            previewWidth != city.previewWidth() ||
+            previewHeight != city.previewHeight()) {
+            return false;
+        }
+
+        std::uint8_t cachedHasSourceFile = 0u;
+        SaveFileStamp cachedStamp;
+        ReadValue(stream, cachedHasSourceFile);
+        cachedStamp.exists = cachedHasSourceFile != 0u;
+        ReadValue(stream, cachedStamp.byteSize);
+        ReadValue(stream, cachedStamp.lastWriteLow);
+        ReadValue(stream, cachedStamp.lastWriteHigh);
+        const SaveFileStamp currentStamp = GetSaveFileStamp(citySaveFilePath(city));
+        if (!SaveFileStampsMatch(cachedStamp, currentStamp)) {
+            return false;
+        }
+
+        std::uint32_t pixelByteCount = 0u;
+        ReadValue(stream, pixelByteCount);
+        const std::size_t expectedPixelByteCount = ExpectedPreviewPixelCount(city);
+        if (static_cast<std::size_t>(pixelByteCount) != expectedPixelByteCount) {
+            return false;
+        }
+
+        previewPixels.resize(expectedPixelByteCount);
+        if (!previewPixels.empty()) {
+            stream.read(reinterpret_cast<char*>(&previewPixels[0]), static_cast<std::streamsize>(previewPixels.size()));
+            if (!stream) {
+                return false;
+            }
+        }
+        return true;
+    } catch (const std::exception& error) {
+        std::cout << "Could not load region preview cache for " << city.name() << ": " << error.what() << std::endl;
+        LogException("GameSession::loadCityPreviewPixels", error);
+    }
+
+    return false;
+}
+
+bool GameSession::saveCityPreviewPixels(const City& city, const std::vector<std::uint8_t>& previewPixels) const {
+    if (city.hasSaveState() && city.isSaveStateDirty()) {
+        return false;
+    }
+
+    const std::size_t expectedPixelByteCount = ExpectedPreviewPixelCount(city);
+    if (previewPixels.size() != expectedPixelByteCount ||
+        expectedPixelByteCount > static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max())) {
+        return false;
+    }
+
+    const SaveFileStamp currentStamp = GetSaveFileStamp(citySaveFilePath(city));
+    if (city.hasSaveState() && !currentStamp.exists) {
+        return false;
+    }
+
+    try {
+        ensureSaveDirectory();
+        std::ofstream stream(cityPreviewFilePath(city).c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
+        if (!stream) {
+            return false;
+        }
+
+        WriteValue(stream, kCityPreviewSaveMagic);
+        WriteValue(stream, kCityPreviewSaveVersion);
+        WriteValue(stream, city.regionX());
+        WriteValue(stream, city.regionY());
+        WriteValue(stream, city.width());
+        WriteValue(stream, city.height());
+        WriteValue(stream, city.previewWidth());
+        WriteValue(stream, city.previewHeight());
+        const std::uint8_t hasSourceFile = currentStamp.exists ? 1u : 0u;
+        WriteValue(stream, hasSourceFile);
+        WriteValue(stream, currentStamp.byteSize);
+        WriteValue(stream, currentStamp.lastWriteLow);
+        WriteValue(stream, currentStamp.lastWriteHigh);
+        const std::uint32_t pixelByteCount = static_cast<std::uint32_t>(previewPixels.size());
+        WriteValue(stream, pixelByteCount);
+        if (!previewPixels.empty()) {
+            stream.write(reinterpret_cast<const char*>(&previewPixels[0]), static_cast<std::streamsize>(previewPixels.size()));
+            if (!stream) {
+                throw std::runtime_error("Failed to write region preview cache pixels.");
+            }
+        }
+        return true;
+    } catch (const std::exception& error) {
+        std::cout << "Could not save region preview cache for " << city.name() << ": " << error.what() << std::endl;
+        LogException("GameSession::saveCityPreviewPixels", error);
+    }
+
+    return false;
+}
+
 void GameSession::exportActiveCity() {
     if (activeCity_ == 0) {
         return;
@@ -1111,6 +1285,12 @@ std::string GameSession::saveFilePath() const {
 std::string GameSession::citySaveFilePath(const City& city) const {
     std::ostringstream fileName;
     fileName << saveDirectory() << "\\city_" << city.regionX() << "_" << city.regionY() << ".bin";
+    return fileName.str();
+}
+
+std::string GameSession::cityPreviewFilePath(const City& city) const {
+    std::ostringstream fileName;
+    fileName << saveDirectory() << "\\city_" << city.regionX() << "_" << city.regionY() << ".preview.bin";
     return fileName.str();
 }
 

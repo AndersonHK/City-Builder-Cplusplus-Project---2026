@@ -4,6 +4,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "City.h"
 #include "SimulationRuntime.h"
@@ -62,6 +63,8 @@ public:
     bool loadAutoslot();
     bool requestCityPreviewBuild(City& city);
     bool takeReadyCityPreviewState(City& city, CitySaveState& saveState);
+    bool loadCityPreviewPixels(const City& city, std::vector<std::uint8_t>& previewPixels) const;
+    bool saveCityPreviewPixels(const City& city, const std::vector<std::uint8_t>& previewPixels) const;
 
 private:
     bool loadRegionFromDisk();
@@ -77,6 +80,7 @@ private:
     std::string saveDirectory() const;
     std::string saveFilePath() const;
     std::string citySaveFilePath(const City& city) const;
+    std::string cityPreviewFilePath(const City& city) const;
     void ensureSaveDirectory() const;
 
     RuntimeOptions runtimeOptions_;

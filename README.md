@@ -132,7 +132,7 @@ msbuild 'City Builder/SaveLoadIntegrationTests.vcxproj' /p:Configuration=Release
 - City loads always start paused, whether entering from the region, switching cities, or reloading the autoslot in city mode. The runtime speed modes are paused, play at one tick per second, fast at render lockstep, and fast-forward uncapped.
 - Startup region loading, foreground city entry/reload, foreground return-to-region preview refresh, and foreground autoslot saves use the same loading bar, positioned about three-quarters down the screen. Future background autosaves should avoid that blocking loading stage and report separately if they need passive status.
 - Paused tool commands publish command-only frames, so building/road/zoning edits appear without advancing the simulation date.
-- Region preview textures stay resident while a city is open so F3 return only needs to refresh stale city previews, normally the city that was just open.
+- Region preview textures stay resident while a city is open so F3 return only needs to refresh stale city previews, normally the city that was just open. Clean saved/default preview pixels are cached beside the save files, avoiding full preview re-rendering on ordinary startup.
 - `RuntimeOptions` defaults city maps to 1024x1024 but can shrink the runtime for non-renderer integration tests such as the 32x32 save/load sandbox.
 
 ## Design guides
