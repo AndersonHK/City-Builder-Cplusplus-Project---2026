@@ -61,8 +61,8 @@ private:
     bool validateAndApplyPlacements(TransportLayerId layer, const std::vector<RoadTilePlacement>& placements, const std::vector<int>& lotOccupancy, int invalidLotId, bool& madeChange);
     void rebuildRoadTilesInRegion(TransportLayerId layer, const std::vector<int>& tileIndices);
     bool tileIsErased(TransportLayerId layer, int tileIndex) const;
-    bool addRoadTileErasure(TransportLayerId layer, int tileIndex);
-    void collectShortRoadSegmentErasures(TransportLayerId layer, std::vector<int>& erasureTileIndices) const;
+    void collectRoadStrokeTileIndices(const TransportStrokeSaveState& stroke, std::vector<int>& tileIndices) const;
+    void resetNextRoadStrokeId();
     bool mergeReplayStrokeIds(TransportLayerId layer, const std::vector<RoadTilePlacement>& placements);
     bool mergeConnectedReplayStrokeId(TransportLayerId layer, const RoadLanePlacement& lanePlacement, std::uint32_t oldStrokeId);
     void resolveDirtyTile(TransportLayerId layer, int tileX, int tileY);
@@ -89,6 +89,10 @@ private:
     std::uint8_t pathLaneMovementMask(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) const;
     std::uint8_t laneGraphicDirectionMask(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) const;
     std::uint8_t laneCenterTravelDirectionMask(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) const;
+    bool isCarIntersectionCollectionTile(TransportLayerId layer, int tileX, int tileY) const;
+    std::uint8_t buildCarExitMask(TransportLayerId layer, int tileX, int tileY, const TransportTile& tile) const;
+    std::uint8_t buildTurnExitMaskThroughIntersection(TransportLayerId layer, int entryTileX, int entryTileY, std::uint8_t travelDirection) const;
+    std::uint8_t buildTurnArrowIntentMask(TransportLayerId layer, int tileX, int tileY, const TransportTile& tile) const;
     bool tileHasCarBodyAxis(TransportLayerId layer, int tileX, int tileY, RoadAxis axis, RoadFamily family) const;
     bool tileHasAnyCarBody(TransportLayerId layer, int tileX, int tileY, RoadFamily family) const;
 

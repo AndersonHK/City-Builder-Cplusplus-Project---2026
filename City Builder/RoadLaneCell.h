@@ -16,6 +16,7 @@ public:
     int capacity;
     std::uint8_t directionMask;
     std::uint8_t travelDirectionMask;
+    std::uint8_t pathDirectionMask;
     bool centerSide;
     RoadGraphic parallelGraphic;
     RoadGraphic crossingGraphic;

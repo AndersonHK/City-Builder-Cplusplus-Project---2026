@@ -55,7 +55,7 @@ public:
     static std::uint16_t makeTemplateId(RoadFamily family, TransportLayerId layer, int laneCount, RoadTrafficSide trafficSide, RoadDirectionMode directionMode);
     static std::uint16_t makeTemplateId(RoadTemplateKind templateKind, RoadFamily family, TransportLayerId layer, int laneCount, RoadTrafficSide trafficSide, RoadDirectionMode directionMode);
     static int chooseTemplateFootprint(const RoadTemplate& roadTemplate);
-    static RoadLaneCell makeLaneCell(const RoadLanePlacement& lanePlacement, std::uint8_t directionMask, std::uint8_t travelDirectionMask = 0);
+    static RoadLaneCell makeLaneCell(const RoadLanePlacement& lanePlacement, std::uint8_t directionMask, std::uint8_t travelDirectionMask = 0, std::uint8_t pathDirectionMask = 0);
 
 private:
     struct LayoutLane {

@@ -6,6 +6,8 @@
 #include "RoadRenderState.h"
 
 namespace {
+int CountCardinalDirections(std::uint8_t directionMask);
+
 std::uint8_t OppositeMask(std::uint8_t directionMask) {
     std::uint8_t oppositeMask = 0;
     if ((directionMask & kRoadDirectionNorth) != 0) {
@@ -21,6 +23,20 @@ std::uint8_t OppositeMask(std::uint8_t directionMask) {
         oppositeMask |= kRoadDirectionEast;
     }
     return oppositeMask;
+}
+
+std::uint8_t CrosswalkMaskForCell(const Lane& primary, std::uint8_t secondaryEdgeMask) {
+    const std::uint8_t centerMask = primary.centerMask();
+    const std::uint8_t graphicMask = primary.directionMask & kRoadSurfaceSidewalkEdgeMask;
+    const std::uint8_t outgoingMask = static_cast<std::uint8_t>((primary.travelDirectionMask != 0 ? primary.travelDirectionMask : graphicMask) & graphicMask);
+    const std::uint8_t incomingMask = static_cast<std::uint8_t>(graphicMask & ~outgoingMask);
+    const std::uint8_t pathMask = static_cast<std::uint8_t>((primary.pathDirectionMask != 0 ? primary.pathDirectionMask : outgoingMask) & graphicMask);
+    if (CountCardinalDirections(outgoingMask) != 1) {
+        return 0;
+    }
+
+    const std::uint8_t sidewalkDetectMask = static_cast<std::uint8_t>(pathMask | incomingMask);
+    return static_cast<std::uint8_t>(secondaryEdgeMask & sidewalkDetectMask & OppositeMask(centerMask));
 }
 
 std::uint8_t CenterSideForTravelDirection(std::uint8_t direction) {
@@ -63,6 +79,7 @@ Lane::Lane()
       capacity(0),
       directionMask(0),
       travelDirectionMask(0),
+      pathDirectionMask(0),
       centerSide(false),
       parallelGraphic(RoadGraphic::none()),
       crossingGraphic(RoadGraphic::none()) {
@@ -122,5 +139,10 @@ void RoadLaneCell::applyGraphics(RoadRenderState& renderState) const {
         return;
     }
 
-    secondary.parallelGraphic.applyToRenderState(renderState, secondaryEdgeMask());
+    const std::uint8_t edgeMask = secondaryEdgeMask();
+    const std::uint8_t crossingMask = secondary.crossingGraphic.primitive() == RoadGraphicPrimitive::None
+        ? 0
+        : CrosswalkMaskForCell(primary, edgeMask);
+    secondary.parallelGraphic.applyToRenderState(renderState, static_cast<std::uint8_t>(edgeMask & ~crossingMask));
+    secondary.crossingGraphic.applyToRenderState(renderState, crossingMask);
 }

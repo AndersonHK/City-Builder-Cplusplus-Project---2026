@@ -30,11 +30,13 @@ struct Rgba {
 const Rgba kTransparent = {0u, 0u, 0u, 0u};
 const Rgba kRoad = {2u, 2u, 2u, 255u};
 const Rgba kSidewalk = {190u, 190u, 190u, 255u};
+const Rgba kCrosswalk = {232u, 227u, 199u, 255u};
 const Rgba kWhiteMarking = {225u, 220u, 205u, 255u};
 const Rgba kYellowMarking = {238u, 220u, 82u, 255u};
 const int kSidewalkAtlasOffset = 64;
 const int kSidewalkYellowDividerAtlasOffset = 256;
 const int kSidewalkWhiteDividerAtlasOffset = 512;
+const int kSidewalkCrosswalkAtlasOffset = 768;
 
 float Clamp01(float value) {
     return std::max(0.0f, std::min(value, 1.0f));
@@ -157,6 +159,18 @@ bool SidewalkMask(float u, float v, std::uint8_t sidewalkEdges) {
         ((sidewalkEdges & kRoadDirectionWest) != 0 && u < 0.16f);
 }
 
+bool CrosswalkMask(float u, float v, std::uint8_t crosswalkEdges) {
+    const bool stripe = std::fmod((u + v) * 10.0f, 1.0f) < 0.52f;
+    if (!stripe) {
+        return false;
+    }
+
+    return ((crosswalkEdges & kRoadDirectionNorth) != 0 && v < 0.18f) ||
+        ((crosswalkEdges & kRoadDirectionEast) != 0 && u > 0.82f) ||
+        ((crosswalkEdges & kRoadDirectionSouth) != 0 && v > 0.82f) ||
+        ((crosswalkEdges & kRoadDirectionWest) != 0 && u < 0.18f);
+}
+
 void SetPixel(RoadAtlasImage& image, int glyphIndex, int localX, int localY, Rgba color) {
     const int cellX = glyphIndex % image.columns;
     const int cellY = glyphIndex / image.columns;
@@ -169,7 +183,7 @@ void SetPixel(RoadAtlasImage& image, int glyphIndex, int localX, int localY, Rgb
     image.pixels[pixelOffset + 3u] = color.a;
 }
 
-void PaintRoadTile(RoadAtlasImage& image, int glyphIndex, std::uint8_t sidewalkEdges, std::uint8_t dividerMask, bool includeDebugMarkings, std::uint8_t junctionMask) {
+void PaintRoadTile(RoadAtlasImage& image, int glyphIndex, std::uint8_t sidewalkEdges, std::uint8_t crosswalkEdges, std::uint8_t dividerMask, bool includeDebugMarkings, std::uint8_t junctionMask) {
     const std::uint8_t whiteDividers = dividerMask & 0x0fu;
     const std::uint8_t yellowDividers = static_cast<std::uint8_t>((dividerMask >> 4) & 0x0fu);
     for (int localY = 0; localY < image.tileSize; ++localY) {
@@ -177,6 +191,9 @@ void PaintRoadTile(RoadAtlasImage& image, int glyphIndex, std::uint8_t sidewalkE
             const float u = (static_cast<float>(localX) + 0.5f) / static_cast<float>(image.tileSize);
             const float v = (static_cast<float>(localY) + 0.5f) / static_cast<float>(image.tileSize);
             Rgba color = SidewalkMask(u, v, sidewalkEdges) ? kSidewalk : kRoad;
+            if (CrosswalkMask(u, v, crosswalkEdges)) {
+                color = kCrosswalk;
+            }
 
             if ((yellowDividers & kRoadDirectionNorth) != 0 && v < 0.035f) {
                 color = kYellowMarking;
@@ -280,6 +297,11 @@ RoadAtlasImage::RoadAtlasImage()
 
 int RoadAtlasGlyphIndex(std::uint8_t baseGlyph, std::uint8_t laneGraphicMask, std::uint8_t dividerMask) {
     const std::uint8_t sidewalkEdges = laneGraphicMask & kRoadSurfaceSidewalkEdgeMask;
+    const std::uint8_t crosswalkEdges = static_cast<std::uint8_t>((laneGraphicMask >> kRoadSurfaceCrosswalkShift) & kRoadSurfaceSidewalkEdgeMask);
+    if (crosswalkEdges != 0) {
+        return kSidewalkCrosswalkAtlasOffset + laneGraphicMask;
+    }
+
     if (sidewalkEdges != 0) {
         const std::uint8_t whiteDividers = dividerMask & kRoadSurfaceSidewalkEdgeMask;
         const std::uint8_t yellowDividers = static_cast<std::uint8_t>((dividerMask >> 4) & kRoadSurfaceSidewalkEdgeMask);
@@ -298,16 +320,17 @@ RoadAtlasImage BuildRoadBaseAtlas(bool includeDebugMarkings) {
     RoadAtlasImage image = MakeAtlasImage();
     const int baseGlyphCount = static_cast<int>(RoadBaseGlyph::HighwayCross) + 1;
     for (int glyphIndex = 1; glyphIndex < baseGlyphCount; ++glyphIndex) {
-        PaintRoadTile(image, glyphIndex, 0, 0, includeDebugMarkings, BaseGlyphJunctionMask(static_cast<RoadBaseGlyph>(glyphIndex)));
+        PaintRoadTile(image, glyphIndex, 0, 0, 0, includeDebugMarkings, BaseGlyphJunctionMask(static_cast<RoadBaseGlyph>(glyphIndex)));
     }
 
     for (std::uint8_t sidewalkEdges = 1u; sidewalkEdges < 16u; ++sidewalkEdges) {
-        PaintRoadTile(image, kSidewalkAtlasOffset + sidewalkEdges, sidewalkEdges, 0, includeDebugMarkings, 0);
+        PaintRoadTile(image, kSidewalkAtlasOffset + sidewalkEdges, sidewalkEdges, 0, 0, includeDebugMarkings, 0);
         for (std::uint8_t dividerMask = 1u; dividerMask < 16u; ++dividerMask) {
             PaintRoadTile(
                 image,
                 kSidewalkYellowDividerAtlasOffset + (static_cast<int>(sidewalkEdges) * 16) + dividerMask,
                 sidewalkEdges,
+                0,
                 static_cast<std::uint8_t>(dividerMask << kRoadDividerYellowShift),
                 includeDebugMarkings,
                 0);
@@ -315,10 +338,27 @@ RoadAtlasImage BuildRoadBaseAtlas(bool includeDebugMarkings) {
                 image,
                 kSidewalkWhiteDividerAtlasOffset + (static_cast<int>(sidewalkEdges) * 16) + dividerMask,
                 sidewalkEdges,
+                0,
                 dividerMask,
                 includeDebugMarkings,
                 0);
         }
+    }
+
+    for (std::uint16_t laneGraphicMask = 1u; laneGraphicMask < 256u; ++laneGraphicMask) {
+        const std::uint8_t crosswalkEdges = static_cast<std::uint8_t>((laneGraphicMask >> kRoadSurfaceCrosswalkShift) & kRoadSurfaceSidewalkEdgeMask);
+        if (crosswalkEdges == 0) {
+            continue;
+        }
+
+        PaintRoadTile(
+            image,
+            kSidewalkCrosswalkAtlasOffset + laneGraphicMask,
+            static_cast<std::uint8_t>(laneGraphicMask & kRoadSurfaceSidewalkEdgeMask),
+            crosswalkEdges,
+            0,
+            includeDebugMarkings,
+            0);
     }
 
     return image;

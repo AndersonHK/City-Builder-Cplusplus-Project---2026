@@ -173,9 +173,14 @@ vec4 sampleRoadAtlas(sampler2D atlasTexture, float glyphIndex, vec2 localUv)
         return vec4(0.0);
     }
 
+    float glyph = floor(glyphIndex + 0.5);
+    vec2 atlasSize = vec2(textureSize(atlasTexture, 0));
+    vec2 cellSize = atlasSize / uRoadAtlasGrid;
+    vec2 glyphCell = vec2(mod(glyph, uRoadAtlasGrid.x), floor(glyph / uRoadAtlasGrid.x));
+    vec2 localPixel = clamp(localUv, vec2(0.0), vec2(1.0)) * (cellSize - vec2(1.0)) + vec2(0.5);
     vec2 atlasUv = vec2(
-        (mod(glyphIndex, uRoadAtlasGrid.x) + clamp(localUv.x, 0.0, 0.9999)) / uRoadAtlasGrid.x,
-        (floor(glyphIndex / uRoadAtlasGrid.x) + clamp(localUv.y, 0.0, 0.9999)) / uRoadAtlasGrid.y);
+        (glyphCell.x * cellSize.x + localPixel.x) / atlasSize.x,
+        (glyphCell.y * cellSize.y + localPixel.y) / atlasSize.y);
     return texture(atlasTexture, atlasUv);
 }
 
@@ -196,6 +201,11 @@ float roadTileGlyphIndex(float baseGlyph, float laneGraphicMask, float dividerMa
 {
     int laneGraphics = int(floor(laneGraphicMask + 0.5));
     int sidewalkEdges = laneGraphics & 15;
+    int crosswalkEdges = (laneGraphics >> 4) & 15;
+    if (crosswalkEdges != 0) {
+        return 768.0 + float(laneGraphics);
+    }
+
     if (sidewalkEdges != 0) {
         int divider = int(floor(dividerMask + 0.5));
         int whiteMask = divider & 15;

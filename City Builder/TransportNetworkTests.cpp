@@ -187,6 +187,90 @@ int ActiveSavedLaneCount(const TransportNetwork& network, RoadLaneTypeId laneTyp
     return count;
 }
 
+bool SameInt2(const Int2& left, const Int2& right) {
+    return left.x == right.x && left.y == right.y;
+}
+
+bool SameSavedLane(const RoadLanePlacement& left, const RoadLanePlacement& right) {
+    return left.tileX == right.tileX &&
+        left.tileY == right.tileY &&
+        left.tileIndex == right.tileIndex &&
+        left.family == right.family &&
+        left.layer == right.layer &&
+        left.templateId == right.templateId &&
+        left.strokeId == right.strokeId &&
+        left.laneIndex == right.laneIndex &&
+        left.axis == right.axis &&
+        left.crossSectionMask == right.crossSectionMask &&
+        left.laneType == right.laneType &&
+        left.surface == right.surface &&
+        left.role == right.role &&
+        left.separatorStyle == right.separatorStyle &&
+        left.laneTravelMask == right.laneTravelMask &&
+        left.arrowTravelMask == right.arrowTravelMask &&
+        left.sideMin == right.sideMin &&
+        left.sideMax == right.sideMax &&
+        left.sidewalkEdgeMask == right.sidewalkEdgeMask &&
+        left.sameDirectionDividerMask == right.sameDirectionDividerMask &&
+        left.opposingDirectionDividerMask == right.opposingDirectionDividerMask &&
+        left.active == right.active;
+}
+
+bool SameTransportSaveState(const TransportNetworkSaveState& left, const TransportNetworkSaveState& right) {
+    if (left.nextRoadStrokeId != right.nextRoadStrokeId ||
+        left.strokes.size() != right.strokes.size() ||
+        left.erasures.size() != right.erasures.size() ||
+        left.tiles.size() != right.tiles.size()) {
+        return false;
+    }
+
+    std::size_t strokeIndex = 0;
+    for (; strokeIndex < left.strokes.size(); ++strokeIndex) {
+        const TransportStrokeSaveState& leftStroke = left.strokes[strokeIndex];
+        const TransportStrokeSaveState& rightStroke = right.strokes[strokeIndex];
+        if (leftStroke.strokeId != rightStroke.strokeId ||
+            !SameInt2(leftStroke.startTile, rightStroke.startTile) ||
+            !SameInt2(leftStroke.cornerTile, rightStroke.cornerTile) ||
+            !SameInt2(leftStroke.endTile, rightStroke.endTile) ||
+            leftStroke.templateKind != rightStroke.templateKind ||
+            leftStroke.family != rightStroke.family ||
+            leftStroke.layer != rightStroke.layer ||
+            leftStroke.laneCount != rightStroke.laneCount ||
+            leftStroke.trafficSide != rightStroke.trafficSide ||
+            leftStroke.directionMode != rightStroke.directionMode) {
+            return false;
+        }
+    }
+
+    std::size_t erasureIndex = 0;
+    for (; erasureIndex < left.erasures.size(); ++erasureIndex) {
+        if (left.erasures[erasureIndex].layer != right.erasures[erasureIndex].layer ||
+            left.erasures[erasureIndex].tileIndex != right.erasures[erasureIndex].tileIndex) {
+            return false;
+        }
+    }
+
+    std::size_t tileIndex = 0;
+    for (; tileIndex < left.tiles.size(); ++tileIndex) {
+        const TransportTileSaveState& leftTile = left.tiles[tileIndex];
+        const TransportTileSaveState& rightTile = right.tiles[tileIndex];
+        if (leftTile.layer != rightTile.layer ||
+            leftTile.tileIndex != rightTile.tileIndex ||
+            leftTile.lanes.size() != rightTile.lanes.size()) {
+            return false;
+        }
+
+        std::size_t laneIndex = 0;
+        for (; laneIndex < leftTile.lanes.size(); ++laneIndex) {
+            if (!SameSavedLane(leftTile.lanes[laneIndex], rightTile.lanes[laneIndex])) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
 void ExpectCarCostsStayWithinJunctionMask(TestRunner& runner, const TransportNetwork& network, int tileX, int tileY, const std::string& name) {
     const ResolvedRoadCell& cell = CellAt(network, TransportLayerId::Ground, tileX, tileY);
     const TransportCostCell& costCell = CostCellAt(network, TransportLayerId::Ground, TransportMode::Car, tileX, tileY);
@@ -229,6 +313,33 @@ bool SameResolvedCell(const ResolvedRoadCell& first, const ResolvedRoadCell& sec
         first.junctionMask == second.junctionMask &&
         first.renderVariant == second.renderVariant &&
         first.laneTypeCosts == second.laneTypeCosts;
+}
+
+bool SameCostCell(const TransportCostCell& first, const TransportCostCell& second) {
+    if (first.buildingAccessMask != second.buildingAccessMask) {
+        return false;
+    }
+
+    int directionIndex = 0;
+    for (; directionIndex < kRoadDirectionCount; ++directionIndex) {
+        if (first.costs[directionIndex] != second.costs[directionIndex] ||
+            first.capacities[directionIndex] != second.capacities[directionIndex]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool ContainsTileIndex(const std::vector<int>& tileIndices, int tileIndex) {
+    std::size_t index = 0;
+    for (; index < tileIndices.size(); ++index) {
+        if (tileIndices[index] == tileIndex) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 std::string ResolvedCellSummary(const ResolvedRoadCell& cell) {
@@ -665,31 +776,107 @@ void TestSingleStrokeCornerCleanupUsesValidCornerMasks(TestRunner& runner) {
     }
 }
 
-void TestRemoveRoadTileClearsTwoTileFootprint(TestRunner& runner) {
+void TestRemoveRoadTileClearsTwoTileStroke(TestRunner& runner) {
     TransportNetwork network = MakeNetwork(12, 12);
     std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
 
     runner.expect(Place(network, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "two-tile road removal setup succeeds");
     runner.expect(network.removeRoadAtTile(4, 5), "two-tile road removal succeeds from one footprint tile");
 
-    runner.expect(RoadCellEmpty(CellAt(network, TransportLayerId::Ground, 4, 5)), "two-tile road removal clears clicked footprint tile");
-    runner.expect(RoadCellEmpty(CellAt(network, TransportLayerId::Ground, 4, 6)), "two-tile road removal clears paired footprint tile");
-    runner.expect(!RoadCellEmpty(CellAt(network, TransportLayerId::Ground, 3, 5)), "two-tile road removal leaves previous slice intact");
-    runner.expect(!RoadCellEmpty(CellAt(network, TransportLayerId::Ground, 5, 6)), "two-tile road removal leaves next slice intact");
+    int tileX = 2;
+    for (; tileX <= 8; ++tileX) {
+        runner.expect(RoadCellEmpty(CellAt(network, TransportLayerId::Ground, tileX, 5)), "two-tile road removal clears whole stroke north row");
+        runner.expect(RoadCellEmpty(CellAt(network, TransportLayerId::Ground, tileX, 6)), "two-tile road removal clears whole stroke south row");
+    }
+    runner.expect(network.exportSaveState().strokes.empty(), "two-tile road removal removes the stroke object");
 }
 
-void TestRemoveRoadTileClearsFourTileFootprint(TestRunner& runner) {
+void TestRemoveRoadTileClearsFourTileStroke(TestRunner& runner) {
     TransportNetwork network = MakeNetwork(14, 14);
     std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
 
     runner.expect(Place(network, MakeStroke(Int2(2, 4), Int2(10, 4), RoadFamily::LocalStreet, TransportLayerId::Ground, RoadDirectionMode::TwoWay, 2), lotOccupancy), "four-tile road removal setup succeeds");
     runner.expect(network.removeRoadAtTile(6, 5), "four-tile road removal succeeds from interior footprint tile");
 
+    int tileX = 2;
     int tileY = 4;
-    for (; tileY <= 7; ++tileY) {
-        runner.expect(RoadCellEmpty(CellAt(network, TransportLayerId::Ground, 6, tileY)), "four-tile road removal clears full footprint width");
-        runner.expect(!RoadCellEmpty(CellAt(network, TransportLayerId::Ground, 5, tileY)), "four-tile road removal leaves previous slice intact");
-        runner.expect(!RoadCellEmpty(CellAt(network, TransportLayerId::Ground, 7, tileY)), "four-tile road removal leaves next slice intact");
+    for (; tileX <= 10; ++tileX) {
+        tileY = 4;
+        for (; tileY <= 7; ++tileY) {
+            runner.expect(RoadCellEmpty(CellAt(network, TransportLayerId::Ground, tileX, tileY)), "four-tile road removal clears whole stroke");
+        }
+    }
+    runner.expect(network.exportSaveState().strokes.empty(), "four-tile road removal removes the stroke object");
+}
+
+void TestFullyRemovedRoadPrunesStrokeState(TestRunner& runner) {
+    TransportNetwork network = MakeNetwork(14, 14);
+    std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(network, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "stroke pruning setup placement succeeds");
+    runner.expect(network.exportSaveState().strokes.size() == 1u, "stroke pruning setup records one stroke");
+
+    std::vector<int> tileIndices;
+    int tileX = 2;
+    for (; tileX <= 8; ++tileX) {
+        tileIndices.push_back(5 * network.width() + tileX);
+    }
+
+    runner.expect(network.removeRoadsAtTiles(tileIndices), "stroke pruning full road removal succeeds");
+    const TransportNetworkSaveState saveState = network.exportSaveState();
+    runner.expect(saveState.strokes.empty(), "stroke pruning removes fully erased road stroke");
+    runner.expect(saveState.erasures.empty(), "stroke pruning removes erasures with no surviving stroke");
+}
+
+void TestPaintSavePaintDeleteSaveLeavesIdenticalTransportState(TestRunner& runner) {
+    TransportNetwork network = MakeNetwork(14, 14);
+    std::vector<int> lotOccupancy(network.totalTileCount(), kInvalidLotId);
+
+    runner.expect(Place(network, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "paint-save-delete invariant baseline road placement succeeds");
+    const TransportNetworkSaveState savedAfterFirstRoad = network.exportSaveState();
+    const ResolvedRoadCell baselineCells[] = {
+        CellAt(network, TransportLayerId::Ground, 5, 5),
+        CellAt(network, TransportLayerId::Ground, 6, 5),
+        CellAt(network, TransportLayerId::Ground, 5, 6),
+        CellAt(network, TransportLayerId::Ground, 6, 6)
+    };
+    const TransportCostCell baselineCarCosts[] = {
+        CostCellAt(network, TransportLayerId::Ground, TransportMode::Car, 5, 5),
+        CostCellAt(network, TransportLayerId::Ground, TransportMode::Car, 6, 5),
+        CostCellAt(network, TransportLayerId::Ground, TransportMode::Car, 5, 6),
+        CostCellAt(network, TransportLayerId::Ground, TransportMode::Car, 6, 6)
+    };
+    const TransportCostCell baselinePedestrianCosts[] = {
+        CostCellAt(network, TransportLayerId::Ground, TransportMode::Pedestrian, 5, 5),
+        CostCellAt(network, TransportLayerId::Ground, TransportMode::Pedestrian, 6, 5),
+        CostCellAt(network, TransportLayerId::Ground, TransportMode::Pedestrian, 5, 6),
+        CostCellAt(network, TransportLayerId::Ground, TransportMode::Pedestrian, 6, 6)
+    };
+
+    runner.expect(Place(network, MakeStroke(Int2(5, 2), Int2(5, 9), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "paint-save-delete invariant crossing road placement succeeds");
+    std::vector<int> dirtyTileIndices;
+    runner.expect(network.removeRoadAtTile(5, 2, &dirtyTileIndices), "paint-save-delete invariant crossing road deletion succeeds");
+    runner.expect(ContainsTileIndex(dirtyTileIndices, (5 * network.width()) + 5), "crossing road deletion dirties surviving northwest crossing tile");
+    runner.expect(ContainsTileIndex(dirtyTileIndices, (5 * network.width()) + 6), "crossing road deletion dirties surviving northeast crossing tile");
+    runner.expect(ContainsTileIndex(dirtyTileIndices, (6 * network.width()) + 5), "crossing road deletion dirties surviving southwest crossing tile");
+    runner.expect(ContainsTileIndex(dirtyTileIndices, (6 * network.width()) + 6), "crossing road deletion dirties surviving southeast crossing tile");
+
+    const TransportNetworkSaveState savedAfterDelete = network.exportSaveState();
+    runner.expect(SameTransportSaveState(savedAfterFirstRoad, savedAfterDelete), "paint road, save, paint road, delete road, save leaves identical transport save data");
+
+    const Int2 restoredTiles[] = {
+        Int2(5, 5),
+        Int2(6, 5),
+        Int2(5, 6),
+        Int2(6, 6)
+    };
+    std::size_t restoredTileIndex = 0;
+    for (; restoredTileIndex < sizeof(restoredTiles) / sizeof(restoredTiles[0]); ++restoredTileIndex) {
+        const int tileX = restoredTiles[restoredTileIndex].x;
+        const int tileY = restoredTiles[restoredTileIndex].y;
+        runner.expect(SameResolvedCell(baselineCells[restoredTileIndex], CellAt(network, TransportLayerId::Ground, tileX, tileY)), "crossing road deletion restores surviving resolved road tile");
+        runner.expect(SameCostCell(baselineCarCosts[restoredTileIndex], CostCellAt(network, TransportLayerId::Ground, TransportMode::Car, tileX, tileY)), "crossing road deletion restores surviving car routing tile");
+        runner.expect(SameCostCell(baselinePedestrianCosts[restoredTileIndex], CostCellAt(network, TransportLayerId::Ground, TransportMode::Pedestrian, tileX, tileY)), "crossing road deletion restores surviving pedestrian routing tile");
     }
 }
 
@@ -1713,8 +1900,10 @@ int main() {
     TestRoadToolSandboxFixtureCases(runner, false);
     TestTurnArrowsRenderAheadOfIntersectionsOnly(runner);
     TestSingleStrokeCornerCleanupUsesValidCornerMasks(runner);
-    TestRemoveRoadTileClearsTwoTileFootprint(runner);
-    TestRemoveRoadTileClearsFourTileFootprint(runner);
+    TestRemoveRoadTileClearsTwoTileStroke(runner);
+    TestRemoveRoadTileClearsFourTileStroke(runner);
+    TestFullyRemovedRoadPrunesStrokeState(runner);
+    TestPaintSavePaintDeleteSaveLeavesIdenticalTransportState(runner);
     TestShortTwoTileRoadRemnantIsRemoved(runner);
     TestShortFourTileRoadRemnantIsRemoved(runner);
     TestRemovingApproachDoesNotLeavePartialIntersectionCrosswalk(runner);

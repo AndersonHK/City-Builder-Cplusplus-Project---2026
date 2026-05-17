@@ -563,7 +563,7 @@ int Road::chooseTemplateFootprint(const RoadTemplate& roadTemplate) {
     return footprint;
 }
 
-RoadLaneCell Road::makeLaneCell(const RoadLanePlacement& lanePlacement, std::uint8_t directionMask, std::uint8_t travelDirectionMask) {
+RoadLaneCell Road::makeLaneCell(const RoadLanePlacement& lanePlacement, std::uint8_t directionMask, std::uint8_t travelDirectionMask, std::uint8_t pathDirectionMask) {
     RoadLaneCell cell;
     if (!lanePlacement.isCar()) {
         return cell;
@@ -572,11 +572,15 @@ RoadLaneCell Road::makeLaneCell(const RoadLanePlacement& lanePlacement, std::uin
     if (travelDirectionMask == 0) {
         travelDirectionMask = RoadDirectionsFromLaneIntent(lanePlacement.laneTravelMask);
     }
+    if (pathDirectionMask == 0) {
+        pathDirectionMask = travelDirectionMask;
+    }
 
     cell.primary.mode = CommuterMode::Car;
     cell.primary.capacity = 200;
     cell.primary.directionMask = directionMask;
     cell.primary.travelDirectionMask = travelDirectionMask;
+    cell.primary.pathDirectionMask = pathDirectionMask;
     cell.primary.centerSide = true;
     cell.primary.parallelGraphic = RoadGraphic::asphalt(directionMask);
 
@@ -587,6 +591,7 @@ RoadLaneCell Road::makeLaneCell(const RoadLanePlacement& lanePlacement, std::uin
 
     cell.secondary.directionMask = directionMask;
     cell.secondary.travelDirectionMask = travelDirectionMask;
+    cell.secondary.pathDirectionMask = pathDirectionMask;
     const int laneCount = TemplateLaneCountFromTemplateId(lanePlacement.templateId);
     const int separatorIndex = 1 + laneCount;
     const bool avenueCenterLane = templateKind == RoadTemplateKind::Avenue &&
