@@ -40,6 +40,8 @@ Favor narrow-front, deep-lot parcels as the default building unit.
 
 Square lots should not be the visual default. They make buildings read as individual objects from a distance, which weakens the city fabric.
 
+Residential density categories should stay visually honest: houses, townhouses, and rowhouses are low density; walkups, apartments, and midrises are medium density; towers are high density. Rowhouses are attached narrow-front buildings and should never be authored as wide detached blocks. In deeper lots, use rear yards, courts, paths, and service space, or a second layer only when it still reads as rowhouse fabric.
+
 ### Narrow Midrise Lots
 
 Midrise form should be allowed to emerge while the parcel grain is still narrow.
@@ -168,6 +170,7 @@ Suburbs should use narrow residential frontage with meaningful depth.
 - Vary house placement slightly: front setback, driveway side, garage position, roof direction, porch depth.
 - Use backyard objects and tree cover to make the interior of the block dense.
 - Let some lots have additions, sheds, pools, patios, gardens, or larger trees.
+- Larger low-density lots should usually be the same primary home with more garden, backyard, driveway, or accessory space, not two detached homes merged into one lot.
 
 The goal is not perfect subdivision neatness. It is a readable property fabric.
 

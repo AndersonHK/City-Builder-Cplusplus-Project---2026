@@ -1,0 +1,18 @@
+<lot id="rci_residential_2x7_medium_court_lot" name="2x7 Midrise Garden" zoningType="residential" densityBand="medium" constructionDays="8">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="2" height="7" />
+  <front direction="north" />
+  <modules>
+    <moduleRef id="narrow_walkup_module" x="0" y="1" />
+    <moduleRef id="pathway_module" x="0" y="0" />
+    <moduleRef id="parking_module" x="1" y="0" />
+    <moduleRef id="pathway_module" x="0" y="5" />
+    <moduleRef id="parking_module" x="1" y="5" />
+    <moduleRef id="pathway_module" x="0" y="6" />
+    <moduleRef id="parking_module" x="1" y="6" />
+  </modules>
+  <access>
+    <connection x="0" y="0" modes="pedestrian" />
+    <connection x="1" y="0" modes="car" />
+  </access>
+</lot>

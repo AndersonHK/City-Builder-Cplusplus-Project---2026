@@ -51,6 +51,8 @@ struct LotAccessDefinition {
 
 struct LotAsset {
     std::string id;
+    std::string name;
+    std::string densityBand;
     std::uint16_t zoningType;
     Int2 anchor;
     Int2 footprintOrigin;

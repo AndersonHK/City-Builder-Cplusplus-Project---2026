@@ -1,0 +1,8 @@
+<module id="midrise_corner_module" density="medium">
+  <size width="3" height="4" />
+  <effects airPollution="0" landValue="11000" />
+  <render height="2.20" colorR="0.58" colorG="0.58" colorB="0.55" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="36" />
+  </parameters>
+</module>

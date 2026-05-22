@@ -1,0 +1,12 @@
+<lot id="rci_industrial_5x5_high_works_lot" name="5x5 Heavy Factory" zoningType="industrial" densityBand="high" constructionDays="16">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="5" height="5" />
+  <front direction="north" />
+  <modules>
+    <moduleRef id="heavy_factory_module" x="0" y="0" />
+  </modules>
+  <access>
+    <connection x="2" y="0" modes="pedestrian" />
+    <connection x="0" y="0" modes="car" />
+  </access>
+</lot>

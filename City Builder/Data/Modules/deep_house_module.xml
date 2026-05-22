@@ -1,0 +1,8 @@
+<module id="deep_house_module" density="low">
+  <size width="2" height="3" />
+  <effects airPollution="0" landValue="3000" />
+  <render height="0.82" colorR="0.52" colorG="0.43" colorB="0.32" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="8" />
+  </parameters>
+</module>

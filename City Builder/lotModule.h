@@ -28,6 +28,7 @@ inline bool operator==(const Int2& left, const Int2& right) {
 
 struct LotModule {
     std::string id;
+    std::string density;
     int width;
     int height;
     int airPollutionEmit;
@@ -40,7 +41,8 @@ struct LotModule {
 
     // Starts an unloaded module archetype with neutral render/effect values.
     LotModule()
-        : width(1),
+        : density(),
+          width(1),
           height(1),
           airPollutionEmit(0),
           landValueEmit(0),

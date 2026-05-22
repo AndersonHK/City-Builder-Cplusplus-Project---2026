@@ -21,7 +21,7 @@ namespace {
 const std::uint32_t kRegionSaveMagic = 0x52424743u; // CBGR
 const std::uint32_t kRegionSaveVersion = 3u;
 const std::uint32_t kCitySaveMagic = 0x59544243u; // CBTY
-const std::uint32_t kCitySaveVersion = 9u;
+const std::uint32_t kCitySaveVersion = 10u;
 const std::uint32_t kCityPreviewSaveMagic = 0x56504243u; // CBPV
 const std::uint32_t kCityPreviewSaveVersion = 1u;
 const int kMaximumPreviewBuildsInFlight = 2;
@@ -142,6 +142,7 @@ void WriteRciLot(std::ostream& stream, const RciLot& lot) {
     WriteString(stream, lot.toolId);
     WriteString(stream, lot.name);
     WriteValue(stream, lot.zoningType);
+    WriteValue(stream, lot.frontDirection);
     WriteValue(stream, lot.color.r);
     WriteValue(stream, lot.color.g);
     WriteValue(stream, lot.color.b);
@@ -158,6 +159,7 @@ RciLot ReadRciLot(std::istream& stream) {
     lot.toolId = ReadString(stream);
     lot.name = ReadString(stream);
     ReadValue(stream, lot.zoningType);
+    ReadValue(stream, lot.frontDirection);
     ReadValue(stream, lot.color.r);
     ReadValue(stream, lot.color.g);
     ReadValue(stream, lot.color.b);

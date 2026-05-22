@@ -1,0 +1,22 @@
+<lot id="rci_industrial_2x7_low_works_lot" name="2x7 Warehouse Yard" zoningType="industrial" densityBand="low" constructionDays="5">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="2" height="7" />
+  <front direction="north" />
+  <modules>
+    <moduleRef id="warehouse_module" x="0" y="1" />
+    <moduleRef id="concrete_floor_module" x="0" y="0" />
+    <moduleRef id="service_yard_module" x="1" y="0" />
+    <moduleRef id="concrete_floor_module" x="0" y="3" />
+    <moduleRef id="concrete_floor_module" x="1" y="3" />
+    <moduleRef id="concrete_floor_module" x="0" y="4" />
+    <moduleRef id="service_yard_module" x="1" y="4" />
+    <moduleRef id="service_yard_module" x="0" y="5" />
+    <moduleRef id="concrete_floor_module" x="1" y="5" />
+    <moduleRef id="concrete_floor_module" x="0" y="6" />
+    <moduleRef id="concrete_floor_module" x="1" y="6" />
+  </modules>
+  <access>
+    <connection x="0" y="0" modes="pedestrian" />
+    <connection x="1" y="0" modes="car" />
+  </access>
+</lot>

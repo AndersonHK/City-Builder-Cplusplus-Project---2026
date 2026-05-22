@@ -1,0 +1,18 @@
+<lot id="rci_residential_7x3_medium_garden_lot" name="7x3 Walkup Court" zoningType="residential" densityBand="medium" constructionDays="8">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="7" height="3" />
+  <front direction="north" />
+  <modules>
+    <moduleRef id="shallow_walkup_module" x="1" y="0" />
+    <moduleRef id="parking_module" x="6" y="0" />
+    <moduleRef id="garden_module" x="0" y="0" />
+    <moduleRef id="parking_module" x="0" y="1" />
+    <moduleRef id="garden_module" x="6" y="1" />
+    <moduleRef id="garden_module" x="0" y="2" />
+    <moduleRef id="garden_module" x="6" y="2" />
+  </modules>
+  <access>
+    <connection x="3" y="0" modes="pedestrian" />
+    <connection x="6" y="0" modes="car" />
+  </access>
+</lot>

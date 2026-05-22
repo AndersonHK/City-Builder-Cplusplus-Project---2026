@@ -1,0 +1,29 @@
+<lot id="rci_industrial_7x6_high_works_lot" name="7x6 Heavy Factory" zoningType="industrial" densityBand="high" constructionDays="16">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="7" height="6" />
+  <front direction="north" />
+  <modules>
+    <moduleRef id="heavy_factory_module" x="1" y="1" />
+    <moduleRef id="concrete_floor_module" x="3" y="0" />
+    <moduleRef id="service_yard_module" x="0" y="0" />
+    <moduleRef id="concrete_floor_module" x="1" y="0" />
+    <moduleRef id="service_yard_module" x="2" y="0" />
+    <moduleRef id="service_yard_module" x="4" y="0" />
+    <moduleRef id="concrete_floor_module" x="5" y="0" />
+    <moduleRef id="service_yard_module" x="6" y="0" />
+    <moduleRef id="service_yard_module" x="0" y="1" />
+    <moduleRef id="service_yard_module" x="6" y="1" />
+    <moduleRef id="concrete_floor_module" x="0" y="2" />
+    <moduleRef id="concrete_floor_module" x="6" y="2" />
+    <moduleRef id="concrete_floor_module" x="0" y="3" />
+    <moduleRef id="concrete_floor_module" x="6" y="3" />
+    <moduleRef id="service_yard_module" x="0" y="4" />
+    <moduleRef id="service_yard_module" x="6" y="4" />
+    <moduleRef id="concrete_floor_module" x="0" y="5" />
+    <moduleRef id="concrete_floor_module" x="6" y="5" />
+  </modules>
+  <access>
+    <connection x="3" y="0" modes="pedestrian" />
+    <connection x="0" y="0" modes="car" />
+  </access>
+</lot>

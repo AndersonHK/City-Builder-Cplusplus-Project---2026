@@ -1,0 +1,24 @@
+<lot id="rci_residential_6x4_low_court_lot" name="6x4 Rowhouse Garden" zoningType="residential" densityBand="low" constructionDays="4">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="6" height="4" />
+  <front direction="north" />
+  <modules>
+    <moduleRef id="rowhouse_court_module" x="2" y="0" />
+    <moduleRef id="driveway_module" x="0" y="0" />
+    <moduleRef id="garden_module" x="1" y="0" />
+    <moduleRef id="garden_module" x="5" y="0" />
+    <moduleRef id="garden_module" x="0" y="1" />
+    <moduleRef id="garden_module" x="1" y="1" />
+    <moduleRef id="garden_module" x="5" y="1" />
+    <moduleRef id="garden_module" x="0" y="2" />
+    <moduleRef id="garden_module" x="1" y="2" />
+    <moduleRef id="garden_module" x="5" y="2" />
+    <moduleRef id="garden_module" x="0" y="3" />
+    <moduleRef id="garden_module" x="1" y="3" />
+    <moduleRef id="garden_module" x="5" y="3" />
+  </modules>
+  <access>
+    <connection x="2" y="0" modes="pedestrian" />
+    <connection x="0" y="0" modes="car" />
+  </access>
+</lot>

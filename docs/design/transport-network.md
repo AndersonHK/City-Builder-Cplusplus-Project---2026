@@ -23,6 +23,7 @@ Use this guide when changing road placement, lane topology, road render data, or
 - `TransportCostMap` owns dense outgoing directional costs, capacities, building access, sparse transfer edges, morning/evening traffic load states, A* scratch reuse, and traffic-overlay generation.
 - `TransportNetwork` owns layer storage, lot-occupancy rejection, dirty tile neighborhoods, chunk revisions, resolved-cell publication, affected-tile cost-map rebuilding, traffic-overlay publication, and packed ground-road bytes.
 - `Data/TransportNetwork/congestion.xml` owns the utilization-to-speed-multiplier table used when old load turns base lane travel time into congested A* cost.
+- `Data/TransportNetwork/lane_capacities.xml` owns static lane capacities for slow, medium, fast, and pedestrian lanes.
 
 ## Lane Rules
 - Templates emit lane cells. The cost map, building access, sidewalk graphics, crosswalk graphics, median graphics, dividers, and packed render state all derive from those lane cells.
@@ -39,7 +40,7 @@ Use this guide when changing road placement, lane topology, road render data, or
 - A resolved tile aggregates lane type masks, surface masks, costs, travel, exits, junction glyphs, lane graphics, and dividers for renderer/query consumers.
 - A pathing lane contributes only the outgoing directions it actually permits. If multiple lanes contribute to the same tile/layer/mode/direction, the cost map keeps the lower cost and accumulates capacity.
 - Transport costs are fixed-point seconds with 1000 cost units per second. Current tile-speed placeholders are slow 9 tiles/second, medium 11 tiles/second, fast 13 tiles/second, highway fast 14 tiles/second, and pedestrian 2 tiles/second. The tile length in meters is intentionally undecided.
-- Current lane capacities are slow 240, medium 440, fast 680, and pedestrian 1500.
+- Current lane capacities are slow 240, medium 560, fast 840, and pedestrian 2400. These numbers are loaded from XML during asset load and applied to `RoadTemplateDefinition`.
 - Ground local sidewalks expose adjacent building access for pedestrian and car spawning. Highways, elevated lanes, underground lanes, and through-only lanes do not expose adjacent building access by default.
 
 ## Pathfinding And Traffic Loads
@@ -49,7 +50,7 @@ Use this guide when changing road placement, lane topology, road render data, or
 - A* seeds each candidate start node with a mode start cost before movement: car starts currently add 60 seconds, while pedestrian starts add 0. This represents parking/unparking overhead and makes short walking trips competitive.
 - Congestion reads immutable committed load for the requested commute time, converts `oldLoad / capacity` through the XML speed table, and writes reassigned traffic into that commute time's touched new-load edges. Morning and evening loads are parallel states over one stable base cost/capacity graph.
 - Route tie-breaking uses tiny deterministic jitter from the route seed so equivalent alternatives can distribute statistically over repeated sampled updates.
-- Commute assignment routes low-wealth residential demand to compatible low-wealth job destinations as a round trip. A destination is valid only when the morning home-to-job path and evening job-to-home path both succeed within the maximum commute cost.
+- Commute assignment routes low-wealth residential demand to compatible low-wealth job destinations as a round trip. A destination is valid only when the morning home-to-job path and evening job-to-home path both succeed within the 600-second maximum commute cost.
 - Each route stores morning and evening path results, coalesced segments, and medium-retry flags. Short directions are preserved and clear their retry flag. Medium directions are rerouted only for the offending commute time; invalid, long, or already-retried medium directions force destination reassignment.
 - Simulation ticks alternate commute times through `SimulationTime::ticksPerDay() == 2`: morning on the first tick of a logical day and evening on the second. Gameplay durations should be authored in logical days where possible, then converted to runtime ticks at load/setup boundaries.
 - Querying a lot can publish coalesced morning commute route segments; rendering turns those tile/layer/mode/direction segments into mode-colored arrows above roads, buildings, and overlays. Querying a road tile summarizes morning commuters that pass through that tile's lanes and draws those selected morning segments as route arrows.
@@ -124,7 +125,7 @@ A car intersection node is a resolved car junction with at least three cardinal 
 - Build and run `TransportNetworkTests.vcxproj`.
 - Verify straight one-way and two-way local streets, elevated highways, corners, tees, crosses, same-axis overlap rejection, exact replay revision stability, and lot-road occupancy rejection.
 - Verify directional one-way costs, lower-cost merge behavior, mode start costs, capacity accumulation, no implicit layer connection, explicit transfer edges, independent morning/evening load add/subtract, congestion rerouting, worst-case traffic-overlay colors, and affected-only overlay chunk updates after road removal.
-- Verify lane traversal costs remain fixed-point seconds, car starts add 60 seconds, pedestrian starts add 0 seconds, and congestion applies over-capacity slowdowns after the base lane travel cost.
+- Verify lane traversal costs remain fixed-point seconds, lane capacities load from `lane_capacities.xml`, car starts add 60 seconds, pedestrian starts add 0 seconds, and congestion applies over-capacity slowdowns after the base lane travel cost.
 - In game, pan away and back after road edits to confirm deferred chunk uploads still catch up when visible.
 
 ## Related Guides

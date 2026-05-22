@@ -1,0 +1,12 @@
+<lot id="rci_residential_5x7_high_court_lot" name="5x7 Tower Plaza" zoningType="residential" densityBand="high" constructionDays="14">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="5" height="7" />
+  <front direction="north" />
+  <modules>
+    <moduleRef id="superblock_tower_module" x="0" y="0" />
+  </modules>
+  <access>
+    <connection x="2" y="0" modes="pedestrian" />
+    <connection x="0" y="0" modes="car" />
+  </access>
+</lot>

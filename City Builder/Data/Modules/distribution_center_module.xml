@@ -1,8 +1,8 @@
-<module id="distribution_center_module">
+<module id="distribution_center_module" density="medium">
   <size width="4" height="4" />
-  <effects airPollution="10000" landValue="-2200" />
-  <render height="1.05" colorR="0.36" colorG="0.39" colorB="0.41" />
+  <effects airPollution="5000" landValue="-1600" />
+  <render height="1.10" colorR="0.38" colorG="0.40" colorB="0.39" />
   <parameters>
-    <driver id="jobs.dirty_industry" amount="36" />
+    <driver id="jobs.dirty_industry" amount="32" />
   </parameters>
 </module>

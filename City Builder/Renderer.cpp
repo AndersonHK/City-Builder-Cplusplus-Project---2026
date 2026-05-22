@@ -3281,8 +3281,9 @@ int Renderer::run() {
                 }
             } else if (viewState.overlayMode == OverlayMode::LandValue && snapshot.tiles != 0) {
                 if (landValueOverlayRangeGeneration != snapshot.generation) {
-                    RendererFindLandValueRange(*snapshot.tiles, landValueOverlayMinimum, landValueOverlayMaximum);
-                    landValueOverlayRangeGeneration = snapshot.generation;
+                landValueOverlayMinimum = kLandValueDisplayMinimum;
+                landValueOverlayMaximum = kLandValueDisplayCap;
+                landValueOverlayRangeGeneration = snapshot.generation;
                 }
 
                 for (uploadChunkIndex = 0; uploadChunkIndex < chunkCaches.size(); ++uploadChunkIndex) {

@@ -1,0 +1,8 @@
+<module id="superblock_tower_module" density="high">
+  <size width="5" height="7" />
+  <effects airPollution="0" landValue="30000" />
+  <render height="6.80" colorR="0.66" colorG="0.69" colorB="0.72" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="280" />
+  </parameters>
+</module>

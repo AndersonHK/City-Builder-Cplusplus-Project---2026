@@ -1,0 +1,55 @@
+<lot id="rci_industrial_8x8_medium_works_lot" name="8x8 Distribution Yard" zoningType="industrial" densityBand="medium" constructionDays="10">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="8" height="8" />
+  <front direction="north" />
+  <modules>
+    <moduleRef id="distribution_center_module" x="2" y="1" />
+    <moduleRef id="concrete_floor_module" x="3" y="0" />
+    <moduleRef id="service_yard_module" x="0" y="0" />
+    <moduleRef id="loading_yard_module" x="5" y="6" />
+    <moduleRef id="concrete_floor_module" x="1" y="0" />
+    <moduleRef id="concrete_floor_module" x="2" y="0" />
+    <moduleRef id="concrete_floor_module" x="4" y="0" />
+    <moduleRef id="concrete_floor_module" x="5" y="0" />
+    <moduleRef id="concrete_floor_module" x="6" y="0" />
+    <moduleRef id="concrete_floor_module" x="7" y="0" />
+    <moduleRef id="service_yard_module" x="0" y="1" />
+    <moduleRef id="concrete_floor_module" x="1" y="1" />
+    <moduleRef id="service_yard_module" x="6" y="1" />
+    <moduleRef id="concrete_floor_module" x="7" y="1" />
+    <moduleRef id="service_yard_module" x="0" y="2" />
+    <moduleRef id="service_yard_module" x="1" y="2" />
+    <moduleRef id="service_yard_module" x="6" y="2" />
+    <moduleRef id="service_yard_module" x="7" y="2" />
+    <moduleRef id="concrete_floor_module" x="0" y="3" />
+    <moduleRef id="concrete_floor_module" x="1" y="3" />
+    <moduleRef id="concrete_floor_module" x="6" y="3" />
+    <moduleRef id="concrete_floor_module" x="7" y="3" />
+    <moduleRef id="concrete_floor_module" x="0" y="4" />
+    <moduleRef id="service_yard_module" x="1" y="4" />
+    <moduleRef id="concrete_floor_module" x="6" y="4" />
+    <moduleRef id="service_yard_module" x="7" y="4" />
+    <moduleRef id="service_yard_module" x="0" y="5" />
+    <moduleRef id="service_yard_module" x="1" y="5" />
+    <moduleRef id="service_yard_module" x="2" y="5" />
+    <moduleRef id="service_yard_module" x="3" y="5" />
+    <moduleRef id="service_yard_module" x="4" y="5" />
+    <moduleRef id="service_yard_module" x="5" y="5" />
+    <moduleRef id="service_yard_module" x="6" y="5" />
+    <moduleRef id="service_yard_module" x="7" y="5" />
+    <moduleRef id="concrete_floor_module" x="0" y="6" />
+    <moduleRef id="concrete_floor_module" x="1" y="6" />
+    <moduleRef id="concrete_floor_module" x="2" y="6" />
+    <moduleRef id="concrete_floor_module" x="3" y="6" />
+    <moduleRef id="concrete_floor_module" x="4" y="6" />
+    <moduleRef id="service_yard_module" x="0" y="7" />
+    <moduleRef id="concrete_floor_module" x="1" y="7" />
+    <moduleRef id="service_yard_module" x="2" y="7" />
+    <moduleRef id="concrete_floor_module" x="3" y="7" />
+    <moduleRef id="service_yard_module" x="4" y="7" />
+  </modules>
+  <access>
+    <connection x="3" y="0" modes="pedestrian" />
+    <connection x="0" y="0" modes="car" />
+  </access>
+</lot>

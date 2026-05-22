@@ -3,10 +3,7 @@
 #include <algorithm>
 
 namespace {
-const int kSlowLaneCapacity = 240;
-const int kMediumLaneCapacity = 440;
-const int kFastLaneCapacity = 680;
-const int kPedestrianLaneCapacity = 1500;
+RoadLaneCapacityConfig gLaneCapacityConfig;
 
 RoadDirectionMode DirectionModeFromTemplateId(std::uint16_t templateId) {
     return static_cast<RoadDirectionMode>((templateId >> 6) & 0x3u);
@@ -26,12 +23,12 @@ RoadTemplateElement PrimaryLane(RoadLaneTypeId laneType) {
 
 int CapacityForLaneType(RoadLaneTypeId laneType) {
     if (laneType == RoadLaneTypeId::Fast) {
-        return kFastLaneCapacity;
+        return gLaneCapacityConfig.fast;
     }
     if (laneType == RoadLaneTypeId::Medium) {
-        return kMediumLaneCapacity;
+        return gLaneCapacityConfig.medium;
     }
-    return kSlowLaneCapacity;
+    return gLaneCapacityConfig.slow;
 }
 
 void SetPrimaryLane(RoadLaneCell& cell, RoadLaneTypeId laneType, const RoadLaneCellContext& context) {
@@ -57,7 +54,7 @@ void SetPrimaryLane(RoadLaneCell& cell, RoadLaneTypeId laneType, const RoadLaneC
 void AttachSidewalk(RoadLaneCell& cell, const RoadLaneCellContext& context, bool inverted) {
     cell.secondary.mode = CommuterMode::Pedestrian;
     cell.secondary.laneType = RoadLaneTypeId::Pedestrian;
-    cell.secondary.capacity = kPedestrianLaneCapacity;
+    cell.secondary.capacity = gLaneCapacityConfig.pedestrian;
     cell.secondary.directionMask = context.directionMask;
     cell.secondary.travelDirectionMask = cell.primary.travelDirectionMask;
     cell.secondary.pathDirectionMask = cell.primary.pathDirectionMask;
@@ -222,6 +219,13 @@ const AvenueTemplateDefinition kAvenueTemplate;
 const HighwayTemplateDefinition kHighwayTemplate;
 }
 
+RoadLaneCapacityConfig::RoadLaneCapacityConfig()
+    : slow(240),
+      medium(560),
+      fast(840),
+      pedestrian(2400) {
+}
+
 RoadLaneCellContext::RoadLaneCellContext()
     : directionMask(0),
       travelDirectionMask(0),
@@ -262,4 +266,8 @@ const RoadTemplateDefinition& RoadTemplateDefinition::forKind(RoadTemplateKind t
         default:
             return kStreetTemplate;
     }
+}
+
+void RoadTemplateDefinition::setLaneCapacityConfig(const RoadLaneCapacityConfig& capacityConfig) {
+    gLaneCapacityConfig = capacityConfig;
 }

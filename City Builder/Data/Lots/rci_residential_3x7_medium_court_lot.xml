@@ -1,0 +1,15 @@
+<lot id="rci_residential_3x7_medium_court_lot" name="3x7 Midrise Garden" zoningType="residential" densityBand="medium" constructionDays="8">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="3" height="7" />
+  <front direction="north" />
+  <modules>
+    <moduleRef id="deep_midrise_module" x="0" y="1" />
+    <moduleRef id="pathway_module" x="1" y="0" />
+    <moduleRef id="parking_module" x="0" y="0" />
+    <moduleRef id="garden_module" x="2" y="0" />
+  </modules>
+  <access>
+    <connection x="1" y="0" modes="pedestrian" />
+    <connection x="0" y="0" modes="car" />
+  </access>
+</lot>

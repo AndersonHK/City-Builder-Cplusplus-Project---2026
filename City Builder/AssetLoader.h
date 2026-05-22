@@ -7,6 +7,7 @@
 #include "CityParameters.h"
 #include "Lot.h"
 #include "LotModule.h"
+#include "RoadTemplateDefinition.h"
 #include "TransportCostMap.h"
 
 struct RciDensityPoint {
@@ -36,12 +37,15 @@ struct LoadedGameAssets {
     std::vector<RciGrowthRule> rciGrowthRules;
     std::vector<float> initialDemands;
     TransportCongestionCurve congestionCurve;
+    RoadLaneCapacityConfig roadLaneCapacities;
     int rciConstructorAttemptsPerTick;
     float rciConstructorOverbuildMultiplier;
+    int rciBaselineLandValue;
 
     LoadedGameAssets()
         : rciConstructorAttemptsPerTick(5),
-          rciConstructorOverbuildMultiplier(1.2f) {
+          rciConstructorOverbuildMultiplier(1.2f),
+          rciBaselineLandValue(0) {
     }
 };
 

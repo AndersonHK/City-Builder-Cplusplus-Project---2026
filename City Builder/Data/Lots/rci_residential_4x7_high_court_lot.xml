@@ -1,0 +1,16 @@
+<lot id="rci_residential_4x7_high_court_lot" name="4x7 Tower Plaza" zoningType="residential" densityBand="high" constructionDays="14">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="4" height="7" />
+  <front direction="north" />
+  <modules>
+    <moduleRef id="deep_tower_module" x="0" y="1" />
+    <moduleRef id="pathway_module" x="1" y="0" />
+    <moduleRef id="parking_module" x="0" y="0" />
+    <moduleRef id="pathway_module" x="2" y="0" />
+    <moduleRef id="pathway_module" x="3" y="0" />
+  </modules>
+  <access>
+    <connection x="1" y="0" modes="pedestrian" />
+    <connection x="0" y="0" modes="car" />
+  </access>
+</lot>

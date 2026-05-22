@@ -1,0 +1,18 @@
+<lot id="rci_residential_6x6_medium_court_lot" name="6x6 Midrise Garden" zoningType="residential" densityBand="medium" constructionDays="8">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="6" height="6" />
+  <front direction="north" />
+  <modules>
+    <moduleRef id="avenue_midrise_module" x="1" y="0" />
+    <moduleRef id="parking_module" x="0" y="0" />
+    <moduleRef id="garden_module" x="0" y="1" />
+    <moduleRef id="parking_module" x="0" y="2" />
+    <moduleRef id="parking_module" x="0" y="3" />
+    <moduleRef id="garden_module" x="0" y="4" />
+    <moduleRef id="garden_module" x="0" y="5" />
+  </modules>
+  <access>
+    <connection x="2" y="0" modes="pedestrian" />
+    <connection x="0" y="0" modes="car" />
+  </access>
+</lot>

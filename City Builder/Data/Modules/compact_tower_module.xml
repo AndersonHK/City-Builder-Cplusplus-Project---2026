@@ -1,0 +1,8 @@
+<module id="compact_tower_module" density="high">
+  <size width="2" height="2" />
+  <effects airPollution="0" landValue="15000" />
+  <render height="3.40" colorR="0.63" colorG="0.64" colorB="0.66" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="16" />
+  </parameters>
+</module>

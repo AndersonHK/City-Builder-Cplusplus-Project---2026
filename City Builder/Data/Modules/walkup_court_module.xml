@@ -1,0 +1,8 @@
+<module id="walkup_court_module" density="medium">
+  <size width="5" height="4" />
+  <effects airPollution="0" landValue="10400" />
+  <render height="1.78" colorR="0.59" colorG="0.56" colorB="0.52" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="56" />
+  </parameters>
+</module>

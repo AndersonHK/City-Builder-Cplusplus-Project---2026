@@ -302,8 +302,15 @@ LotModule LoadModuleAsset(const std::string& filePath, const std::string& fileNa
 
     LotModule module;
     module.id = GetOptionalAttribute(rootTag.attributes, "id", StripExtension(fileName));
+    module.density = GetOptionalAttribute(rootTag.attributes, "density", "");
     if (module.id.empty()) {
         throw std::runtime_error("Module id cannot be empty: " + filePath);
+    }
+    if (!module.density.empty() &&
+        module.density != "low" &&
+        module.density != "medium" &&
+        module.density != "high") {
+        throw std::runtime_error("Module '" + module.id + "' has invalid density '" + module.density + "' in " + filePath);
     }
 
     bool hasSize = false;
@@ -400,11 +407,19 @@ LotAsset LoadLotAsset(const std::string& filePath, const std::string& fileName) 
 
     LotAsset lotAsset;
     lotAsset.id = GetOptionalAttribute(rootTag.attributes, "id", StripExtension(fileName));
+    lotAsset.name = GetOptionalAttribute(rootTag.attributes, "name", lotAsset.id);
+    lotAsset.densityBand = GetOptionalAttribute(rootTag.attributes, "densityBand", "");
     lotAsset.zoningType = ParseZoningTypeName(GetOptionalAttribute(rootTag.attributes, "zoningType", GetOptionalAttribute(rootTag.attributes, "rciType", "")));
     lotAsset.constructionTicks = ParseOptionalInt(rootTag.attributes, "constructionTicks", lotAsset.constructionTicks);
     lotAsset.constructionTicks = ParseOptionalDayDurationAsTicks(rootTag.attributes, "constructionDays", lotAsset.constructionTicks);
     if (lotAsset.id.empty()) {
         throw std::runtime_error("Lot id cannot be empty: " + filePath);
+    }
+    if (lotAsset.zoningType != TileZoningNone && lotAsset.name.empty()) {
+        throw std::runtime_error("RCI lot name cannot be empty: " + filePath);
+    }
+    if (lotAsset.zoningType != TileZoningNone && lotAsset.densityBand.empty()) {
+        throw std::runtime_error("RCI lot densityBand cannot be empty: " + filePath);
     }
 
     bool hasAnchor = false;
@@ -731,6 +746,99 @@ TransportCongestionCurve LoadCongestionCurve(const std::string& filePath) {
     return congestionCurve;
 }
 
+void ApplyRoadLaneCapacity(RoadLaneCapacityConfig& config, const std::string& typeText, int capacity, bool& seenSlow, bool& seenMedium, bool& seenFast, bool& seenPedestrian, const std::string& filePath) {
+    if (capacity <= 0) {
+        throw std::runtime_error("Road lane capacity must be positive in " + filePath);
+    }
+
+    const std::string type = ToLowerAscii(Trim(typeText));
+    if (type == "slow") {
+        if (seenSlow) {
+            throw std::runtime_error("Duplicate slow road lane capacity in " + filePath);
+        }
+        config.slow = capacity;
+        seenSlow = true;
+        return;
+    }
+    if (type == "medium") {
+        if (seenMedium) {
+            throw std::runtime_error("Duplicate medium road lane capacity in " + filePath);
+        }
+        config.medium = capacity;
+        seenMedium = true;
+        return;
+    }
+    if (type == "fast") {
+        if (seenFast) {
+            throw std::runtime_error("Duplicate fast road lane capacity in " + filePath);
+        }
+        config.fast = capacity;
+        seenFast = true;
+        return;
+    }
+    if (type == "pedestrian" || type == "sidewalk") {
+        if (seenPedestrian) {
+            throw std::runtime_error("Duplicate pedestrian road lane capacity in " + filePath);
+        }
+        config.pedestrian = capacity;
+        seenPedestrian = true;
+        return;
+    }
+
+    throw std::runtime_error("Unknown road lane capacity type '" + typeText + "' in " + filePath);
+}
+
+RoadLaneCapacityConfig LoadRoadLaneCapacities(const std::string& filePath) {
+    const std::vector<std::string> tokens = ExtractTagTokens(ReadTextFile(filePath));
+    if (tokens.empty()) {
+        throw std::runtime_error("Empty road lane capacity XML: " + filePath);
+    }
+
+    const ParsedTag rootTag = ParseTag(tokens[0]);
+    if (rootTag.name != "roadLaneCapacities" || rootTag.isClosing) {
+        throw std::runtime_error("Road lane capacity XML must start with <roadLaneCapacities>: " + filePath);
+    }
+
+    RoadLaneCapacityConfig config;
+    bool seenSlow = false;
+    bool seenMedium = false;
+    bool seenFast = false;
+    bool seenPedestrian = false;
+
+    std::size_t tokenIndex = 1;
+    for (; tokenIndex < tokens.size(); ++tokenIndex) {
+        const ParsedTag tag = ParseTag(tokens[tokenIndex]);
+        if (tag.isClosing) {
+            if (tag.name == "roadLaneCapacities") {
+                break;
+            }
+
+            throw std::runtime_error("Unexpected closing tag in road lane capacity XML: " + filePath);
+        }
+
+        if (tag.name == "lane" && tag.isSelfClosing) {
+            ApplyRoadLaneCapacity(
+                config,
+                GetRequiredAttribute(tag.attributes, "type"),
+                ParseRequiredInt(tag.attributes, "capacity"),
+                seenSlow,
+                seenMedium,
+                seenFast,
+                seenPedestrian,
+                filePath);
+            continue;
+        }
+
+        throw std::runtime_error("Unsupported road lane capacity tag: <" + tag.name + "> in " + filePath);
+    }
+
+    if (!seenSlow || !seenMedium || !seenFast || !seenPedestrian) {
+        throw std::runtime_error("Road lane capacity XML must define slow, medium, fast, and pedestrian capacities in " + filePath);
+    }
+
+    return config;
+}
+
 std::vector<float> LoadInitialDemands(const std::string& filePath, const CityParameterRegistry& parameterRegistry) {
     std::vector<float> demands(parameterRegistry.count(), 0.0f);
     const std::vector<std::string> tokens = ExtractTagTokens(ReadTextFile(filePath));
@@ -810,7 +918,7 @@ void ValidateRciGrowthRule(const RciGrowthRule& rule, const std::string& filePat
     }
 }
 
-void LoadRciConstructorSettings(const std::string& filePath, int& attemptsPerTick, float& overbuildMultiplier, std::vector<RciGrowthRule>& growthRules) {
+void LoadRciConstructorSettings(const std::string& filePath, int& attemptsPerTick, float& overbuildMultiplier, int& baselineLandValue, std::vector<RciGrowthRule>& growthRules) {
     const std::vector<std::string> tokens = ExtractTagTokens(ReadTextFile(filePath));
     if (tokens.empty()) {
         throw std::runtime_error("Empty RCI XML: " + filePath);
@@ -825,6 +933,8 @@ void LoadRciConstructorSettings(const std::string& filePath, int& attemptsPerTic
     attemptsPerTick = ParseOptionalInt(rootTag.attributes, "constructorRetries", attemptsPerTick);
     overbuildMultiplier = ParseOptionalRatio(rootTag.attributes, "constructorOverbuildPercent", overbuildMultiplier);
     overbuildMultiplier = ParseOptionalRatio(rootTag.attributes, "constructorOverbuildMultiplier", overbuildMultiplier);
+    baselineLandValue = ParseOptionalInt(rootTag.attributes, "baselineLandValue", baselineLandValue);
+    baselineLandValue = ParseOptionalInt(rootTag.attributes, "defaultLandValue", baselineLandValue);
     growthRules.clear();
 
     RciGrowthRule* activeGrowthRule = 0;
@@ -849,6 +959,13 @@ void LoadRciConstructorSettings(const std::string& filePath, int& attemptsPerTic
             attemptsPerTick = ParseOptionalInt(tag.attributes, "retries", attemptsPerTick);
             overbuildMultiplier = ParseOptionalRatio(tag.attributes, "overbuildPercent", overbuildMultiplier);
             overbuildMultiplier = ParseOptionalRatio(tag.attributes, "overbuildMultiplier", overbuildMultiplier);
+            continue;
+        }
+
+        if (tag.name == "landValue" && tag.isSelfClosing) {
+            baselineLandValue = ParseOptionalInt(tag.attributes, "baseline", baselineLandValue);
+            baselineLandValue = ParseOptionalInt(tag.attributes, "baselineLandValue", baselineLandValue);
+            baselineLandValue = ParseOptionalInt(tag.attributes, "default", baselineLandValue);
             continue;
         }
 
@@ -923,13 +1040,16 @@ bool LoadGameAssets(const std::string& dataDirectory, const CityParameterRegistr
     assets.rciGrowthRules.clear();
     assets.initialDemands.assign(parameterRegistry.count(), 0.0f);
     assets.congestionCurve = TransportCongestionCurve();
+    assets.roadLaneCapacities = RoadLaneCapacityConfig();
     assets.rciConstructorAttemptsPerTick = 5;
     assets.rciConstructorOverbuildMultiplier = 1.2f;
+    assets.rciBaselineLandValue = 0;
 
     try {
         const std::string modulesDirectory = dataDirectory + "\\Modules";
         const std::string lotsDirectory = dataDirectory + "\\Lots";
         const std::string congestionPath = dataDirectory + "\\TransportNetwork\\congestion.xml";
+        const std::string roadLaneCapacitiesPath = dataDirectory + "\\TransportNetwork\\lane_capacities.xml";
         const std::string initialDemandsPath = dataDirectory + "\\RCI\\initial_demands.xml";
         const std::string rciToolsPath = dataDirectory + "\\RCI\\rci_tools.xml";
 
@@ -969,11 +1089,14 @@ bool LoadGameAssets(const std::string& dataDirectory, const CityParameterRegistr
         if (FileExists(congestionPath)) {
             assets.congestionCurve = LoadCongestionCurve(congestionPath);
         }
+        if (FileExists(roadLaneCapacitiesPath)) {
+            assets.roadLaneCapacities = LoadRoadLaneCapacities(roadLaneCapacitiesPath);
+        }
         if (FileExists(initialDemandsPath)) {
             assets.initialDemands = LoadInitialDemands(initialDemandsPath, parameterRegistry);
         }
         if (FileExists(rciToolsPath)) {
-            LoadRciConstructorSettings(rciToolsPath, assets.rciConstructorAttemptsPerTick, assets.rciConstructorOverbuildMultiplier, assets.rciGrowthRules);
+            LoadRciConstructorSettings(rciToolsPath, assets.rciConstructorAttemptsPerTick, assets.rciConstructorOverbuildMultiplier, assets.rciBaselineLandValue, assets.rciGrowthRules);
         }
 
         std::set<std::uint16_t> constructorZoningTypes;
@@ -992,6 +1115,7 @@ bool LoadGameAssets(const std::string& dataDirectory, const CityParameterRegistr
 
         assets.rciConstructorAttemptsPerTick = std::max(1, assets.rciConstructorAttemptsPerTick);
         assets.rciConstructorOverbuildMultiplier = std::max(0.0f, assets.rciConstructorOverbuildMultiplier);
+        assets.rciBaselineLandValue = std::max(0, std::min(assets.rciBaselineLandValue, kLandValueDisplayCap));
     } catch (const std::exception& error) {
         LogException("LoadGameAssets", error);
         errorMessage = error.what();
@@ -1000,6 +1124,8 @@ bool LoadGameAssets(const std::string& dataDirectory, const CityParameterRegistr
         assets.rciGrowthRules.clear();
         assets.initialDemands.clear();
         assets.congestionCurve = TransportCongestionCurve();
+        assets.roadLaneCapacities = RoadLaneCapacityConfig();
+        assets.rciBaselineLandValue = 0;
         return false;
     }
 

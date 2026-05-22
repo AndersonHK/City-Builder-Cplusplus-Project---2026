@@ -1,0 +1,12 @@
+<lot id="rci_residential_2x2_high_garden_lot" name="2x2 Tower Park" zoningType="residential" densityBand="high" constructionDays="14">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="2" height="2" />
+  <front direction="north" />
+  <modules>
+    <moduleRef id="compact_tower_module" x="0" y="0" />
+  </modules>
+  <access>
+    <connection x="1" y="0" modes="pedestrian" />
+    <connection x="0" y="0" modes="car" />
+  </access>
+</lot>

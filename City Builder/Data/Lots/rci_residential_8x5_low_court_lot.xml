@@ -1,0 +1,37 @@
+<lot id="rci_residential_8x5_low_court_lot" name="8x5 Rowhouse Garden" zoningType="residential" densityBand="low" constructionDays="4">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="8" height="5" />
+  <front direction="north" />
+  <modules>
+    <moduleRef id="rowhouse_mews_module" x="3" y="0" />
+    <moduleRef id="driveway_module" x="0" y="0" />
+    <moduleRef id="garden_module" x="1" y="0" />
+    <moduleRef id="garden_module" x="2" y="0" />
+    <moduleRef id="garden_module" x="6" y="0" />
+    <moduleRef id="garden_module" x="7" y="0" />
+    <moduleRef id="garden_module" x="0" y="1" />
+    <moduleRef id="garden_module" x="1" y="1" />
+    <moduleRef id="garden_module" x="2" y="1" />
+    <moduleRef id="garden_module" x="6" y="1" />
+    <moduleRef id="garden_module" x="7" y="1" />
+    <moduleRef id="garden_module" x="0" y="2" />
+    <moduleRef id="garden_module" x="1" y="2" />
+    <moduleRef id="garden_module" x="2" y="2" />
+    <moduleRef id="garden_module" x="6" y="2" />
+    <moduleRef id="garden_module" x="7" y="2" />
+    <moduleRef id="garden_module" x="0" y="3" />
+    <moduleRef id="garden_module" x="1" y="3" />
+    <moduleRef id="garden_module" x="2" y="3" />
+    <moduleRef id="garden_module" x="6" y="3" />
+    <moduleRef id="garden_module" x="7" y="3" />
+    <moduleRef id="garden_module" x="0" y="4" />
+    <moduleRef id="garden_module" x="1" y="4" />
+    <moduleRef id="garden_module" x="2" y="4" />
+    <moduleRef id="garden_module" x="6" y="4" />
+    <moduleRef id="garden_module" x="7" y="4" />
+  </modules>
+  <access>
+    <connection x="3" y="0" modes="pedestrian" />
+    <connection x="0" y="0" modes="car" />
+  </access>
+</lot>

@@ -1244,14 +1244,26 @@ bool AppController::buildActiveRciPlan(RciPlan& plan) const {
         return false;
     }
 
-    return tool->buildPlan(
+    const RciPlanMode planMode = currentRciPlanMode();
+    if (planMode == RciPlanMode::Area) {
+        return tool->buildPlan(
+            viewState_.zoneDragStartX,
+            viewState_.zoneDragStartY,
+            viewState_.zoneDragCurrentX,
+            viewState_.zoneDragCurrentY,
+            planMode,
+            gameSession_.runtime().mapWidth(),
+            gameSession_.runtime().mapHeight(),
+            plan);
+    }
+
+    return gameSession_.runtime().buildRciPlan(
+        *tool,
         viewState_.zoneDragStartX,
         viewState_.zoneDragStartY,
         viewState_.zoneDragCurrentX,
         viewState_.zoneDragCurrentY,
-        currentRciPlanMode(),
-        gameSession_.runtime().mapWidth(),
-        gameSession_.runtime().mapHeight(),
+        planMode,
         plan);
 }
 
@@ -1533,12 +1545,7 @@ void AppController::commitZoneDrag(int tileX, int tileY) {
 
     RciPlan plan;
     if (buildActiveRciPlan(plan)) {
-        std::size_t roadIndex = 0;
-        for (; roadIndex < plan.roadPlans.size(); ++roadIndex) {
-            gameSession_.runtime().queuePlaceRoadStroke(BuildRciRoadStrokeCommand(plan.roadPlans[roadIndex]));
-        }
-
-        if (plan.mode == RciPlanMode::Area || plan.lots.empty()) {
+        if (plan.mode == RciPlanMode::Area) {
             std::size_t zoneRectIndex = 0;
             for (; zoneRectIndex < plan.zoneRects.size(); ++zoneRectIndex) {
                 gameSession_.runtime().queueZoneArea(
@@ -1549,10 +1556,7 @@ void AppController::commitZoneDrag(int tileX, int tileY) {
                     plan.zoningType);
             }
         } else {
-            std::size_t lotIndex = 0;
-            for (; lotIndex < plan.lots.size(); ++lotIndex) {
-                gameSession_.runtime().queueZoneLot(plan.lots[lotIndex]);
-            }
+            gameSession_.runtime().queueRciPlan(plan);
         }
     } else {
         gameSession_.runtime().queueZoneArea(

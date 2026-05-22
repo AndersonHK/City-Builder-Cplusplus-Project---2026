@@ -1,0 +1,8 @@
+<module id="shallow_midrise_module" density="medium">
+  <size width="6" height="3" />
+  <effects airPollution="0" landValue="14000" />
+  <render height="2.45" colorR="0.60" colorG="0.61" colorB="0.58" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="72" />
+  </parameters>
+</module>

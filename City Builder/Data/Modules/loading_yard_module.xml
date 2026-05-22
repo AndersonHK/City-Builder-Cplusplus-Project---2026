@@ -1,8 +1,5 @@
 <module id="loading_yard_module">
   <size width="3" height="2" />
-  <effects airPollution="4500" landValue="-950" />
-  <render height="0.45" colorR="0.43" colorG="0.44" colorB="0.39" />
-  <parameters>
-    <driver id="jobs.dirty_industry" amount="5" />
-  </parameters>
+  <effects airPollution="80" landValue="-80" />
+  <render height="0.09" colorR="0.33" colorG="0.31" colorB="0.29" />
 </module>

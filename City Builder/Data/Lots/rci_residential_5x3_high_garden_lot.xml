@@ -1,0 +1,12 @@
+<lot id="rci_residential_5x3_high_garden_lot" name="5x3 Tower Park" zoningType="residential" densityBand="high" constructionDays="14">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="5" height="3" />
+  <front direction="north" />
+  <modules>
+    <moduleRef id="tower_slab_module" x="0" y="0" />
+  </modules>
+  <access>
+    <connection x="2" y="0" modes="pedestrian" />
+    <connection x="4" y="0" modes="car" />
+  </access>
+</lot>

@@ -1,0 +1,8 @@
+<module id="terrace_unit_module" density="low">
+  <size width="1" height="2" />
+  <effects airPollution="0" landValue="2400" />
+  <render height="0.78" colorR="0.57" colorG="0.43" colorB="0.36" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="4" />
+  </parameters>
+</module>

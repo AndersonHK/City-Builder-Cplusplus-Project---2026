@@ -346,7 +346,7 @@ void Lot::rebaseAnchorToMinimumTile(int mapWidth) {
     rebuildCachedState(mapWidth);
 }
 
-// Applies each module's statistical effects to its occupied tiles.
+// Applies each module's pollution effects to its occupied tiles.
 void Lot::applyEffects(std::vector<Tile>& tiles) const {
     if (occupiedTileIndices_.empty()) {
         return;
@@ -354,13 +354,11 @@ void Lot::applyEffects(std::vector<Tile>& tiles) const {
 
     const int tileCount = static_cast<int>(occupiedTileIndices_.size());
     const int pollutionPerTile = airPollutionEmit_ / tileCount;
-    const int landValuePerTile = landValueEmit_ / tileCount;
 
     std::size_t tileIndex = 0;
     for (; tileIndex < occupiedTileIndices_.size(); ++tileIndex) {
         Tile& tile = tiles[occupiedTileIndices_[tileIndex]];
         tile.airPollution += pollutionPerTile;
-        tile.landValue += landValuePerTile;
     }
 }
 

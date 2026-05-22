@@ -2,6 +2,7 @@
 #include "RciTool.h"
 #include "SimulationDate.h"
 #include "SimulationTime.h"
+#include "TransportTypes.h"
 
 #include <algorithm>
 #include <cmath>
@@ -78,6 +79,112 @@ bool RciRoadFootprintIntersectsLot(const RciRoadPlan& roadPlan, const RciLot& lo
         lot.rect.minTileY,
         lot.rect.maxTileX,
         lot.rect.maxTileY);
+}
+
+void RciRoadFootprintBounds(const RciRoadPlan& roadPlan, int roadFootprint, int& minX, int& minY, int& maxX, int& maxY) {
+    minX = std::min(roadPlan.startTileX, roadPlan.endTileX);
+    maxX = std::max(roadPlan.startTileX, roadPlan.endTileX);
+    minY = std::min(roadPlan.startTileY, roadPlan.endTileY);
+    maxY = std::max(roadPlan.startTileY, roadPlan.endTileY);
+    if (roadPlan.startTileX == roadPlan.endTileX) {
+        maxX = minX + roadFootprint - 1;
+    } else if (roadPlan.startTileY == roadPlan.endTileY) {
+        maxY = minY + roadFootprint - 1;
+    }
+}
+
+bool RciRoadFootprintsIntersect(const RciRoadPlan& left, const RciRoadPlan& right, int roadFootprint) {
+    int leftMinX = 0;
+    int leftMinY = 0;
+    int leftMaxX = 0;
+    int leftMaxY = 0;
+    int rightMinX = 0;
+    int rightMinY = 0;
+    int rightMaxX = 0;
+    int rightMaxY = 0;
+    RciRoadFootprintBounds(left, roadFootprint, leftMinX, leftMinY, leftMaxX, leftMaxY);
+    RciRoadFootprintBounds(right, roadFootprint, rightMinX, rightMinY, rightMaxX, rightMaxY);
+    return RectsIntersect(leftMinX, leftMinY, leftMaxX, leftMaxY, rightMinX, rightMinY, rightMaxX, rightMaxY);
+}
+
+int RciContextIndex(const RciPlanningContext& context, int tileX, int tileY) {
+    return (tileY * context.mapWidth) + tileX;
+}
+
+RciPlanningContext MakeRciPlanningContext(int mapWidth, int mapHeight, const RciRect& bounds, RciPlanMode mode) {
+    RciPlanningContext context;
+    context.mapWidth = mapWidth;
+    context.mapHeight = mapHeight;
+    context.bounds = bounds;
+    context.mode = mode;
+    const std::size_t totalTiles = static_cast<std::size_t>(mapWidth) * static_cast<std::size_t>(mapHeight);
+    context.paintableTiles.assign(totalTiles, 0u);
+    context.groundRoadTiles.assign(totalTiles, 0u);
+    context.groundRoadAxisMasks.assign(totalTiles, 0u);
+    return context;
+}
+
+void SetRciContextPaintable(RciPlanningContext& context, const RciRect& rect, bool paintable) {
+    int tileY = rect.minTileY;
+    for (; tileY <= rect.maxTileY; ++tileY) {
+        int tileX = rect.minTileX;
+        for (; tileX <= rect.maxTileX; ++tileX) {
+            if (tileX < 0 || tileY < 0 || tileX >= context.mapWidth || tileY >= context.mapHeight) {
+                continue;
+            }
+
+            context.paintableTiles[static_cast<std::size_t>(RciContextIndex(context, tileX, tileY))] = paintable ? 1u : 0u;
+        }
+    }
+}
+
+void SetRciContextGroundRoad(RciPlanningContext& context, const RciRect& rect, RoadAxis axis) {
+    int tileY = rect.minTileY;
+    for (; tileY <= rect.maxTileY; ++tileY) {
+        int tileX = rect.minTileX;
+        for (; tileX <= rect.maxTileX; ++tileX) {
+            if (tileX < 0 || tileY < 0 || tileX >= context.mapWidth || tileY >= context.mapHeight) {
+                continue;
+            }
+
+            const std::size_t index = static_cast<std::size_t>(RciContextIndex(context, tileX, tileY));
+            context.groundRoadTiles[index] = 1u;
+            context.groundRoadAxisMasks[index] = AxisMaskFor(axis);
+            context.paintableTiles[index] = 0u;
+        }
+    }
+}
+
+bool PlanHasHorizontalRoadAt(const RciPlan& plan, int tileY) {
+    std::size_t roadIndex = 0u;
+    for (; roadIndex < plan.roadPlans.size(); ++roadIndex) {
+        const RciRoadPlan& roadPlan = plan.roadPlans[roadIndex];
+        if (roadPlan.startTileY == roadPlan.endTileY && roadPlan.startTileY == tileY) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool PlanHasVerticalRoadAt(const RciPlan& plan, int tileX) {
+    std::size_t roadIndex = 0u;
+    for (; roadIndex < plan.roadPlans.size(); ++roadIndex) {
+        const RciRoadPlan& roadPlan = plan.roadPlans[roadIndex];
+        if (roadPlan.startTileX == roadPlan.endTileX && roadPlan.startTileX == tileX) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool AnyLotIntersectsRect(const RciPlan& plan, const RciRect& rect) {
+    std::size_t lotIndex = 0u;
+    for (; lotIndex < plan.lots.size(); ++lotIndex) {
+        if (plan.lots[lotIndex].rect.intersects(rect)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void TestTileStatePacking(TestRunner& runner) {
@@ -409,6 +516,112 @@ void TestRciToolFallbacksAndPlanning(TestRunner& runner) {
     if (!industrialRoadPlan.lots.empty()) {
         runner.expect(industrialRoadPlan.lots[0].rect.height() == 8, "industrial RCI lots prefer eight-tile depth");
     }
+
+    RciPlanningContext shiftContext = MakeRciPlanningContext(20, 16, RciRect(2, 2, 13, 9), RciPlanMode::Lots);
+    SetRciContextPaintable(shiftContext, shiftContext.bounds, true);
+    const RciRect existingVerticalRoad(7, 2, 8, 9);
+    const RciRect occupiedPhysicalCell(4, 4, 4, 4);
+    SetRciContextGroundRoad(shiftContext, existingVerticalRoad, RoadAxis::Vertical);
+    SetRciContextPaintable(shiftContext, occupiedPhysicalCell, false);
+    RciPlan shiftRoadAwarePlan;
+    runner.expect(residential->buildPlan(shiftContext, shiftRoadAwarePlan), "road-aware shift RCI plan builds around existing roads");
+    runner.expect(shiftRoadAwarePlan.roadPlans.empty(), "shift RCI plan does not create new roads");
+    runner.expect(!shiftRoadAwarePlan.lots.empty(), "shift RCI plan creates lots from paintable cells");
+    runner.expect(!AnyLotIntersectsRect(shiftRoadAwarePlan, existingVerticalRoad), "shift RCI lots skip existing road footprint");
+    runner.expect(!AnyLotIntersectsRect(shiftRoadAwarePlan, occupiedPhysicalCell), "shift RCI lots skip occupied physical cells");
+    bool foundSideFacingLot = false;
+    std::size_t shiftLotIndex = 0u;
+    for (; shiftLotIndex < shiftRoadAwarePlan.lots.size(); ++shiftLotIndex) {
+        foundSideFacingLot = foundSideFacingLot ||
+            shiftRoadAwarePlan.lots[shiftLotIndex].frontDirection == kRoadDirectionEast ||
+            shiftRoadAwarePlan.lots[shiftLotIndex].frontDirection == kRoadDirectionWest;
+    }
+    runner.expect(foundSideFacingLot, "shift RCI lots face the existing road separator");
+
+    RciPlanningContext existingEdgeRoadContext = MakeRciPlanningContext(24, 20, RciRect(4, 4, 17, 11), RciPlanMode::LotsAndRoads);
+    SetRciContextPaintable(existingEdgeRoadContext, existingEdgeRoadContext.bounds, true);
+    SetRciContextGroundRoad(existingEdgeRoadContext, RciRect(4, 3, 17, 3), RoadAxis::Horizontal);
+    RciPlan existingEdgeRoadPlan;
+    runner.expect(residential->buildPlan(existingEdgeRoadContext, existingEdgeRoadPlan), "normal RCI plan builds beside an existing edge road");
+    runner.expect(!existingEdgeRoadPlan.lots.empty(), "normal RCI plan uses existing edge frontage");
+    runner.expect(!PlanHasHorizontalRoadAt(existingEdgeRoadPlan, 4), "normal RCI plan does not add a duplicate road beside existing edge road");
+
+    RciPlanningContext snappingContext = MakeRciPlanningContext(40, 20, RciRect(4, 4, 33, 13), RciPlanMode::LotsAndRoads);
+    SetRciContextPaintable(snappingContext, snappingContext.bounds, true);
+    SetRciContextGroundRoad(snappingContext, RciRect(20, 1, 21, 3), RoadAxis::Vertical);
+    RciPlan snappingPlan;
+    runner.expect(residential->buildPlan(snappingContext, snappingPlan), "normal RCI plan builds with touching grid alignment");
+    runner.expect(PlanHasVerticalRoadAt(snappingPlan, 20), "normal RCI plan snaps an oversized block split to the touching road corridor");
+
+    RciPlanningContext boundedParcelContext = MakeRciPlanningContext(24, 24, RciRect(5, 5, 14, 14), RciPlanMode::LotsAndRoads);
+    SetRciContextPaintable(boundedParcelContext, boundedParcelContext.bounds, true);
+    SetRciContextGroundRoad(boundedParcelContext, RciRect(5, 4, 14, 4), RoadAxis::Horizontal);
+    SetRciContextGroundRoad(boundedParcelContext, RciRect(5, 15, 14, 15), RoadAxis::Horizontal);
+    RciPlan boundedParcelPlan;
+    runner.expect(residential->buildPlan(boundedParcelContext, boundedParcelPlan), "road-bounded RCI block builds parcels");
+    std::vector<std::uint8_t> parcelCoverage(100u, 0u);
+    bool allBoundedLotsAreFiveDeep = true;
+    std::size_t boundedLotIndex = 0u;
+    for (; boundedLotIndex < boundedParcelPlan.lots.size(); ++boundedLotIndex) {
+        const RciLot& lot = boundedParcelPlan.lots[boundedLotIndex];
+        if (!lot.rect.intersects(boundedParcelContext.bounds)) {
+            continue;
+        }
+
+        allBoundedLotsAreFiveDeep = allBoundedLotsAreFiveDeep && lot.rect.height() == 5;
+        int y = lot.rect.minTileY;
+        for (; y <= lot.rect.maxTileY; ++y) {
+            int x = lot.rect.minTileX;
+            for (; x <= lot.rect.maxTileX; ++x) {
+                if (x >= boundedParcelContext.bounds.minTileX &&
+                    x <= boundedParcelContext.bounds.maxTileX &&
+                    y >= boundedParcelContext.bounds.minTileY &&
+                    y <= boundedParcelContext.bounds.maxTileY) {
+                    const int localX = x - boundedParcelContext.bounds.minTileX;
+                    const int localY = y - boundedParcelContext.bounds.minTileY;
+                    parcelCoverage[static_cast<std::size_t>((localY * boundedParcelContext.bounds.width()) + localX)] = 1u;
+                }
+            }
+        }
+    }
+    runner.expect(allBoundedLotsAreFiveDeep, "road-bounded ten-deep residential block splits into five-deep parcels");
+    bool allBoundedTilesCovered = true;
+    std::size_t coveredIndex = 0u;
+    for (; coveredIndex < parcelCoverage.size(); ++coveredIndex) {
+        allBoundedTilesCovered = allBoundedTilesCovered && parcelCoverage[coveredIndex] != 0u;
+    }
+    runner.expect(allBoundedTilesCovered, "road-bounded residential parceling consumes the whole buildable block");
+
+    RciPlanningContext emptyGridContext = MakeRciPlanningContext(64, 64, RciRect(8, 8, 55, 55), RciPlanMode::LotsAndRoads);
+    SetRciContextPaintable(emptyGridContext, emptyGridContext.bounds, true);
+    RciPlan emptyGridPlan;
+    runner.expect(residential->buildPlan(emptyGridContext, emptyGridPlan), "empty normal RCI smart grid builds");
+    bool everyHorizontalRoadOverlapsVerticalRoad = true;
+    std::size_t horizontalRoadCount = 0u;
+    std::size_t verticalRoadCount = 0u;
+    std::size_t outerRoadIndex = 0u;
+    for (; outerRoadIndex < emptyGridPlan.roadPlans.size(); ++outerRoadIndex) {
+        const RciRoadPlan& horizontalRoad = emptyGridPlan.roadPlans[outerRoadIndex];
+        if (horizontalRoad.startTileY != horizontalRoad.endTileY) {
+            ++verticalRoadCount;
+            continue;
+        }
+
+        ++horizontalRoadCount;
+        bool overlapsVertical = false;
+        std::size_t innerRoadIndex = 0u;
+        for (; innerRoadIndex < emptyGridPlan.roadPlans.size(); ++innerRoadIndex) {
+            const RciRoadPlan& verticalRoad = emptyGridPlan.roadPlans[innerRoadIndex];
+            if (verticalRoad.startTileX == verticalRoad.endTileX &&
+                RciRoadFootprintsIntersect(horizontalRoad, verticalRoad, plannedRoadFootprint)) {
+                overlapsVertical = true;
+                break;
+            }
+        }
+        everyHorizontalRoadOverlapsVerticalRoad = everyHorizontalRoadOverlapsVerticalRoad && overlapsVertical;
+    }
+    runner.expect(horizontalRoadCount > 0u && verticalRoadCount > 0u, "empty normal RCI grid has both road axes");
+    runner.expect(everyHorizontalRoadOverlapsVerticalRoad, "planned horizontal streets overlap vertical streets at junctions");
 }
 
 void TestRciToolXmlLoading(TestRunner& runner) {

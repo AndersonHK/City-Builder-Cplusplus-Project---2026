@@ -45,10 +45,23 @@ enum class RciPlanMode {
     Area
 };
 
+struct RciPlanningContext {
+    int mapWidth;
+    int mapHeight;
+    RciRect bounds;
+    RciPlanMode mode;
+    std::vector<std::uint8_t> paintableTiles;
+    std::vector<std::uint8_t> groundRoadTiles;
+    std::vector<std::uint8_t> groundRoadAxisMasks;
+
+    RciPlanningContext();
+};
+
 struct RciLot {
     std::string toolId;
     std::string name;
     std::uint16_t zoningType;
+    std::uint8_t frontDirection;
     RciColor color;
     RciRect rect;
     std::uint64_t availableAfterTick;
@@ -63,6 +76,7 @@ struct RciPlan {
     RciColor color;
     RciPlanMode mode;
     RciRect bounds;
+    std::vector<RciRect> paintRects;
     std::vector<RciLot> lots;
     std::vector<RciRect> zoneRects;
     std::vector<RciRoadPlan> roadPlans;
@@ -106,6 +120,7 @@ public:
         int mapWidth,
         int mapHeight,
         RciPlan& plan) const;
+    bool buildPlan(const RciPlanningContext& context, RciPlan& plan) const;
 
 private:
     bool buildAreaPlan(const RciRect& bounds, RciPlan& plan) const;

@@ -1,0 +1,8 @@
+<module id="large_house_module" density="low">
+  <size width="3" height="3" />
+  <effects airPollution="0" landValue="3600" />
+  <render height="0.88" colorR="0.55" colorG="0.45" colorB="0.36" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="10" />
+  </parameters>
+</module>

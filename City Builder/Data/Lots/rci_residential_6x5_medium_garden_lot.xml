@@ -1,0 +1,22 @@
+<lot id="rci_residential_6x5_medium_garden_lot" name="6x5 Walkup Court" zoningType="residential" densityBand="medium" constructionDays="8">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="6" height="5" />
+  <front direction="north" />
+  <modules>
+    <moduleRef id="midrise_block_module" x="1" y="0" />
+    <moduleRef id="parking_module" x="5" y="0" />
+    <moduleRef id="garden_module" x="0" y="0" />
+    <moduleRef id="parking_module" x="0" y="1" />
+    <moduleRef id="parking_module" x="5" y="1" />
+    <moduleRef id="garden_module" x="0" y="2" />
+    <moduleRef id="parking_module" x="5" y="2" />
+    <moduleRef id="garden_module" x="0" y="3" />
+    <moduleRef id="garden_module" x="5" y="3" />
+    <moduleRef id="garden_module" x="0" y="4" />
+    <moduleRef id="garden_module" x="5" y="4" />
+  </modules>
+  <access>
+    <connection x="3" y="0" modes="pedestrian" />
+    <connection x="5" y="0" modes="car" />
+  </access>
+</lot>

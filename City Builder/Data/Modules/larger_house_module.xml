@@ -1,7 +1,7 @@
-<module id="larger_house_module">
+<module id="larger_house_module" density="low">
   <size width="2" height="3" />
-  <effects airPollution="0" landValue="3200" />
-  <render height="0.85" colorR="0.68" colorG="0.76" colorB="0.62" />
+  <effects airPollution="0" landValue="2600" />
+  <render height="0.80" colorR="0.64" colorG="0.46" colorB="0.34" />
   <parameters>
     <driver id="residents.low_wealth" amount="7" />
   </parameters>

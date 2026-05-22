@@ -1,7 +1,7 @@
-<module id="duplex_module">
+<module id="duplex_module" density="low">
   <size width="3" height="2" />
-  <effects airPollution="0" landValue="4300" />
-  <render height="0.8" colorR="0.70" colorG="0.62" colorB="0.58" />
+  <effects airPollution="0" landValue="3200" />
+  <render height="0.78" colorR="0.56" colorG="0.40" colorB="0.34" />
   <parameters>
     <driver id="residents.low_wealth" amount="8" />
   </parameters>

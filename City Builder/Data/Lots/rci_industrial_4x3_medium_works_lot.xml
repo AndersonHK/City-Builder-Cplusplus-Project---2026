@@ -1,0 +1,12 @@
+<lot id="rci_industrial_4x3_medium_works_lot" name="4x3 Distribution Yard" zoningType="industrial" densityBand="medium" constructionDays="10">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="4" height="3" />
+  <front direction="north" />
+  <modules>
+    <moduleRef id="freight_warehouse_module" x="0" y="0" />
+  </modules>
+  <access>
+    <connection x="1" y="0" modes="pedestrian" />
+    <connection x="0" y="0" modes="car" />
+  </access>
+</lot>

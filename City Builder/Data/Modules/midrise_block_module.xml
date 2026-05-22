@@ -1,0 +1,8 @@
+<module id="midrise_block_module" density="medium">
+  <size width="4" height="5" />
+  <effects airPollution="0" landValue="13800" />
+  <render height="2.55" colorR="0.59" colorG="0.60" colorB="0.57" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="72" />
+  </parameters>
+</module>

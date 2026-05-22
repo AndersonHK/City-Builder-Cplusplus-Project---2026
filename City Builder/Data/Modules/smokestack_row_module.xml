@@ -1,5 +1,5 @@
 <module id="smokestack_row_module">
   <size width="4" height="1" />
-  <effects airPollution="22000" landValue="-4200" />
-  <render height="1.95" colorR="0.30" colorG="0.28" colorB="0.25" />
+  <effects airPollution="5200" landValue="-2600" />
+  <render height="1.55" colorR="0.20" colorG="0.20" colorB="0.20" />
 </module>

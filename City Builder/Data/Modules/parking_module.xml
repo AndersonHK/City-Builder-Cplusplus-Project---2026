@@ -1,0 +1,5 @@
+<module id="parking_module">
+  <size width="1" height="1" />
+  <effects airPollution="0" landValue="90" />
+  <render height="0.07" colorR="0.24" colorG="0.25" colorB="0.26" />
+</module>

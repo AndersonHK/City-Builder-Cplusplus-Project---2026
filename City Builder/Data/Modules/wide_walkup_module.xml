@@ -1,0 +1,8 @@
+<module id="wide_walkup_module" density="medium">
+  <size width="5" height="4" />
+  <effects airPollution="0" landValue="9400" />
+  <render height="1.68" colorR="0.58" colorG="0.55" colorB="0.51" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="48" />
+  </parameters>
+</module>

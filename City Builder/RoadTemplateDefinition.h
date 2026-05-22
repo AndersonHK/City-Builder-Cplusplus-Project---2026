@@ -5,6 +5,15 @@
 #include "RoadLaneCell.h"
 #include "RoadTemplate.h"
 
+struct RoadLaneCapacityConfig {
+    int slow;
+    int medium;
+    int fast;
+    int pedestrian;
+
+    RoadLaneCapacityConfig();
+};
+
 // Per-tile context computed by transport resolution before asking the owning
 // template to rebuild the lane cell for pathing/render publication.
 struct RoadLaneCellContext {
@@ -35,4 +44,5 @@ public:
     virtual RoadLaneCell makeLaneCell(const RoadLanePlacement& lanePlacement, const RoadLaneCellContext& context) const = 0;
 
     static const RoadTemplateDefinition& forKind(RoadTemplateKind templateKind);
+    static void setLaneCapacityConfig(const RoadLaneCapacityConfig& capacityConfig);
 };

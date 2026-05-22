@@ -64,7 +64,8 @@ enum class PlayerCommandType {
     BulldozeAtTile,
     BulldozeArea,
     ZoneArea,
-    ZoneLot
+    ZoneLot,
+    ApplyRciPlan
 };
 
 struct PlayerCommand {
@@ -78,6 +79,7 @@ struct PlayerCommand {
     std::uint16_t zoningType;
     std::string assetId;
     RciLot zoningLot;
+    RciPlan rciPlan;
     RoadStrokeCommand roadStroke;
 
     // Starts as a no-op-ish pollution command until a queue helper fills it.
@@ -264,6 +266,7 @@ public:
     void queueBulldozeArea(int startTileX, int startTileY, int endTileX, int endTileY);
     void queueZoneArea(int startTileX, int startTileY, int endTileX, int endTileY, std::uint16_t zoningType);
     void queueZoneLot(const RciLot& zoningLot);
+    void queueRciPlan(const RciPlan& plan);
     void queuePlaceRoadStroke(const RoadStrokeCommand& roadStrokeCommand);
     void queuePlaceSmokestack(int tileX, int tileY, int rotationSteps = 0);
     void queuePlacePark(int tileX, int tileY, int rotationSteps = 0);
@@ -276,6 +279,7 @@ public:
 
     bool buildLotPreviewInstances(const std::string& lotAssetId, int tileX, int tileY, int rotationSteps, std::vector<LotRenderInstance>& renderInstances, bool& isPlacementValid) const;
     bool canPlaceRoadStroke(const RoadStrokeCommand& roadStrokeCommand) const;
+    bool buildRciPlan(const RciTool& tool, int startTileX, int startTileY, int endTileX, int endTileY, RciPlanMode mode, RciPlan& plan) const;
     TileQueryResult queryTile(int tileX, int tileY) const;
     CitySaveState exportCitySaveState() const;
     void importCitySaveState(const CitySaveState& saveState);
@@ -327,12 +331,14 @@ private:
         std::size_t sourceIndex;
         int lotId;
         float capacity;
+        std::uint8_t frontDirection;
 
         RciDevelopmentSource()
             : isBuilt(false),
               sourceIndex(0),
               lotId(-1),
-              capacity(0.0f) {
+              capacity(0.0f),
+              frontDirection(kRoadDirectionNorth) {
         }
     };
 
@@ -423,17 +429,19 @@ private:
     bool evaluateRciConstructionCandidate(std::uint16_t zoningType, const RciRect& candidateRect, std::size_t seedSourceIndex, const std::vector<std::size_t>& blockSourceIndices, const std::vector<RciDevelopmentSource>& sources, float demandBudget, const TileBuffer& writeBuffer, RciConstructionCandidate& candidate) const;
     bool commitRciConstructionCandidate(const RciConstructionCandidate& candidate, TileBuffer& writeBuffer);
     bool rciCandidateTilesAreDevelopable(std::uint16_t zoningType, const RciRect& rect, const std::vector<std::size_t>& consumedSourceIndices, const std::vector<RciDevelopmentSource>& sources, const TileBuffer& writeBuffer) const;
-    const LotAsset* findRciConstructorLotAsset(std::uint16_t zoningType, int width, int height, float demandBudget, float maxDensityPerTile, std::uint32_t variationSeed, int& rotationSteps, float& capacity) const;
+    const LotAsset* findRciConstructorLotAsset(std::uint16_t zoningType, int width, int height, float demandBudget, float maxDensityPerTile, std::uint8_t frontDirection, std::uint32_t variationSeed, int& rotationSteps, float& capacity) const;
     const RciTool* findRciToolByZoningType(std::uint16_t zoningType) const;
-    bool hasRciConstructorLotAsset(std::uint16_t zoningType, int width, int height) const;
+    bool hasRciConstructorLotAsset(std::uint16_t zoningType, int width, int height, std::uint8_t frontDirection) const;
     const RciGrowthRule* findRciGrowthRule(std::uint16_t zoningType) const;
     float rciMaxDensityPerTile(std::uint16_t zoningType) const;
+    float rciLandValueDensityMultiplier(const RciRect& rect, const TileBuffer& writeBuffer) const;
+    float rciLocalMaxDensityPerTile(std::uint16_t zoningType, const RciRect& rect, const TileBuffer& writeBuffer) const;
     int rciDesirabilityForCandidate(const Lot& lot, const LotAsset& lotAsset) const;
     std::uint32_t rciVariationSeedForRect(std::uint16_t zoningType, const RciRect& rect) const;
     bool rciParcelTileIsAvailable(int tileX, int tileY, std::uint16_t zoningType, const TileBuffer& writeBuffer, const std::vector<std::uint8_t>& blockedTiles) const;
     bool rciParcelRectIsAvailable(const RciRect& rect, std::uint16_t zoningType, const TileBuffer& writeBuffer, const std::vector<std::uint8_t>& blockedTiles) const;
     void markRciParcelBlocked(const RciRect& rect, std::vector<std::uint8_t>& blockedTiles) const;
-    bool tryAddRciParcel(const RciTool& tool, const RciRect& rect, TileBuffer& writeBuffer, std::vector<std::uint8_t>& blockedTiles);
+    bool tryAddRciParcel(const RciTool& tool, const RciRect& rect, std::uint8_t frontDirection, TileBuffer& writeBuffer, std::vector<std::uint8_t>& blockedTiles);
     int rciRoadFacingDepthAtTile(int tileX, int tileY, int deltaX, int deltaY, std::uint16_t zoningType, const TileBuffer& writeBuffer, const std::vector<std::uint8_t>& blockedTiles, int maximumDepth) const;
     RciRect mapRoadFacingRciLotRect(int roadFacingDirection, int frontageStartX, int frontageStartY, const RciRect& localRect) const;
     std::size_t parcelizeRoadFacingRciRun(const RciTool& tool, int roadFacingDirection, int frontageStartX, int frontageStartY, const std::vector<int>& frontageDepths, TileBuffer& writeBuffer, std::vector<std::uint8_t>& blockedTiles);
@@ -454,12 +462,13 @@ private:
     bool tryZoneArea(int startTileX, int startTileY, int endTileX, int endTileY, std::uint16_t zoningType, TileBuffer& writeBuffer);
     bool tryClearZoningArea(int startTileX, int startTileY, int endTileX, int endTileY, TileBuffer& writeBuffer);
     bool tryZoneLot(const RciLot& zoningLot, TileBuffer& writeBuffer);
+    bool tryApplyRciPlan(const RciPlan& plan, TileBuffer& writeBuffer);
     bool applyZoningRect(const RciRect& rect, std::uint16_t zoningType, TileBuffer& writeBuffer, std::vector<int>& changedTileIndices, bool& hasZoneableTile);
     bool isZoningRectFullyZoneable(const RciRect& rect, const TileBuffer& writeBuffer, bool requireUnoccupied) const;
     bool isTileZoneableForRci(int tileLinearIndex, const Tile& tile) const;
     bool tileHasBlockingNonRciLot(int tileLinearIndex) const;
     bool removeZoningLotsIntersectingRect(const RciRect& rect);
-    void clearZoningForRoadStroke(const RoadStrokeCommand& roadStrokeCommand, TileBuffer& writeBuffer);
+    void clearZoningForRoadStroke(const RoadStrokeCommand& roadStrokeCommand, TileBuffer& writeBuffer, bool parcelizeAfterClear = true);
     bool canPlaceLot(const Lot& candidateLot) const;
     bool collectAdjacentLotIdsForModule(const LotModule& moduleAsset, int clickedTileX, int clickedTileY, std::vector<int>& adjacentLotIds) const;
     void clearLotOccupancy(const std::vector<int>& tileIndices);
@@ -525,6 +534,7 @@ private:
     std::vector<std::vector<float> > cityParameterDeltaBuffers_;
     int rciConstructorAttemptsPerTick_;
     float rciConstructorOverbuildMultiplier_;
+    int rciBaselineLandValue_;
     std::uint64_t commuteRevision_;
     bool commutesDirty_;
     std::vector<int> forcedCommuteLotIds_;

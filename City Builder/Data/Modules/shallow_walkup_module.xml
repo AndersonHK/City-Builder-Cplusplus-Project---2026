@@ -1,0 +1,8 @@
+<module id="shallow_walkup_module" density="medium">
+  <size width="5" height="3" />
+  <effects airPollution="0" landValue="8800" />
+  <render height="1.55" colorR="0.58" colorG="0.54" colorB="0.50" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="40" />
+  </parameters>
+</module>
