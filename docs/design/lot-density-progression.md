@@ -73,6 +73,8 @@ The next design step should be localizing the density cap. Population should dec
 
 The checked-in RCI catalog is now template-shaped rather than legacy one-lot-per-size data. Low- and high-density residential zones both grow the same current low-wealth residential RCI type, while the zone density curve decides whether growth stops at rowhouse density or can continue into towers. Residential and industrial both provide two named templates for every footprint from `2x2` through `8x8`, for each `low`, `medium`, and `high` density band.
 
+Dirty-industry primary modules emit positive land value by density band, so industrial development contributes to the same local intensity field as residential development. The nuisance side of dirty industry remains in `airPollution` and should be interpreted through RCI desirability rather than by subtracting directly from land value.
+
 The important invariant is tested directly in `RciLotConstructionTests.cpp`: for each zoning type and footprint, no low template may be as dense as any medium template, and no medium template may be as dense as any high template. Residential module categories are also semantic:
 
 - Houses, townhouses, rowhouses, terraces, duplexes, and trailers are `low`.

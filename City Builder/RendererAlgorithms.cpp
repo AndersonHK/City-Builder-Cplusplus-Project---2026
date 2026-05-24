@@ -7,7 +7,9 @@
 
 namespace {
 const float kTileStateScalarScale = 640000.0f;
-const std::uint8_t kOccupiedTileLiftMask = 255u;
+// Keep occupied terrain below shallow lot surfaces; a full mask is close enough
+// to concrete pavements to z-fight at distant zoom levels.
+const std::uint8_t kOccupiedTileLiftMask = 32u;
 
 struct RendererColor {
     float r;

@@ -34,7 +34,11 @@ const float kRoadGhostAlpha = 0.46f;
 const float kLotGhostAlpha = 0.42f;
 const float kRegionCellWorldSize = 1024.0f;
 const float kRegionCellWorldGap = 0.0f;
-const std::uint8_t kOccupiedTileLiftMask = 255u;
+const float kCityCameraMinimumNearPlane = 1.0f;
+const float kCityCameraNearPlaneDistanceFactor = 0.025f;
+const float kCityCameraMinimumFarPlane = 256.0f;
+const float kCityCameraFarPlaneTilePadding = 2.25f;
+const float kCityCameraFarPlaneWorldPadding = 128.0f;
 
 struct Vec3 {
     float x;
@@ -1656,8 +1660,10 @@ CameraState BuildCameraState(const ViewState& viewState) {
     spec.distance = std::max(halfSpan * (2.10f + std::max(0.0f, 1.0f - aspectRatio)), 16.0f);
     spec.verticalFieldOfViewRadians = DegreesToRadians(48.0f);
     spec.orthographicHeight = static_cast<float>(viewState.visibleTiles);
-    spec.nearPlane = 0.1f;
-    spec.farPlane = 4096.0f;
+    spec.nearPlane = std::max(kCityCameraMinimumNearPlane, spec.distance * kCityCameraNearPlaneDistanceFactor);
+    spec.farPlane = std::max(
+        kCityCameraMinimumFarPlane,
+        spec.distance + static_cast<float>(viewState.visibleTiles) * kCityCameraFarPlaneTilePadding + kCityCameraFarPlaneWorldPadding);
     spec.projectionMode = CameraProjectionPerspective;
     return BuildCameraFromSpec(spec, aspectRatio);
 }
@@ -2219,6 +2225,8 @@ int Renderer::run() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_DEPTH_BITS, 32);
+    glfwWindowHint(GLFW_STENCIL_BITS, 0);
 
     // GLFW fullscreen is chosen at window creation by passing a monitor. The
     // callback also needs the configured windowed size so Alt+Enter can restore
@@ -2241,6 +2249,11 @@ int Renderer::run() {
     const int initialWindowHeight = startupVideoMode == 0 ? configuredWindowedHeight : startupVideoMode->height;
     GLFWwindow* window = glfwCreateWindow(initialWindowWidth, initialWindowHeight, "Project Prime", startupMonitor, 0);
     if (window == 0) {
+        LogWarning("Renderer::run", "Window creation with 32-bit depth buffer failed. Retrying with a 24-bit depth buffer.");
+        glfwWindowHint(GLFW_DEPTH_BITS, 24);
+        window = glfwCreateWindow(initialWindowWidth, initialWindowHeight, "Project Prime", startupMonitor, 0);
+    }
+    if (window == 0) {
         glfwTerminate();
         LogError("Renderer::run", "Window creation failed.");
         return 1;
@@ -2256,6 +2269,10 @@ int Renderer::run() {
         glfwTerminate();
         return 1;
     }
+
+    GLint defaultFramebufferDepthBits = 0;
+    glGetIntegerv(GL_DEPTH_BITS, &defaultFramebufferDepthBits);
+    LogInfo("Renderer::run", "Default framebuffer depth bits: " + std::to_string(defaultFramebufferDepthBits));
 
     SimulationRuntime& simulationRuntime = gameSession_.runtime();
 
@@ -2491,12 +2508,21 @@ int Renderer::run() {
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, cityPreviewColorTextureId, 0);
     glGenRenderbuffers(1, &cityPreviewDepthRenderbufferId);
     glBindRenderbuffer(GL_RENDERBUFFER, cityPreviewDepthRenderbufferId);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, City::kPreviewWidth, City::kPreviewHeight);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT32F, City::kPreviewWidth, City::kPreviewHeight);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, cityPreviewDepthRenderbufferId);
-    const bool cityPreviewFramebufferComplete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    bool cityPreviewFramebufferComplete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    if (!cityPreviewFramebufferComplete) {
+        LogWarning("Renderer::run", "City preview framebuffer with 32-bit float depth is incomplete. Retrying with 24-bit depth.");
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, City::kPreviewWidth, City::kPreviewHeight);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, cityPreviewDepthRenderbufferId);
+        cityPreviewFramebufferComplete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    }
     if (!cityPreviewFramebufferComplete) {
         LogError("Renderer::run", "City preview framebuffer is incomplete.");
     }
+    GLint cityPreviewDepthBits = 0;
+    glGetRenderbufferParameteriv(GL_RENDERBUFFER, GL_RENDERBUFFER_DEPTH_SIZE, &cityPreviewDepthBits);
+    LogInfo("Renderer::run", "City preview depth bits: " + std::to_string(cityPreviewDepthBits));
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     ShaderProgram shaderProgram;
@@ -3646,7 +3672,7 @@ int Renderer::run() {
                 glDepthFunc(GL_LEQUAL);
                 glBindVertexArray(lotGhostVertexArrayId);
                 glDrawArraysInstanced(GL_TRIANGLES, 0, 36, static_cast<GLsizei>(bulldozeLotInstances.size()));
-                glDepthFunc(GL_LESS);
+                glDepthFunc(GL_LEQUAL);
                 glDepthMask(GL_TRUE);
                 glUniform1f(lotAlphaScaleLocation, 1.0f);
                 glUniform3f(lotTintColorLocation, 1.0f, 1.0f, 1.0f);

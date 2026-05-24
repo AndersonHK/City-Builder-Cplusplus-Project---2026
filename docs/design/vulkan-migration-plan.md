@@ -99,7 +99,7 @@ Replace the OpenGL context path for the Vulkan backend:
 - Create a `VkSurfaceKHR` through `glfwCreateWindowSurface`.
 - Select a physical device with graphics and present support.
 - Create logical device and queues.
-- Create swapchain, swapchain image views, and a depth image.
+- Create swapchain, swapchain image views, and a depth image. Query supported depth formats and prefer `VK_FORMAT_D32_SFLOAT`, falling back to a supported 24-bit depth format only when required by the selected device.
 - Use current framebuffer size from GLFW, and recreate the swapchain on resize/fullscreen changes.
 
 Acceptance check: the app opens a Vulkan window, clears to the current background color, resizes cleanly, and exits without validation errors.

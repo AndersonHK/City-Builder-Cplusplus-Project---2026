@@ -1,6 +1,6 @@
 <module id="large_warehouse_module" density="medium">
   <size width="3" height="3" />
-  <effects airPollution="3200" landValue="0" />
+  <effects airPollution="3200" landValue="6200" />
   <render height="1.00" colorR="0.38" colorG="0.40" colorB="0.38" />
   <parameters>
     <driver id="jobs.dirty_industry" amount="15" />

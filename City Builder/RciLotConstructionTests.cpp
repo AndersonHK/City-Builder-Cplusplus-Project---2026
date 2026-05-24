@@ -516,6 +516,51 @@ void TestRciCatalogTemplateCoverageAndDensityOrdering(TestRunner& runner) {
     }
 }
 
+void TestDirtyIndustryModulesEmitDensityLandValue(TestRunner& runner) {
+    CityParameterRegistry registry;
+    LoadedGameAssets assets;
+    if (!LoadCheckedAssets(runner, assets, registry)) {
+        return;
+    }
+
+    const int dirtyIndustryId = registry.jobsDirtyIndustryId();
+    std::vector<int> lowLandValues;
+    std::vector<int> mediumLandValues;
+    std::vector<int> highLandValues;
+    int checkedModuleCount = 0;
+
+    std::size_t moduleIndex = 0;
+    for (; moduleIndex < assets.modules.size(); ++moduleIndex) {
+        const LotModule& module = assets.modules[moduleIndex];
+        if (ModuleParameterAmount(module, dirtyIndustryId) <= 0.0f) {
+            continue;
+        }
+
+        ++checkedModuleCount;
+        runner.expect(module.landValueEmit > 0, module.id + " emits developed industrial land value");
+        if (module.density == "low") {
+            lowLandValues.push_back(module.landValueEmit);
+        } else if (module.density == "medium") {
+            mediumLandValues.push_back(module.landValueEmit);
+        } else if (module.density == "high") {
+            highLandValues.push_back(module.landValueEmit);
+        } else {
+            runner.expect(false, module.id + " declares a dirty-industry density band");
+        }
+    }
+
+    runner.expect(checkedModuleCount >= 12, "dirty industry primary module catalog is loaded");
+    runner.expect(!lowLandValues.empty(), "dirty industry has low-density land-value modules");
+    runner.expect(!mediumLandValues.empty(), "dirty industry has medium-density land-value modules");
+    runner.expect(!highLandValues.empty(), "dirty industry has high-density land-value modules");
+    if (!lowLandValues.empty() && !mediumLandValues.empty()) {
+        runner.expect(*std::max_element(lowLandValues.begin(), lowLandValues.end()) < *std::min_element(mediumLandValues.begin(), mediumLandValues.end()), "medium dirty-industry modules emit more land value than low dirty-industry modules");
+    }
+    if (!mediumLandValues.empty() && !highLandValues.empty()) {
+        runner.expect(*std::max_element(mediumLandValues.begin(), mediumLandValues.end()) < *std::min_element(highLandValues.begin(), highLandValues.end()), "high dirty-industry modules emit more land value than medium dirty-industry modules");
+    }
+}
+
 void TestInvalidAssetValidation(TestRunner& runner) {
     CityParameterRegistry registry;
     const std::string validModule =
@@ -860,6 +905,45 @@ void RunRoadAwareRciPlanCommitTest(TestRunner& runner) {
         runner.expect(false, "road-aware RCI plan commit test threw unknown exception");
     }
 }
+
+void RunLargeLowDensityRciPlanCommitTest(TestRunner& runner) {
+    try {
+        GameSession session(BuildSandboxRuntimeOptions(64, 64));
+        AddSandboxCity(session, BuildCleanSandboxState(64, 64));
+        runner.expect(session.enterCity(0, 0), "large low-density RCI sandbox city enters");
+
+        RciToolCatalog catalog;
+        const RciTool* residential = catalog.findTool("residential_low");
+        runner.expect(residential != 0, "large low-density RCI test finds residential tool");
+        if (residential == 0) {
+            session.shutdown();
+            return;
+        }
+
+        RciPlan previewPlan;
+        runner.expect(
+            session.runtime().buildRciPlan(*residential, 8, 8, 55, 55, RciPlanMode::LotsAndRoads, previewPlan),
+            "large low-density RCI runtime builds smart preview plan");
+        runner.expect(!previewPlan.lots.empty(), "large low-density RCI preview creates parcels");
+        runner.expect(!previewPlan.roadPlans.empty(), "large low-density RCI preview creates roads");
+
+        session.runtime().queueRciPlan(previewPlan);
+        CitySaveState committedState;
+        runner.expect(
+            WaitForSandboxState(session, committedState, [](const CitySaveState& candidate) {
+                return candidate.simulationTick == 17u &&
+                    !candidate.transport.tiles.empty() &&
+                    !candidate.zoningLots.empty();
+            }),
+            "large low-density RCI commit applies roads and parcels");
+
+        session.shutdown();
+    } catch (const std::exception& error) {
+        runner.expect(false, std::string("large low-density RCI plan commit test threw exception: ") + error.what());
+    } catch (...) {
+        runner.expect(false, "large low-density RCI plan commit test threw unknown exception");
+    }
+}
 }
 
 int main() {
@@ -867,6 +951,7 @@ int main() {
     TestRunner runner;
     TestLotConstructionDurationLoading(runner);
     TestRciCatalogTemplateCoverageAndDensityOrdering(runner);
+    TestDirtyIndustryModulesEmitDensityLandValue(runner);
     TestInvalidAssetValidation(runner);
     RunRciConstructorFrontAccessGrowthTest(runner);
     RunRciConstructorSideRoadRejectedTest(runner);
@@ -875,5 +960,6 @@ int main() {
     RunRciConstructorCursorSkipsFailedSourcesTest(runner);
     RunRciLandValueQueryLevelTest(runner);
     RunRoadAwareRciPlanCommitTest(runner);
+    RunLargeLowDensityRciPlanCommitTest(runner);
     return runner.finish();
 }

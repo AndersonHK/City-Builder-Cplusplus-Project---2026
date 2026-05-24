@@ -52,7 +52,7 @@ For a tile with four neighbors this is 75 percent self-retention and 25 percent 
 Current module land-value XML is active again:
 
 - Residential modules add direct land value, scaled roughly by authored density/form.
-- Industrial modules add air pollution but currently use zero direct land-value effect.
+- Industrial modules add air pollution and positive direct land-value effects scaled by their dirty-industry density band.
 - Park modules reduce air pollution and emit `parkEffect` but currently use zero direct land-value effect.
 - Service, yard, path, parking, and related module land-value effects are neutral or small direct sources until the future composed target-value model replaces this interim source model.
 

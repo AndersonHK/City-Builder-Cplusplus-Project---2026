@@ -13,7 +13,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 ## Current Shape
 - Tiles draw from persistent per-chunk static instance buffers containing world origin and map UV.
 - Tile scalar color comes from a persistent full-map `GL_RG16_SNORM` texture updated only for visible stale chunks.
-- Lot occupancy lift comes from a persistent full-map `GL_R8` mask texture updated only for visible stale chunks.
+- Lot occupancy lift comes from a persistent full-map `GL_R8` mask texture updated only for visible stale chunks. Occupied tiles use a shallow mask value so the hidden terrain surface stays below low concrete/pavement lot surfaces at distant zoom levels.
 - Ground roads render in the tile pass from packed road-state bytes and CPU-generated road atlases. The ground-road upload path is `UpdateGroundRoadChunkTexture`.
 - Reusable tile overlays render from RGBA tile textures. Zoning, RCI tile color, RCI desirability, and traffic capacity use visible-dirty chunk uploads from published state; land value reuses the same overlay texture/draw path and packs visible chunks from the published tile snapshot using the current city-wide min/max land-value range.
 - Queried lot and road commutes render morning-only coalesced route arrows above roads, lots, and tile overlays; car arrows are green and pedestrian arrows are pink.
@@ -33,6 +33,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - The current text renderer decodes UTF-8 and emits clipped 5x7 bitmap glyph quads. Unsupported glyphs draw as `?`.
 - Region mode draws city preview textures with the same angled camera settings as city mode.
 - City previews are rendered through the normal city draw passes with a top-down orthographic camera, then uploaded to renderer-owned region preview textures.
+- City mode requests a 32-bit default framebuffer depth buffer and logs the actual negotiated depth bits. The angled city camera keeps its perspective near/far planes tight to the current zoom distance so distant pavement and concrete surfaces keep more usable depth precision. City preview rendering uses a 32-bit float depth renderbuffer with a 24-bit fallback if the framebuffer is incomplete.
 - Preview state loading/generation may happen on background futures, but GL preview rendering and texture upload stay on the render thread.
 - Region preview textures stay resident when entering city mode so F3 return can draw cached previews and refresh only stale city previews, normally the city that was just open.
 - `GameSession::renderStateRevision` fences city load/enter transitions; when it changes, all city tile, road, lot, overlay, and route upload caches must be treated as stale before the next draw.

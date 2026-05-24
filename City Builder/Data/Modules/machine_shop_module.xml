@@ -1,6 +1,6 @@
 <module id="machine_shop_module" density="medium">
   <size width="2" height="2" />
-  <effects airPollution="2400" landValue="0" />
+  <effects airPollution="2400" landValue="5200" />
   <render height="0.95" colorR="0.39" colorG="0.40" colorB="0.39" />
   <parameters>
     <driver id="jobs.dirty_industry" amount="6" />

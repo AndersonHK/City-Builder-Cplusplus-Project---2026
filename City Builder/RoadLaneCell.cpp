@@ -1,6 +1,5 @@
 #include "RoadLaneCell.h"
 
-#include <cassert>
 #include <cstddef>
 
 #include "RoadRenderState.h"
@@ -91,8 +90,6 @@ std::uint8_t Lane::centerMask() const {
     const std::uint8_t graphicMask = directionMask & kRoadSurfaceSidewalkEdgeMask;
     const std::uint8_t outgoingMask = static_cast<std::uint8_t>((travelDirectionMask != 0 ? travelDirectionMask : graphicMask) & graphicMask);
     const std::uint8_t incomingMask = static_cast<std::uint8_t>(graphicMask & ~outgoingMask);
-    assert(CountCardinalDirections(outgoingMask) <= 2);
-    assert(CountCardinalDirections(incomingMask) <= 2);
     if (CountCardinalDirections(outgoingMask) > 2 || CountCardinalDirections(incomingMask) > 2) {
         return 0;
     }

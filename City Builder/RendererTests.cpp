@@ -238,10 +238,10 @@ void TestTileLiftChunkPacking(TestRunner& runner) {
     RendererFillTileLiftChunkPixels(occupancy, 4, chunk, pixels);
 
     runner.expect(pixels.size() == 4u, "lift chunk writes one byte per tile");
-    runner.expect(pixels[0] == 255u, "occupied tile lifts to full mask");
+    runner.expect(pixels[0] == 32u, "occupied tile uses shallow lift mask");
     runner.expect(pixels[1] == 0u, "empty tile keeps zero lift mask");
     runner.expect(pixels[2] == 0u, "empty row-major tile keeps zero lift mask");
-    runner.expect(pixels[3] == 255u, "occupied row-major tile lifts to full mask");
+    runner.expect(pixels[3] == 32u, "occupied row-major tile uses shallow lift mask");
 }
 
 void TestZoningOverlayChunkPacking(TestRunner& runner) {

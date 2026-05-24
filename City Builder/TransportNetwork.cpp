@@ -1,7 +1,6 @@
 #include "TransportNetwork.h"
 
 #include <algorithm>
-#include <cassert>
 #include <cstddef>
 
 namespace {
@@ -1397,8 +1396,6 @@ std::uint8_t TransportNetwork::laneGraphicDirectionMask(TransportLayerId layer, 
         }
     }
 
-    assert(CountCardinalDirections(movementMask) <= 2);
-    assert(CountCardinalDirections(incomingMask) <= 2);
     if (CountCardinalDirections(movementMask) > 2 || CountCardinalDirections(incomingMask) > 2) {
         return 0;
     }
@@ -1425,13 +1422,11 @@ std::uint8_t TransportNetwork::laneCenterTravelDirectionMask(TransportLayerId la
         }
     }
 
-    assert(CountCardinalDirections(travelMask) <= 2);
     if (CountCardinalDirections(travelMask) > 2) {
         return 0;
     }
 
     const std::uint8_t fallbackTravelMask = RoadDirectionMaskForLane(lanePlacement);
-    assert(CountCardinalDirections(fallbackTravelMask) <= 2);
     if (CountCardinalDirections(fallbackTravelMask) > 2) {
         return 0;
     }

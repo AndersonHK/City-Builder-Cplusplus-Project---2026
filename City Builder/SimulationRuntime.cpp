@@ -1449,6 +1449,7 @@ bool SimulationRuntime::hasPendingCommands() const {
 }
 
 void SimulationRuntime::publishPausedCommandFrame() {
+    CrashScope crashScope("SimulationRuntime::publishPausedCommandFrame");
     std::lock_guard<std::mutex> liveStateLock(liveStateMutex_);
     copyChunkRevisionsForWriteBuffer();
     TileBuffer& writeBuffer = tileBuffers_[simulationWriteBufferIndex_];
@@ -1477,6 +1478,7 @@ void SimulationRuntime::publishPausedCommandFrame() {
 
 // Runs the ordered simulation passes and publishes completed write buffers.
 void SimulationRuntime::simulationLoop() {
+    CrashScope crashScope("SimulationRuntime::simulationLoop");
     int updatesThisSecond = 0;
     std::chrono::steady_clock::time_point secondWindowStart = std::chrono::steady_clock::now();
     std::chrono::steady_clock::time_point nextPlayTick = secondWindowStart;
@@ -1587,6 +1589,7 @@ void SimulationRuntime::stopWorkers() {
 
 // Waits for chunk-task generations and participates until shutdown.
 void SimulationRuntime::workerMain() {
+    CrashScope crashScope("SimulationRuntime::workerMain");
     std::uint64_t observedGeneration = 0;
 
     for (;;) {
