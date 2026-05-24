@@ -58,6 +58,7 @@ Lot::Lot()
       lowWealthJobsHaveRoadAccess_(true),
       hasLongCommuteComplaint_(false),
       airPollutionEmit_(0),
+      parkEffectEmit_(0),
       landValueEmit_(0),
       minimumOccupiedOffset_(0, 0),
       maximumOccupiedOffset_(0, 0),
@@ -86,6 +87,7 @@ Lot::Lot(int lotId, const std::string& assetId, int anchorTileX, int anchorTileY
       lowWealthJobsHaveRoadAccess_(true),
       hasLongCommuteComplaint_(false),
       airPollutionEmit_(0),
+      parkEffectEmit_(0),
       landValueEmit_(0),
       minimumOccupiedOffset_(0, 0),
       maximumOccupiedOffset_(0, 0),
@@ -346,7 +348,7 @@ void Lot::rebaseAnchorToMinimumTile(int mapWidth) {
     rebuildCachedState(mapWidth);
 }
 
-// Applies each module's pollution effects to its occupied tiles.
+// Applies each module's tile-stat effects to its occupied tiles.
 void Lot::applyEffects(std::vector<Tile>& tiles) const {
     if (occupiedTileIndices_.empty()) {
         return;
@@ -354,11 +356,15 @@ void Lot::applyEffects(std::vector<Tile>& tiles) const {
 
     const int tileCount = static_cast<int>(occupiedTileIndices_.size());
     const int pollutionPerTile = airPollutionEmit_ / tileCount;
+    const int parkEffectPerTile = parkEffectEmit_ / tileCount;
+    const int landValuePerTile = landValueEmit_ / tileCount;
 
     std::size_t tileIndex = 0;
     for (; tileIndex < occupiedTileIndices_.size(); ++tileIndex) {
         Tile& tile = tiles[occupiedTileIndices_[tileIndex]];
         tile.airPollution += pollutionPerTile;
+        tile.parkEffect += parkEffectPerTile;
+        tile.landValue += landValuePerTile;
     }
 }
 
@@ -623,6 +629,7 @@ void Lot::rebuildCachedState(int mapWidth) {
     occupiedTileIndices_.clear();
     parameterContributions_.clear();
     airPollutionEmit_ = 0;
+    parkEffectEmit_ = 0;
     landValueEmit_ = 0;
     renderHeight_ = 0.25f;
     colorR_ = 0.35f;
@@ -655,6 +662,7 @@ void Lot::rebuildCachedState(int mapWidth) {
 
         if (activeModuleEffects) {
             airPollutionEmit_ += placement.module->airPollutionEmit;
+            parkEffectEmit_ += placement.module->parkEffectEmit;
             landValueEmit_ += placement.module->landValueEmit;
         }
         renderHeight_ = std::max(renderHeight_, placement.module->renderHeight);

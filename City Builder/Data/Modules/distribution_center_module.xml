@@ -1,6 +1,6 @@
 <module id="distribution_center_module" density="medium">
   <size width="4" height="4" />
-  <effects airPollution="5000" landValue="-1600" />
+  <effects airPollution="5000" landValue="0" />
   <render height="1.10" colorR="0.38" colorG="0.40" colorB="0.39" />
   <parameters>
     <driver id="jobs.dirty_industry" amount="32" />

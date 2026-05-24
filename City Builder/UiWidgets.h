@@ -91,6 +91,7 @@ struct UiResolvedButton {
 enum class UiAnchor {
     TopLeft,
     BottomLeft,
+    BottomRight,
     Center
 };
 
@@ -99,11 +100,25 @@ enum class UiFlow {
     Up
 };
 
+enum class UiMenuStackMode {
+    Away,
+    Centered
+};
+
+enum class UiMenuStackDirection {
+    Up,
+    Right,
+    Down,
+    Left
+};
+
 class UiMenu {
 public:
     UiMenu();
 
     const std::string& id() const;
+    const std::string& parentMenuId() const;
+    const std::string& parentButtonId() const;
     bool visible() const;
     void setVisible(bool visible);
     const UiColor& backgroundColor() const;
@@ -121,10 +136,31 @@ public:
         int spacing,
         UiAnchor anchor,
         UiFlow flow,
+        UiMenuStackMode stackMode,
+        UiMenuStackDirection stackDirection,
+        const std::string& parentMenuId,
+        const std::string& parentButtonId,
+        bool visible,
+        const UiColor& backgroundColor);
+    void setDefinition(
+        const std::string& id,
+        int x,
+        int y,
+        int bottom,
+        int width,
+        int height,
+        int buttonWidth,
+        int buttonHeight,
+        int spacing,
+        UiAnchor anchor,
+        UiFlow flow,
         bool visible,
         const UiColor& backgroundColor);
     void addButton(const UiButton& button);
+    void removeButtonsWithActionPrefix(const std::string& actionPrefix);
     UiRect resolvedRect(int framebufferWidth, int framebufferHeight) const;
+    UiRect resolvedChildRect(const UiRect& parentRect, int framebufferWidth, int framebufferHeight) const;
+    void resolveButtonsInRect(const UiRect& menuRect, const std::vector<std::string>& activeActions, std::vector<UiResolvedButton>& resolvedButtons) const;
     void resolveButtons(int framebufferWidth, int framebufferHeight, const std::string& activeAction, std::vector<UiResolvedButton>& resolvedButtons) const;
     void resolveButtons(int framebufferWidth, int framebufferHeight, const std::vector<std::string>& activeActions, std::vector<UiResolvedButton>& resolvedButtons) const;
 
@@ -142,6 +178,10 @@ private:
     int spacing_;
     UiAnchor anchor_;
     UiFlow flow_;
+    UiMenuStackMode stackMode_;
+    UiMenuStackDirection stackDirection_;
+    std::string parentMenuId_;
+    std::string parentButtonId_;
     bool visible_;
     UiColor backgroundColor_;
     std::vector<UiButton> buttons_;
@@ -157,14 +197,20 @@ public:
     void setMenuVisible(const std::string& menuId, bool visible);
     void toggleMenu(const std::string& menuId);
     bool menuVisible(const std::string& menuId) const;
+    bool addButtonToMenu(const std::string& menuId, const UiButton& button);
+    bool removeButtonsWithActionPrefix(const std::string& menuId, const std::string& actionPrefix);
+    bool resolveMenuRect(const std::string& menuId, int framebufferWidth, int framebufferHeight, UiRect& rect) const;
     bool hitTestAction(double mouseX, double mouseY, int framebufferWidth, int framebufferHeight, std::string& action) const;
     bool hitTestAction(double mouseX, double mouseY, int framebufferWidth, int framebufferHeight, const std::vector<std::string>& menuIds, std::string& action) const;
     void resolveButtons(int framebufferWidth, int framebufferHeight, const std::string& activeAction, std::vector<UiResolvedButton>& resolvedButtons) const;
     void resolveButtons(int framebufferWidth, int framebufferHeight, const std::vector<std::string>& activeActions, std::vector<UiResolvedButton>& resolvedButtons) const;
+    void resolveButtons(int framebufferWidth, int framebufferHeight, const std::vector<std::string>& activeActions, const std::vector<std::string>& menuIds, std::vector<UiResolvedButton>& resolvedButtons) const;
 
 private:
     UiMenu* findMenu(const std::string& menuId);
     const UiMenu* findMenu(const std::string& menuId) const;
+    bool resolveMenuRectRecursive(const std::string& menuId, int framebufferWidth, int framebufferHeight, UiRect& rect, int depth) const;
+    bool visibleInMenuTree(const UiMenu& menu, int depth) const;
 
     std::vector<UiMenu> menus_;
 };

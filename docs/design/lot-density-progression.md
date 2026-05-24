@@ -60,17 +60,18 @@ At this project's scale, that means `2x4`, `2x5`, `3x5`, and `3x6` should be val
 ## Current Shape
 
 - The RCI constructor already gates growth through `Data/RCI/rci_tools.xml`.
-- Each `rciGrowth` rule declares a desirability threshold and population-keyed `maxDensityPerTile` values.
+- Each XML-defined zone declares its zoning color, desirability threshold, and population-keyed `maxDensityPerTile` values.
+- Zones and RCI types are separate concepts. A zone is what the player paints and what owns zoning color, parcel sizing, and max density. An RCI type is what grows there and owns demand/desirability identity. Low-density residential and high-density residential currently both allow the same low-wealth residential RCI type, while industrial allows dirty industry.
 - `SimulationRuntime::rciMaxDensityPerTile` linearly interpolates the citywide maximum density from current city population.
 - `findRciConstructorLotAsset` picks the highest-capacity asset that fits the candidate rectangle, front direction, demand budget, and density limit.
-- `SimulationRuntime::rciLocalMaxDensityPerTile` multiplies the citywide cap by local land value. Land value 0 gives 10 percent of the city cap; land value at the displayed overlay cap gives 100 percent.
+- `SimulationRuntime::rciLocalMaxDensityPerTile` multiplies the citywide cap by normalized local land value, with a small starter-density floor. Land value 0 allows only low-density starter growth through that floor; land value at the displayed overlay cap gives 100 percent of the city cap.
 - `rciDesirabilityForCandidate` is currently binary: candidates with car or pedestrian access score `100`; candidates without access score `0`.
 
 The next design step should be localizing the density cap. Population should decide what the city can support. Local place quality should decide where the dense buildings actually appear.
 
 ## Current Template Snapshot
 
-The checked-in RCI catalog is now template-shaped rather than legacy one-lot-per-size data. Residential and industrial both provide two named templates for every footprint from `2x2` through `8x8`, for each `low`, `medium`, and `high` density band.
+The checked-in RCI catalog is now template-shaped rather than legacy one-lot-per-size data. Low- and high-density residential zones both grow the same current low-wealth residential RCI type, while the zone density curve decides whether growth stops at rowhouse density or can continue into towers. Residential and industrial both provide two named templates for every footprint from `2x2` through `8x8`, for each `low`, `medium`, and `high` density band.
 
 The important invariant is tested directly in `RciLotConstructionTests.cpp`: for each zoning type and footprint, no low template may be as dense as any medium template, and no medium template may be as dense as any high template. Residential module categories are also semantic:
 
@@ -144,7 +145,7 @@ Population remains the broad maturity gate. The XML curve is intentionally longe
 | 600,000 | 6.75 | mature high-density centers expand |
 | 1,000,000 | 8.00 | mature high-density core |
 
-This should stay data-driven through `maxDensityPerTile` points and linear interpolation. I tried fitting the anchors as a single regression against `log10(population + 100)`. A straight line missed both the low and high ends; a quadratic fit was closer:
+This full citywide curve belongs to the high-density residential zone. Low-density residential currently uses the same early anchors through population 3,000 and then stays flat at `1.75`, keeping it below apartment density while still letting small parcels mature. This should stay data-driven through `maxDensityPerTile` points and linear interpolation. I tried fitting the anchors as a single regression against `log10(population + 100)`. A straight line missed both the low and high ends; a quadratic fit was closer:
 
 ```text
 cap ~= 7.20 - 5.02 * log10(population + 100) + 0.968 * log10(population + 100)^2
@@ -160,19 +161,26 @@ The current implementation uses a simple land-value version of the local cap whi
 localLandValue01 = clamp01((averageCandidateLandValue - displayedLandValueMin) /
                            (displayedLandValueCap - displayedLandValueMin))
 
-localMaxDensityPerTile = cityMaxDensityPerTile * (0.10 + 0.90 * localLandValue01)
+localMaxDensityPerTile = max(starterDensityFloor, cityMaxDensityPerTile * localLandValue01)
 ```
 
-This means a candidate at land value `0` can use only 10 percent of the population-unlocked city cap, and a candidate at the displayed overlay cap can use the full city cap. The displayed overlay cap is intentionally separate from the engine's possible integer land-value range.
+This means a candidate at land value `0` can use only the starter floor, and a candidate at the displayed overlay cap can use the full city cap. The displayed overlay cap is intentionally separate from the engine's possible integer land-value range.
 
-The next formal model should keep land value as the slow cap, use desirability as a growth prerequisite, and avoid speculative pathfinding for every possible future building. New RCI growth should still require desirability `60`, but desirability should not partially multiply construction density below that threshold.
+This has a feedback risk: when city population crosses a new density anchor, the citywide cap rises, the constructor can choose denser residential assets, those assets emit larger land-value amounts, and that higher land value is multiplied back into later local caps. That is not a literal exponential formula in one function, but it is an iterative multiplicative feedback loop across redevelopment ticks.
+
+The next formal model should keep land value as the slow local eligibility score, use desirability as a growth prerequisite, and avoid speculative pathfinding for every possible future building. New RCI growth should still require desirability `60`, but desirability should not partially multiply construction density below that threshold.
 
 ```text
 effectiveMaxDensity =
-    populationMaxDensity
-  * landValueDensityFactor
-  * demandPressureDensityFactor
+    min(
+        populationMaxDensity,
+        starterDensityFloor
+      + (populationMaxDensity - starterDensityFloor)
+        * localIntensityFactor
+        * demandPressureDensityFactor)
 ```
+
+`localIntensityFactor` should be bounded `0..1` and should not be raw emitted land value from the candidate's own density. Nearby-density terms must normalize against the current citywide cap and should exclude the candidate's consumed source lots when scoring a replacement. That way a tower does not justify an even taller tower merely because it already exists.
 
 Built RCI lots should recalculate their own average desirability every tick from the tiles they own, using the sensitivity tables for their RCI type and wealth/job class. Their active capacity should scale from `50%` at desirability `40` to `100%` at desirability `60`, and remain capped at `100%` above `60`:
 
@@ -183,30 +191,36 @@ currentCapacityFactor =
 
 The lot still reserves or satisfies demand as if it had `100%` of its maximum capacity. Residents, workers, jobs, trips, pollution, and service consumption are proportional to current active capacity.
 
-`demandPressureDensityFactor` should be per RCI type:
+`demandPressureDensityFactor` should be per RCI type and modest:
 
 ```text
 demandPressureRatio = unsatisfiedDemand / max(activeCapacityForThisRciType, seedCapacity, 1)
-demandPressureDensityFactor = clamp(1.0 + demandPressureRatio, 1.0, demandPressureCap)
+demandPressureDensityFactor = clamp(1.0 + demandPressureRatio * demandSlope, 1.0, demandPressureCap)
 ```
 
-For example, `200` unmet residential demand against `1000` active residential capacity gives a `1.20` density multiplier before XML caps and smoothing. Dirty industry should compare dirty-industry demand to existing dirty-industry capacity, not to total city population.
+For example, `200` unmet residential demand against `1000` active residential capacity and a `0.5` slope gives a `1.10` density multiplier before XML caps and smoothing. Dirty industry should compare dirty-industry demand to existing dirty-industry capacity, not to total city population.
 
 Desirability itself should come from RCI XML sensitivity tables over current tile fields and actual lot results. Low-wealth residences can love `parkEffect`, hate `airPollution`, and treat actual commute time as `+5` at `0%` of maximum commute, `0` at `50%`, and `-20` at `100%`. Dirty industry should initially have zero deltas for both park effect and air pollution, so it stays at baseline `60`. This avoids expensive hypothetical pathfinding. A far suburb can grow a few apartments if its land value is good and desirability reaches `60`, but those new residents add real commute load. If highways saturate or job access remains shallow, actual commute results lower residential desirability, new growth stops below `60`, active capacity falls, and skyscraper growth stalls naturally.
 
 The citywide cap should be only the upper envelope. Each candidate should receive a local land-value/intensity score, then use that score to reduce or slightly emphasize the citywide cap. Park effect, air pollution, and future named service or nuisance fields should feed RCI desirability tables instead of being universal density-cap terms.
 
-Prototype formula:
+Preferred first prototype:
 
 ```text
-landValueTarget01 =
-    0.35 * developedSite01 +
-    0.25 * access01 +
-    0.30 * nearbyDensity01 +
-    0.10 * serviceSiteValue01 -
-    0.10 * edgePenalty01
+nearbyDensity01 = clamp01(completedNearbyCapacityPerTile / max(cityMaxDensityPerTile, starterDensityFloor))
 
-localMaxDensityPerTile = cityMaxDensityPerTile * (0.10 + 0.90 * clamp01(landValue01))
+localIntensity01 =
+    geometricMean(
+        developedSite01 + epsilon,
+        access01 + epsilon,
+        nearbyDensity01 + epsilon,
+        serviceSiteValue01 + epsilon)
+    * (1 - edgePenalty01)
+
+localMaxDensityPerTile =
+    starterDensityFloor
+  + (cityMaxDensityPerTile - starterDensityFloor)
+    * smoothstep(localIntensity01)
 ```
 
 Interpretation:
@@ -215,6 +229,7 @@ Interpretation:
 - An ordinary place reaches about `35%` to `75%`.
 - A strong place reaches about `75%` to `100%`.
 - An exceptional core reaches the full cap only when land value approaches the displayed overlay cap.
+- Missing access, missing nearby density, or missing service support should pull the geometric mean down hard, so one strong factor cannot by itself unlock the whole citywide cap.
 
 The values should be normalized through display caps or XML-authored field caps, not hidden engine integer limits. Land value currently starts as a large integer and diffuses over time, so direct hardcoded thresholds would be brittle.
 

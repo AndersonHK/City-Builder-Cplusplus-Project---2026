@@ -1,0 +1,8 @@
+{
+  "zone.tool.residential_low": "Low Res",
+  "zone.tool.residential_high": "High Res",
+  "zone.tool.industrial": "Industry",
+  "rci.tool.unzone": "Unzone",
+  "overlay.desirability.low_wealth_residential": "Low Wealth Res",
+  "overlay.desirability.dirty_industry": "Dirty Industry"
+}

@@ -255,7 +255,7 @@ The camera should make the city more charming, not less readable.
 
 - `City Builder/RciTool.cpp:127`, `City Builder/RciTool.cpp:222`, and `City Builder/RciTool.cpp:471` contain the current segment, block-depth, and road-insertion partitioning logic that determines RCI parcel grain.
 - `City Builder/RciTool.cpp:328` through `City Builder/RciTool.cpp:334` define the current default RCI depth and width preferences.
-- `City Builder/Data/RCI/rci_tools.xml:2` and `City Builder/Data/RCI/rci_tools.xml:3` are the data-facing residential and industrial RCI tool sizes that should carry this morphology direction.
+- `City Builder/Data/RCI/rci_tools.xml` defines the data-facing RCI zones that carry this morphology direction: zoning color, parcel sizing, and density curves belong to zones, while RCI types define what can grow inside those zones.
 - `City Builder/Lot.h:56` through `City Builder/Lot.h:64` define explicit lot footprints, front direction, and access declarations.
 - `City Builder/Lot.cpp:226` and `City Builder/Lot.cpp:245` are the current footprint/module placement entry points that preserve non-square parcels.
 

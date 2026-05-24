@@ -1,6 +1,6 @@
 <module id="industrial_stack_module" density="high">
   <size width="3" height="3" />
-  <effects airPollution="7000" landValue="-2300" />
+  <effects airPollution="7000" landValue="0" />
   <render height="1.55" colorR="0.34" colorG="0.34" colorB="0.33" />
   <parameters>
     <driver id="jobs.dirty_industry" amount="25" />

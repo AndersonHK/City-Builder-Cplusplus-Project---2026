@@ -152,6 +152,20 @@ bool HasLotAssetPrefix(const CitySaveState& state, const std::string& prefix) {
     return false;
 }
 
+bool TileRectHasZoning(const CitySaveState& state, const RciRect& rect, std::uint16_t zoningType) {
+    int tileY = rect.minTileY;
+    for (; tileY <= rect.maxTileY; ++tileY) {
+        int tileX = rect.minTileX;
+        for (; tileX <= rect.maxTileX; ++tileX) {
+            if (state.tiles[SaveTileIndex(state, tileX, tileY)].zoningType != zoningType) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
 bool RciLotMatchesPlanLot(const RciLot& storedLot, const RciLot& planLot) {
     return storedLot.zoningType == planLot.zoningType &&
         storedLot.frontDirection == planLot.frontDirection &&
@@ -388,7 +402,8 @@ void TestRciCatalogTemplateCoverageAndDensityOrdering(TestRunner& runner) {
         return;
     }
 
-    ExpectGrowthRuleShape(runner, FindGrowthRule(assets, TileZoningResidential), "residential", 10u, 8.0f);
+    ExpectGrowthRuleShape(runner, FindGrowthRule(assets, TileZoningResidentialLow), "low density residential", 5u, 1.75f);
+    ExpectGrowthRuleShape(runner, FindGrowthRule(assets, TileZoningResidentialHigh), "high density residential", 10u, 8.0f);
     ExpectGrowthRuleShape(runner, FindGrowthRule(assets, TileZoningIndustrial), "industrial", 8u, 3.0f);
 
     const LotAsset* houseLot = FindLotAsset(assets, "house_lot");
@@ -645,7 +660,7 @@ void RunRciConstructorSideRoadRejectedTest(TestRunner& runner) {
     }
 }
 
-void RunRciConstructorBaselineLandValueRecoveryTest(TestRunner& runner) {
+void RunRciConstructorZeroLandValueStarterFloorTest(TestRunner& runner) {
     try {
         GameSession session(BuildSandboxRuntimeOptions());
         CitySaveState initialState = BuildCleanSandboxState();
@@ -672,13 +687,128 @@ void RunRciConstructorBaselineLandValueRecoveryTest(TestRunner& runner) {
                     HasLotAssetPrefix(candidate, "rci_residential_2x4_low_") &&
                     candidate.zoningLots.empty();
             }),
-            "XML baseline land value recovers imported zero-land parcels");
+            "starter density floor allows imported zero-land parcels to grow");
         session.runtime().setGameSpeed(GameSpeed::Paused);
         session.shutdown();
     } catch (const std::exception& error) {
         runner.expect(false, std::string("RCI baseline land-value recovery test threw exception: ") + error.what());
     } catch (...) {
         runner.expect(false, "RCI baseline land-value recovery test threw unknown exception");
+    }
+}
+
+void RunManualParkPlacementClearsRciZoningTest(TestRunner& runner) {
+    try {
+        GameSession session(BuildSandboxRuntimeOptions());
+        CitySaveState initialState = BuildCleanSandboxState();
+        AddSandboxCity(session, initialState);
+        runner.expect(session.enterCity(0, 0), "park-over-zoning sandbox city enters");
+
+        const RciRect parcelRect(4, 5, 5, 6);
+        session.runtime().queueZoneLot(MakeSandboxRciLot(parcelRect, TileZoningResidential));
+
+        CitySaveState state;
+        runner.expect(
+            WaitForSandboxState(session, state, [&parcelRect](const CitySaveState& candidate) {
+                return candidate.simulationTick == 17u &&
+                    candidate.zoningLots.size() == 1u &&
+                    TileRectHasZoning(candidate, parcelRect, TileZoningResidential);
+            }),
+            "park-over-zoning setup creates one empty parcel");
+
+        session.runtime().queuePlacePark(5, 6, 0);
+        runner.expect(
+            WaitForSandboxState(session, state, [&parcelRect](const CitySaveState& candidate) {
+                return candidate.lots.size() == 1u &&
+                    candidate.zoningLots.empty() &&
+                    TileRectHasZoning(candidate, parcelRect, TileZoningNone);
+            }),
+            "manual park placement clears zoning and empty parcel under its footprint");
+        session.shutdown();
+    } catch (const std::exception& error) {
+        runner.expect(false, std::string("park-over-zoning test threw exception: ") + error.what());
+    } catch (...) {
+        runner.expect(false, "park-over-zoning test threw unknown exception");
+    }
+}
+
+void RunRciConstructorCursorSkipsFailedSourcesTest(TestRunner& runner) {
+    try {
+        GameSession session(BuildSandboxRuntimeOptions());
+        CitySaveState initialState = BuildCleanSandboxState();
+        SetLandValueRect(initialState, RciRect(0, 0, initialState.width - 1, initialState.height - 1), kLandValueDisplayCap);
+        AddSandboxCity(session, initialState);
+        runner.expect(session.enterCity(0, 0), "RCI cursor sandbox city enters");
+
+        const RciRect badParcels[] = {
+            RciRect(2, 5, 3, 8),
+            RciRect(5, 5, 6, 8),
+            RciRect(8, 5, 9, 8),
+            RciRect(11, 5, 12, 8),
+            RciRect(14, 5, 15, 8)
+        };
+        const RciRect goodParcel(20, 5, 21, 8);
+        std::size_t badIndex = 0u;
+        for (; badIndex < 5u; ++badIndex) {
+            session.runtime().queueZoneLot(MakeSandboxRciLot(badParcels[badIndex], TileZoningResidential));
+        }
+        session.runtime().queuePlaceStreetRoad(Int2(20, 3), Int2(21, 3), Int2(21, 3));
+        session.runtime().queueZoneLot(MakeSandboxRciLot(goodParcel, TileZoningResidential));
+
+        CitySaveState state;
+        runner.expect(
+            WaitForSandboxState(session, state, [](const CitySaveState& candidate) {
+                return candidate.simulationTick == 17u &&
+                    candidate.zoningLots.size() == 6u &&
+                    !candidate.transport.tiles.empty();
+            }),
+            "RCI cursor setup creates five blocked parcels and one buildable later parcel");
+
+        session.runtime().setGameSpeed(GameSpeed::FastForward);
+        runner.expect(
+            WaitForSandboxState(session, state, [](const CitySaveState& candidate) {
+                return candidate.simulationTick > 17u &&
+                    HasLotAssetPrefix(candidate, "rci_residential_2x4_low_");
+            }),
+            "RCI constructor cursor advances past failed parcels to later buildable parcel");
+        session.runtime().setGameSpeed(GameSpeed::Paused);
+        session.shutdown();
+    } catch (const std::exception& error) {
+        runner.expect(false, std::string("RCI constructor cursor test threw exception: ") + error.what());
+    } catch (...) {
+        runner.expect(false, "RCI constructor cursor test threw unknown exception");
+    }
+}
+
+void RunRciLandValueQueryLevelTest(TestRunner& runner) {
+    try {
+        GameSession session(BuildSandboxRuntimeOptions());
+        CitySaveState initialState = BuildCleanSandboxState();
+        SetLandValueRect(initialState, RciRect(0, 0, initialState.width - 1, initialState.height - 1), kLandValueDisplayCap);
+        AddSandboxCity(session, initialState);
+        runner.expect(session.enterCity(0, 0), "RCI land-value query sandbox city enters");
+
+        session.runtime().queuePlaceLot("rci_residential_2x4_medium_court_lot", 4, 5, 0);
+
+        CitySaveState state;
+        runner.expect(
+            WaitForSandboxState(session, state, [](const CitySaveState& candidate) {
+                return candidate.lots.size() == 1u;
+            }),
+            "RCI land-value query setup places a built RCI lot");
+
+        const TileQueryResult queryResult = session.runtime().queryTile(4, 5);
+        runner.expect(queryResult.hasLot, "RCI land-value query finds the placed lot");
+        runner.expect(
+            queryResult.rciLandValueLevel == "low" ||
+                queryResult.rciLandValueLevel == "medium" ||
+                queryResult.rciLandValueLevel == "high",
+            "RCI land-value query reports a low/medium/high level");
+        session.shutdown();
+    } catch (const std::exception& error) {
+        runner.expect(false, std::string("RCI land-value query test threw exception: ") + error.what());
+    } catch (...) {
+        runner.expect(false, "RCI land-value query test threw unknown exception");
     }
 }
 
@@ -698,7 +828,7 @@ void RunRoadAwareRciPlanCommitTest(TestRunner& runner) {
         const std::size_t frontageRoadTileCount = roadState.transport.tiles.size();
 
         RciToolCatalog catalog;
-        const RciTool* residential = catalog.findTool("residential");
+        const RciTool* residential = catalog.findTool("residential_high");
         runner.expect(residential != 0, "road-aware RCI test finds residential tool");
         if (residential == 0) {
             session.shutdown();
@@ -740,7 +870,10 @@ int main() {
     TestInvalidAssetValidation(runner);
     RunRciConstructorFrontAccessGrowthTest(runner);
     RunRciConstructorSideRoadRejectedTest(runner);
-    RunRciConstructorBaselineLandValueRecoveryTest(runner);
+    RunRciConstructorZeroLandValueStarterFloorTest(runner);
+    RunManualParkPlacementClearsRciZoningTest(runner);
+    RunRciConstructorCursorSkipsFailedSourcesTest(runner);
+    RunRciLandValueQueryLevelTest(runner);
     RunRoadAwareRciPlanCommitTest(runner);
     return runner.finish();
 }

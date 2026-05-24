@@ -33,6 +33,9 @@
     <ClCompile Include="ChunkConfig.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Localization.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="GameSession.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -2141,6 +2144,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ChunkConfig.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Localization.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="GameSession.h">

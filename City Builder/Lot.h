@@ -19,6 +19,7 @@ struct LotRenderInstance {
     float colorB;
     std::uint8_t surfacePattern;
     std::uint8_t surfaceDirection;
+    std::uint16_t zoningType;
 
     // Defaults to a small neutral placeholder prism.
     LotRenderInstance()
@@ -32,7 +33,8 @@ struct LotRenderInstance {
           colorG(0.4f),
           colorB(0.4f),
           surfacePattern(0u),
-          surfaceDirection(0u) {
+          surfaceDirection(0u),
+          zoningType(TileZoningNone) {
     }
 };
 
@@ -53,6 +55,7 @@ struct LotAsset {
     std::string id;
     std::string name;
     std::string densityBand;
+    std::string rciTypeId;
     std::uint16_t zoningType;
     Int2 anchor;
     Int2 footprintOrigin;
@@ -67,7 +70,8 @@ struct LotAsset {
 
     // Starts an unloaded lot archetype with a zero anchor.
     LotAsset()
-        : zoningType(TileZoningNone),
+        : rciTypeId(),
+          zoningType(TileZoningNone),
           anchor(0, 0),
           footprintOrigin(0, 0),
           footprintWidth(0),
@@ -166,6 +170,7 @@ private:
     bool lowWealthJobsHaveRoadAccess_;
     bool hasLongCommuteComplaint_;
     int airPollutionEmit_;
+    int parkEffectEmit_;
     int landValueEmit_;
     Int2 minimumOccupiedOffset_;
     Int2 maximumOccupiedOffset_;

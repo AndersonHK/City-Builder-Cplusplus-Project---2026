@@ -31,10 +31,50 @@ struct RciGrowthRule {
     }
 };
 
+enum class RciDesirabilityField {
+    AirPollution,
+    ParkEffect
+};
+
+struct RciDesirabilityPoint {
+    float value;
+    int desirabilityDelta;
+
+    RciDesirabilityPoint()
+        : value(0.0f),
+          desirabilityDelta(0) {
+    }
+};
+
+struct RciDesirabilitySensitivity {
+    RciDesirabilityField field;
+    int normalizer;
+    std::vector<RciDesirabilityPoint> points;
+
+    RciDesirabilitySensitivity()
+        : field(RciDesirabilityField::AirPollution),
+          normalizer(kLandValueDisplayCap) {
+    }
+};
+
+struct RciDesirabilityRule {
+    std::string rciTypeId;
+    std::uint16_t zoningType;
+    int baseline;
+    std::vector<RciDesirabilitySensitivity> sensitivities;
+
+    RciDesirabilityRule()
+        : rciTypeId(),
+          zoningType(TileZoningNone),
+          baseline(60) {
+    }
+};
+
 struct LoadedGameAssets {
     std::vector<LotModule> modules;
     std::vector<LotAsset> lots;
     std::vector<RciGrowthRule> rciGrowthRules;
+    std::vector<RciDesirabilityRule> rciDesirabilityRules;
     std::vector<float> initialDemands;
     TransportCongestionCurve congestionCurve;
     RoadLaneCapacityConfig roadLaneCapacities;

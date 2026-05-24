@@ -21,7 +21,7 @@ namespace {
 const std::uint32_t kRegionSaveMagic = 0x52424743u; // CBGR
 const std::uint32_t kRegionSaveVersion = 3u;
 const std::uint32_t kCitySaveMagic = 0x59544243u; // CBTY
-const std::uint32_t kCitySaveVersion = 10u;
+const std::uint32_t kCitySaveVersion = 11u;
 const std::uint32_t kCityPreviewSaveMagic = 0x56504243u; // CBPV
 const std::uint32_t kCityPreviewSaveVersion = 1u;
 const int kMaximumPreviewBuildsInFlight = 2;
@@ -175,6 +175,7 @@ RciLot ReadRciLot(std::istream& stream) {
 void WriteTile(std::ostream& stream, const Tile& tile) {
     WriteValue(stream, tile.landValue);
     WriteValue(stream, tile.airPollution);
+    WriteValue(stream, tile.parkEffect);
     const std::uint8_t isVacant = tile.isVacant ? 1u : 0u;
     WriteValue(stream, isVacant);
     WriteValue(stream, tile.zoningType);
@@ -185,6 +186,7 @@ Tile ReadTile(std::istream& stream) {
     std::uint8_t isVacant = 0u;
     ReadValue(stream, tile.landValue);
     ReadValue(stream, tile.airPollution);
+    ReadValue(stream, tile.parkEffect);
     ReadValue(stream, isVacant);
     ReadValue(stream, tile.zoningType);
     tile.isVacant = isVacant != 0u;

@@ -1223,6 +1223,8 @@ std::vector<TileInstanceData> BuildTileChunkInstances(int mapWidth, int mapHeigh
     return instances;
 }
 
+AreaOverlayInstanceData BuildAreaOverlayInstance(int minTileX, int minTileY, int maxTileX, int maxTileY, float colorR, float colorG, float colorB, float colorA);
+
 LotInstanceData BuildLotInstance(const LotRenderInstance& lot) {
     LotInstanceData instance;
     instance.originX = static_cast<float>(lot.originX);
@@ -1240,14 +1242,131 @@ LotInstanceData BuildLotInstance(const LotRenderInstance& lot) {
     return instance;
 }
 
+bool RenderInstanceIsRciLot(const LotRenderInstance& lot) {
+    return lot.zoningType == TileZoningResidentialLow ||
+        lot.zoningType == TileZoningResidentialHigh ||
+        lot.zoningType == TileZoningIndustrial;
+}
+
+void RciOverlayColor(std::uint16_t zoningType, float& red, float& green, float& blue) {
+    if (zoningType == TileZoningResidentialLow) {
+        red = 112.0f / 255.0f;
+        green = 235.0f / 255.0f;
+        blue = 117.0f / 255.0f;
+        return;
+    }
+
+    if (zoningType == TileZoningResidentialHigh) {
+        red = 26.0f / 255.0f;
+        green = 122.0f / 255.0f;
+        blue = 51.0f / 255.0f;
+        return;
+    }
+
+    if (zoningType == TileZoningIndustrial) {
+        red = 238.0f / 255.0f;
+        green = 211.0f / 255.0f;
+        blue = 58.0f / 255.0f;
+        return;
+    }
+
+    red = 0.72f;
+    green = 0.72f;
+    blue = 0.72f;
+}
+
 // Converts published lot render records into instanced box payloads.
-std::vector<LotInstanceData> BuildLotInstances(const std::vector<LotRenderInstance>& lots) {
+std::vector<LotInstanceData> BuildLotInstances(const std::vector<LotRenderInstance>& lots, bool hideRciLots = false) {
     std::vector<LotInstanceData> instances;
     instances.reserve(lots.size());
 
     std::size_t lotIndex = 0;
     for (; lotIndex < lots.size(); ++lotIndex) {
+        if (hideRciLots && RenderInstanceIsRciLot(lots[lotIndex])) {
+            continue;
+        }
+
         instances.push_back(BuildLotInstance(lots[lotIndex]));
+    }
+
+    return instances;
+}
+
+void FlushRciParcelOverlayInstance(
+    bool hasParcel,
+    std::uint16_t zoningType,
+    int minTileX,
+    int minTileY,
+    int maxTileX,
+    int maxTileY,
+    std::vector<AreaOverlayInstanceData>& instances) {
+    if (!hasParcel) {
+        return;
+    }
+
+    float red = 0.0f;
+    float green = 0.0f;
+    float blue = 0.0f;
+    RciOverlayColor(zoningType, red, green, blue);
+    instances.push_back(BuildAreaOverlayInstance(minTileX, minTileY, maxTileX, maxTileY, red, green, blue, 0.48f));
+}
+
+std::vector<AreaOverlayInstanceData> BuildRciParcelOverlayInstances(
+    const std::vector<LotRenderInstance>& lots,
+    const std::vector<RciLot>* zoningLots,
+    bool includeBuiltLots) {
+    std::vector<AreaOverlayInstanceData> instances;
+    instances.reserve(lots.size() + (zoningLots == 0 ? 0u : zoningLots->size()));
+
+    bool hasCurrentParcel = false;
+    int currentLotId = -1;
+    std::uint16_t currentZoningType = TileZoningNone;
+    int minTileX = 0;
+    int minTileY = 0;
+    int maxTileX = 0;
+    int maxTileY = 0;
+
+    if (includeBuiltLots) {
+        std::size_t lotIndex = 0;
+        for (; lotIndex < lots.size(); ++lotIndex) {
+            const LotRenderInstance& lot = lots[lotIndex];
+            if (!RenderInstanceIsRciLot(lot)) {
+                continue;
+            }
+
+            if (!hasCurrentParcel || lot.lotId != currentLotId) {
+                FlushRciParcelOverlayInstance(hasCurrentParcel, currentZoningType, minTileX, minTileY, maxTileX, maxTileY, instances);
+                hasCurrentParcel = true;
+                currentLotId = lot.lotId;
+                currentZoningType = lot.zoningType;
+                minTileX = lot.originX;
+                minTileY = lot.originY;
+                maxTileX = lot.originX + lot.width - 1;
+                maxTileY = lot.originY + lot.height - 1;
+            } else {
+                minTileX = std::min(minTileX, lot.originX);
+                minTileY = std::min(minTileY, lot.originY);
+                maxTileX = std::max(maxTileX, lot.originX + lot.width - 1);
+                maxTileY = std::max(maxTileY, lot.originY + lot.height - 1);
+            }
+        }
+        FlushRciParcelOverlayInstance(hasCurrentParcel, currentZoningType, minTileX, minTileY, maxTileX, maxTileY, instances);
+    }
+
+    if (zoningLots != 0) {
+        std::size_t zoningLotIndex = 0;
+        for (; zoningLotIndex < zoningLots->size(); ++zoningLotIndex) {
+            const RciLot& lot = (*zoningLots)[zoningLotIndex];
+            instances.push_back(BuildAreaOverlayInstance(
+                lot.rect.minTileX,
+                lot.rect.minTileY,
+                lot.rect.maxTileX,
+                lot.rect.maxTileY,
+                lot.color.r,
+                lot.color.g,
+                lot.color.b,
+                0.48f));
+        }
     }
 
     return instances;
@@ -2436,6 +2555,7 @@ int Renderer::run() {
     const GLint lotTintColorLocation = glGetUniformLocation(shaderProgram.programId(), "uLotTintColor");
     const GLint lotTintStrengthLocation = glGetUniformLocation(shaderProgram.programId(), "uLotTintStrength");
     const GLint regionPreviewTextureLocation = glGetUniformLocation(shaderProgram.programId(), "uRegionPreviewTexture");
+    const GLint zoningOverlayVisibleLocation = glGetUniformLocation(shaderProgram.programId(), "uZoningOverlayVisible");
     glUniform1i(tileTextureLocation, 0);
     glUniform1i(groundRoadStateTextureLocation, 1);
     glUniform1i(roadBaseAtlasTextureLocation, 2);
@@ -2451,11 +2571,13 @@ int Renderer::run() {
     glUniform1f(lotAlphaScaleLocation, 1.0f);
     glUniform3f(lotTintColorLocation, 1.0f, 1.0f, 1.0f);
     glUniform1f(lotTintStrengthLocation, 0.0f);
+    glUniform1i(zoningOverlayVisibleLocation, 1);
 
     std::vector<GLshort> tileStateChunkPixels;
     std::vector<std::uint8_t> tileLiftChunkPixels;
     std::vector<std::uint8_t> zoningOverlayChunkPixels;
     std::vector<std::uint8_t> landValueOverlayChunkPixels;
+    std::vector<std::uint8_t> desirabilityOverlayChunkPixels;
     std::vector<std::uint8_t> emptyGroundRoadChunkPixels;
     std::vector<LotInstanceData> lotInstances;
     std::vector<LotInstanceData> lotGhostInstances;
@@ -2511,6 +2633,7 @@ int Renderer::run() {
     startupLoadingStatus.progress = 0.08f;
     drawLoadingScreen(startupLoadingStatus);
     queryWindow.loadFromXmlFile(BuildDataPath("UI\\lot_query.xml"));
+    appController_.loadLocaleFromJsonFile(BuildDataPath("Locale\\en-US.json"));
     appController_.loadUiLayoutFromXmlFile(BuildDataPath("UI\\city_tools.xml"));
     startupLoadingStatus.label = "Loading tools";
     startupLoadingStatus.progress = 0.14f;
@@ -2519,11 +2642,15 @@ int Renderer::run() {
     gameSession_.loadOrCreateRegion();
     std::uint64_t lastUploadedLotRevision = std::numeric_limits<std::uint64_t>::max();
     std::uint64_t lastUploadedZoningLotRevision = std::numeric_limits<std::uint64_t>::max();
+    std::uint64_t lastUploadedRciParcelLotRevision = std::numeric_limits<std::uint64_t>::max();
+    OverlayMode lastUploadedRciParcelOverlayMode = OverlayMode::None;
     std::uint64_t lastUploadedQueryRouteRevision = std::numeric_limits<std::uint64_t>::max();
     std::vector<std::uint64_t> lastUploadedGroundRoadChunkRevisions(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
     std::vector<std::uint64_t> lastUploadedTileOverlayChunkRevisions(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
     std::vector<std::uint64_t> lastUploadedZoningOverlayChunkRevisions(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
     OverlayMode lastUploadedTileOverlayMode = OverlayMode::None;
+    OverlayMode lastUploadedLotOverlayMode = OverlayMode::None;
+    std::string lastUploadedDesirabilityOverlayToolId;
     std::uint64_t landValueOverlayRangeGeneration = std::numeric_limits<std::uint64_t>::max();
     int landValueOverlayMinimum = 0;
     int landValueOverlayMaximum = 0;
@@ -2607,9 +2734,13 @@ int Renderer::run() {
         lastUploadedTileOverlayChunkRevisions.assign(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
         lastUploadedZoningOverlayChunkRevisions.assign(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
         lastUploadedTileOverlayMode = OverlayMode::None;
+        lastUploadedLotOverlayMode = OverlayMode::None;
+        lastUploadedDesirabilityOverlayToolId.clear();
         landValueOverlayRangeGeneration = std::numeric_limits<std::uint64_t>::max();
         lastUploadedLotRevision = std::numeric_limits<std::uint64_t>::max();
         lastUploadedZoningLotRevision = std::numeric_limits<std::uint64_t>::max();
+        lastUploadedRciParcelLotRevision = std::numeric_limits<std::uint64_t>::max();
+        lastUploadedRciParcelOverlayMode = OverlayMode::None;
         lastUploadedQueryRouteRevision = std::numeric_limits<std::uint64_t>::max();
         lotInstances.clear();
         lotGhostInstances.clear();
@@ -2703,11 +2834,13 @@ int Renderer::run() {
         glUniform1i(roadDebugVisibleLocation, 1);
 
         glUniform1i(renderModeLocation, 0);
+        glUniform1i(zoningOverlayVisibleLocation, 0);
         for (uploadChunkIndex = 0; uploadChunkIndex < chunkCaches.size(); ++uploadChunkIndex) {
             const TileChunkRenderCache& cache = chunkCaches[uploadChunkIndex];
             glBindVertexArray(cache.vertexArrayId);
             glDrawArraysInstanced(GL_TRIANGLES, 0, 6, cache.instanceCount);
         }
+        glUniform1i(zoningOverlayVisibleLocation, 1);
 
         glUniform1i(renderModeLocation, 2);
         glUniform1f(roadAlphaScaleLocation, 1.0f);
@@ -2830,6 +2963,7 @@ int Renderer::run() {
 
         appController_.refreshQueryResultIfNeeded();
         const ViewState viewState = appController_.viewState();
+        const bool rciOverlayActive = viewState.overlayMode == OverlayMode::Rci;
         if (gameSession_.isRegionMode()) {
             const bool returningFromCity = !lastFrameWasRegion;
             const std::size_t stalePreviewCountBeforeUpdate = staleRegionPreviewCount();
@@ -3258,9 +3392,11 @@ int Renderer::run() {
                 }
             }
 
-            if (lastUploadedTileOverlayMode != viewState.overlayMode) {
+            if (lastUploadedTileOverlayMode != viewState.overlayMode ||
+                lastUploadedDesirabilityOverlayToolId != viewState.overlayRciTypeId) {
                 lastUploadedTileOverlayChunkRevisions.assign(chunkCaches.size(), std::numeric_limits<std::uint64_t>::max());
                 lastUploadedTileOverlayMode = viewState.overlayMode;
+                lastUploadedDesirabilityOverlayToolId = viewState.overlayRciTypeId;
             }
 
             if (viewState.overlayMode == OverlayMode::TrafficCapacity && snapshot.tileOverlayState != 0 && snapshot.tileOverlayChunkRevisions != 0) {
@@ -3281,9 +3417,11 @@ int Renderer::run() {
                 }
             } else if (viewState.overlayMode == OverlayMode::LandValue && snapshot.tiles != 0) {
                 if (landValueOverlayRangeGeneration != snapshot.generation) {
-                landValueOverlayMinimum = kLandValueDisplayMinimum;
-                landValueOverlayMaximum = kLandValueDisplayCap;
-                landValueOverlayRangeGeneration = snapshot.generation;
+                    if (!RendererFindLandValueRange(*snapshot.tiles, landValueOverlayMinimum, landValueOverlayMaximum)) {
+                        landValueOverlayMinimum = kLandValueDisplayMinimum;
+                        landValueOverlayMaximum = kLandValueDisplayCap;
+                    }
+                    landValueOverlayRangeGeneration = snapshot.generation;
                 }
 
                 for (uploadChunkIndex = 0; uploadChunkIndex < chunkCaches.size(); ++uploadChunkIndex) {
@@ -3302,6 +3440,25 @@ int Renderer::run() {
                     UploadRgbaOverlayChunkTexture(tileOverlayTextureId, chunkRect, landValueOverlayChunkPixels);
                     lastUploadedTileOverlayChunkRevisions[uploadChunkIndex] = publishedRevision;
                     ++frameMetrics.tileOverlayUploadedChunkCount;
+                }
+            } else if (viewState.overlayMode == OverlayMode::RciDesirability && snapshot.tiles != 0 && !viewState.overlayRciTypeId.empty()) {
+                for (uploadChunkIndex = 0; uploadChunkIndex < chunkCaches.size(); ++uploadChunkIndex) {
+                    const std::uint64_t publishedRevision = snapshot.generation;
+                    if (lastUploadedTileOverlayChunkRevisions[uploadChunkIndex] == publishedRevision) {
+                        continue;
+                    }
+
+                    if (visibleChunkFlags[uploadChunkIndex] == 0u) {
+                        ++frameMetrics.tileOverlayDeferredChunkCount;
+                        continue;
+                    }
+
+                    const ChunkRect& chunkRect = chunkCaches[uploadChunkIndex].chunkRect;
+                    if (simulationRuntime.fillRciDesirabilityOverlayChunkPixels(viewState.overlayRciTypeId, snapshot, chunkRect, desirabilityOverlayChunkPixels)) {
+                        UploadRgbaOverlayChunkTexture(tileOverlayTextureId, chunkRect, desirabilityOverlayChunkPixels);
+                        lastUploadedTileOverlayChunkRevisions[uploadChunkIndex] = publishedRevision;
+                        ++frameMetrics.tileOverlayUploadedChunkCount;
+                    }
                 }
             }
             frameMetrics.tileOverlayUploadMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - tileOverlayUploadStart).count();
@@ -3334,9 +3491,9 @@ int Renderer::run() {
             }
             frameMetrics.elevatedRoadUploadMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - elevatedRoadUploadStart).count();
 
-            if (snapshot.lots != 0 && snapshot.lotRevision != lastUploadedLotRevision) {
+            if (snapshot.lots != 0 && (snapshot.lotRevision != lastUploadedLotRevision || viewState.overlayMode != lastUploadedLotOverlayMode)) {
                 const std::chrono::steady_clock::time_point lotUploadStart = std::chrono::steady_clock::now();
-                lotInstances = BuildLotInstances(*snapshot.lots);
+                lotInstances = BuildLotInstances(*snapshot.lots, rciOverlayActive);
                 glBindBuffer(GL_ARRAY_BUFFER, lotInstanceBufferId);
                 glBufferData(
                     GL_ARRAY_BUFFER,
@@ -3344,32 +3501,24 @@ int Renderer::run() {
                     lotInstances.empty() ? 0 : &lotInstances[0],
                     GL_DYNAMIC_DRAW);
                 lastUploadedLotRevision = snapshot.lotRevision;
+                lastUploadedLotOverlayMode = viewState.overlayMode;
                 frameMetrics.lotUploadMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - lotUploadStart).count();
             }
 
-            if (snapshot.zoningLots != 0 && snapshot.zoningLotRevision != lastUploadedZoningLotRevision) {
-                zoningLotOverlayInstances.clear();
-                zoningLotOverlayInstances.reserve(snapshot.zoningLots->size());
-                std::size_t zoningLotIndex = 0;
-                for (; zoningLotIndex < snapshot.zoningLots->size(); ++zoningLotIndex) {
-                    const RciLot& lot = (*snapshot.zoningLots)[zoningLotIndex];
-                    zoningLotOverlayInstances.push_back(BuildAreaOverlayInstance(
-                        lot.rect.minTileX,
-                        lot.rect.minTileY,
-                        lot.rect.maxTileX,
-                        lot.rect.maxTileY,
-                        lot.color.r,
-                        lot.color.g,
-                        lot.color.b,
-                        0.38f));
-                }
+            if (snapshot.lots != 0 &&
+                (snapshot.lotRevision != lastUploadedRciParcelLotRevision ||
+                 snapshot.zoningLotRevision != lastUploadedZoningLotRevision ||
+                 viewState.overlayMode != lastUploadedRciParcelOverlayMode)) {
+                zoningLotOverlayInstances = BuildRciParcelOverlayInstances(*snapshot.lots, snapshot.zoningLots, rciOverlayActive);
                 glBindBuffer(GL_ARRAY_BUFFER, zoningLotOverlayInstanceBufferId);
                 glBufferData(
                     GL_ARRAY_BUFFER,
                     static_cast<GLsizeiptr>(zoningLotOverlayInstances.size() * sizeof(AreaOverlayInstanceData)),
                     zoningLotOverlayInstances.empty() ? 0 : &zoningLotOverlayInstances[0],
                     GL_DYNAMIC_DRAW);
+                lastUploadedRciParcelLotRevision = snapshot.lotRevision;
                 lastUploadedZoningLotRevision = snapshot.zoningLotRevision;
+                lastUploadedRciParcelOverlayMode = viewState.overlayMode;
             }
 
             shaderProgram.bind();
@@ -3385,10 +3534,11 @@ int Renderer::run() {
             glActiveTexture(GL_TEXTURE4);
             glBindTexture(GL_TEXTURE_2D, tileLiftTextureId);
             glActiveTexture(GL_TEXTURE5);
-            glBindTexture(GL_TEXTURE_2D, tileOverlayTextureId);
+            glBindTexture(GL_TEXTURE_2D, zoningOverlayTextureId);
             glUniform1i(roadDebugVisibleLocation, viewState.roadDebugGraphicsEnabled ? 1 : 0);
 
             glUniform1i(renderModeLocation, 0);
+            glUniform1i(zoningOverlayVisibleLocation, 1);
             const std::chrono::steady_clock::time_point tileDrawStart = std::chrono::steady_clock::now();
             std::size_t visibleIndex = 0;
             for (; visibleIndex < visibleChunkIndices.size(); ++visibleIndex) {
@@ -3397,6 +3547,16 @@ int Renderer::run() {
                 glDrawArraysInstanced(GL_TRIANGLES, 0, 6, cache.instanceCount);
             }
             frameMetrics.tileDrawMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - tileDrawStart).count();
+
+            if (!zoningLotOverlayInstances.empty()) {
+                glUniform1i(renderModeLocation, 8);
+                glDepthMask(GL_FALSE);
+                glDisable(GL_DEPTH_TEST);
+                glBindVertexArray(zoningLotOverlayVertexArrayId);
+                glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(zoningLotOverlayInstances.size()));
+                glEnable(GL_DEPTH_TEST);
+                glDepthMask(GL_TRUE);
+            }
 
             glUniform1i(renderModeLocation, 2);
             glUniform1f(roadAlphaScaleLocation, 1.0f);
@@ -3493,44 +3653,26 @@ int Renderer::run() {
                 glUniform1f(lotTintStrengthLocation, 0.0f);
             }
 
-            glUniform1i(renderModeLocation, 3);
-            glDepthMask(GL_FALSE);
-            glDisable(GL_DEPTH_TEST);
             const std::chrono::steady_clock::time_point tileOverlayDrawStart = std::chrono::steady_clock::now();
-            glActiveTexture(GL_TEXTURE5);
-            glBindTexture(GL_TEXTURE_2D, zoningOverlayTextureId);
-            for (visibleIndex = 0; visibleIndex < visibleChunkIndices.size(); ++visibleIndex) {
-                const TileChunkRenderCache& cache = chunkCaches[visibleChunkIndices[visibleIndex]];
-                glBindVertexArray(cache.vertexArrayId);
-                glDrawArraysInstanced(GL_TRIANGLES, 0, 6, cache.instanceCount);
-            }
-
             const bool drawTileOverlay =
                 (viewState.overlayMode == OverlayMode::TrafficCapacity && snapshot.tileOverlayState != 0) ||
-                (viewState.overlayMode == OverlayMode::LandValue && snapshot.tiles != 0);
+                (viewState.overlayMode == OverlayMode::LandValue && snapshot.tiles != 0) ||
+                (viewState.overlayMode == OverlayMode::RciDesirability && snapshot.tiles != 0 && !viewState.overlayRciTypeId.empty());
             if (drawTileOverlay) {
                 glActiveTexture(GL_TEXTURE5);
                 glBindTexture(GL_TEXTURE_2D, tileOverlayTextureId);
                 glUniform1i(renderModeLocation, 3);
+                glDepthMask(GL_FALSE);
+                glDisable(GL_DEPTH_TEST);
                 for (visibleIndex = 0; visibleIndex < visibleChunkIndices.size(); ++visibleIndex) {
                     const TileChunkRenderCache& cache = chunkCaches[visibleChunkIndices[visibleIndex]];
                     glBindVertexArray(cache.vertexArrayId);
                     glDrawArraysInstanced(GL_TRIANGLES, 0, 6, cache.instanceCount);
                 }
-            }
-            frameMetrics.tileOverlayDrawMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - tileOverlayDrawStart).count();
-            glEnable(GL_DEPTH_TEST);
-            glDepthMask(GL_TRUE);
-
-            if (!zoningLotOverlayInstances.empty()) {
-                glUniform1i(renderModeLocation, 8);
-                glDepthMask(GL_FALSE);
-                glDisable(GL_DEPTH_TEST);
-                glBindVertexArray(zoningLotOverlayVertexArrayId);
-                glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(zoningLotOverlayInstances.size()));
                 glEnable(GL_DEPTH_TEST);
                 glDepthMask(GL_TRUE);
             }
+            frameMetrics.tileOverlayDrawMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - tileOverlayDrawStart).count();
 
             if (!routeArrowInstances.empty()) {
                 glUniform1i(renderModeLocation, 4);
@@ -3570,7 +3712,11 @@ int Renderer::run() {
                 std::vector<std::string> cityMenuIds;
                 cityMenuIds.push_back("date_speed");
                 cityMenuIds.push_back("side_tools");
+                cityMenuIds.push_back("rci_tools");
+                cityMenuIds.push_back("side_overlays");
+                cityMenuIds.push_back("rci_desirability_overlays");
                 cityMenuIds.push_back("menu_toggle");
+                cityMenuIds.push_back("overlay_toggle");
                 if (appController_.uiLayout().menuVisible("escape_menu")) {
                     cityMenuIds.push_back("escape_menu");
                 }

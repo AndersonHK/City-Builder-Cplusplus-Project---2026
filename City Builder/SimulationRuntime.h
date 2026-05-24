@@ -110,6 +110,7 @@ struct TileQueryResult {
     bool hasRciLot;
     std::string rciName;
     std::uint16_t rciZoningType;
+    std::string rciLandValueLevel;
     std::string moduleSummary;
     std::string parameterSummary;
     int commuteDemand;
@@ -153,6 +154,10 @@ struct PublishedLotInfo {
     std::string assetId;
     std::uint16_t zoningType;
     bool isEmpty;
+    int minimumTileX;
+    int minimumTileY;
+    int footprintWidth;
+    int footprintHeight;
     std::string moduleSummary;
     std::string parameterSummary;
     int commuteDemand;
@@ -170,6 +175,10 @@ struct PublishedLotInfo {
         : lotId(-1),
           zoningType(TileZoningNone),
           isEmpty(false),
+          minimumTileX(0),
+          minimumTileY(0),
+          footprintWidth(0),
+          footprintHeight(0),
           commuteDemand(0),
           commuteSatisfied(0),
           worstCommuteCategory(CommuteCategory::None),
@@ -286,6 +295,7 @@ public:
 
     PublishedWorldSnapshot acquirePublishedSnapshot();
     void releasePublishedSnapshot(const PublishedWorldSnapshot& snapshot);
+    bool fillRciDesirabilityOverlayChunkPixels(const std::string& rciTypeId, const PublishedWorldSnapshot& snapshot, const ChunkRect& chunkRect, std::vector<std::uint8_t>& texturePixels) const;
 
     int mapWidth() const;
     int mapHeight() const;
@@ -327,6 +337,7 @@ private:
 
     struct RciDevelopmentSource {
         RciRect rect;
+        std::string rciTypeId;
         bool isBuilt;
         std::size_t sourceIndex;
         int lotId;
@@ -342,8 +353,30 @@ private:
         }
     };
 
+    struct RciConstructorSourceCursor {
+        bool hasValue;
+        bool isBuilt;
+        int minTileX;
+        int minTileY;
+        int maxTileX;
+        int maxTileY;
+        int lotId;
+
+        RciConstructorSourceCursor()
+            : hasValue(false),
+              isBuilt(false),
+              minTileX(0),
+              minTileY(0),
+              maxTileX(0),
+              maxTileY(0),
+              lotId(-1) {
+        }
+    };
+
     struct RciConstructionCandidate {
         bool isValid;
+        std::uint16_t zoningType;
+        std::string rciTypeId;
         RciRect rect;
         const LotAsset* lotAsset;
         int rotationSteps;
@@ -358,6 +391,7 @@ private:
 
         RciConstructionCandidate()
             : isValid(false),
+              zoningType(TileZoningNone),
               lotAsset(0),
               rotationSteps(0),
               capacity(0.0f),
@@ -418,25 +452,35 @@ private:
     const LotModule* findModuleAssetById(const std::string& moduleAssetId) const;
     Lot* findLotById(int lotId);
     const PublishedLotInfo* findPublishedLotInfoById(const std::vector<PublishedLotInfo>& publishedLotInfos, int lotId) const;
+    std::uint16_t zoningTypeForLotInBuffer(const Lot& lot, const TileBuffer& buffer, std::uint16_t fallbackZoningType) const;
 
     bool buildLotCandidate(const LotAsset& lotAsset, int clickedTileX, int clickedTileY, int rotationSteps, int lotId, Lot& candidateLot) const;
     bool tryPlaceLot(const LotAsset& lotAsset, int clickedTileX, int clickedTileY, int rotationSteps, TileBuffer& writeBuffer);
     void runRciConstructor(TileBuffer& writeBuffer);
-    bool tryConstructOneRciLot(std::uint16_t zoningType, TileBuffer& writeBuffer);
-    bool tryConstructRciDevelopmentFromSource(std::uint16_t zoningType, std::size_t seedSourceIndex, const std::vector<RciDevelopmentSource>& sources, float demandBudget, TileBuffer& writeBuffer, float& constructedCapacity);
-    std::vector<RciDevelopmentSource> collectRciDevelopmentSources(std::uint16_t zoningType) const;
+    bool tryConstructOneRciLot(std::uint16_t zoningType, const std::string& rciTypeId, TileBuffer& writeBuffer);
+    std::string rciConstructorCursorKey(std::uint16_t zoningType, const std::string& rciTypeId) const;
+    RciConstructorSourceCursor rciConstructorCursorForSource(const RciDevelopmentSource& source) const;
+    bool rciConstructorCursorLess(const RciConstructorSourceCursor& left, const RciConstructorSourceCursor& right) const;
+    std::size_t rciConstructorStartIndex(const RciConstructorSourceCursor& cursor, const std::vector<RciDevelopmentSource>& sources) const;
+    bool tryConstructRciDevelopmentFromSource(std::uint16_t zoningType, const std::string& rciTypeId, std::size_t seedSourceIndex, const std::vector<RciDevelopmentSource>& sources, float demandBudget, TileBuffer& writeBuffer, float& constructedCapacity);
+    std::vector<RciDevelopmentSource> collectRciDevelopmentSources(std::uint16_t zoningType, const std::string& rciTypeId) const;
     std::vector<std::size_t> buildRciDevelopmentBlock(std::size_t seedSourceIndex, const std::vector<RciDevelopmentSource>& sources) const;
-    bool evaluateRciConstructionCandidate(std::uint16_t zoningType, const RciRect& candidateRect, std::size_t seedSourceIndex, const std::vector<std::size_t>& blockSourceIndices, const std::vector<RciDevelopmentSource>& sources, float demandBudget, const TileBuffer& writeBuffer, RciConstructionCandidate& candidate) const;
+    bool evaluateRciConstructionCandidate(std::uint16_t zoningType, const std::string& rciTypeId, const RciRect& candidateRect, std::size_t seedSourceIndex, const std::vector<std::size_t>& blockSourceIndices, const std::vector<RciDevelopmentSource>& sources, float demandBudget, const TileBuffer& writeBuffer, RciConstructionCandidate& candidate) const;
     bool commitRciConstructionCandidate(const RciConstructionCandidate& candidate, TileBuffer& writeBuffer);
     bool rciCandidateTilesAreDevelopable(std::uint16_t zoningType, const RciRect& rect, const std::vector<std::size_t>& consumedSourceIndices, const std::vector<RciDevelopmentSource>& sources, const TileBuffer& writeBuffer) const;
-    const LotAsset* findRciConstructorLotAsset(std::uint16_t zoningType, int width, int height, float demandBudget, float maxDensityPerTile, std::uint8_t frontDirection, std::uint32_t variationSeed, int& rotationSteps, float& capacity) const;
+    const LotAsset* findRciConstructorLotAsset(std::uint16_t zoningType, const std::string& rciTypeId, int width, int height, float demandBudget, float maxDensityPerTile, std::uint8_t frontDirection, std::uint32_t variationSeed, int& rotationSteps, float& capacity) const;
     const RciTool* findRciToolByZoningType(std::uint16_t zoningType) const;
     bool hasRciConstructorLotAsset(std::uint16_t zoningType, int width, int height, std::uint8_t frontDirection) const;
     const RciGrowthRule* findRciGrowthRule(std::uint16_t zoningType) const;
+    const RciDesirabilityRule* findRciDesirabilityRule(const std::string& rciTypeId) const;
     float rciMaxDensityPerTile(std::uint16_t zoningType) const;
+    int averageLandValueForRect(const RciRect& rect, const TileBuffer& writeBuffer, bool& hasTiles) const;
+    std::string rciLandValueLevelForLot(const PublishedLotInfo& publishedLotInfo, const LotAsset& lotAsset, const TileBuffer& writeBuffer) const;
     float rciLandValueDensityMultiplier(const RciRect& rect, const TileBuffer& writeBuffer) const;
     float rciLocalMaxDensityPerTile(std::uint16_t zoningType, const RciRect& rect, const TileBuffer& writeBuffer) const;
-    int rciDesirabilityForCandidate(const Lot& lot, const LotAsset& lotAsset) const;
+    int rciDesirabilityForTile(const std::string& rciTypeId, const Tile& tile) const;
+    int rciDesirabilityForRect(const std::string& rciTypeId, const RciRect& rect, const TileBuffer& writeBuffer) const;
+    int rciDesirabilityForCandidate(const Lot& lot, const LotAsset& lotAsset, const TileBuffer& writeBuffer) const;
     std::uint32_t rciVariationSeedForRect(std::uint16_t zoningType, const RciRect& rect) const;
     bool rciParcelTileIsAvailable(int tileX, int tileY, std::uint16_t zoningType, const TileBuffer& writeBuffer, const std::vector<std::uint8_t>& blockedTiles) const;
     bool rciParcelRectIsAvailable(const RciRect& rect, std::uint16_t zoningType, const TileBuffer& writeBuffer, const std::vector<std::uint8_t>& blockedTiles) const;
@@ -449,12 +493,13 @@ private:
     std::size_t parcelizeRemainingRciTiles(std::uint16_t zoningType, const RciTool& tool, TileBuffer& writeBuffer, std::vector<std::uint8_t>& blockedTiles);
     std::size_t parcelizeUnparcelledRciTiles(std::uint16_t zoningType, TileBuffer& writeBuffer);
     std::size_t parcelizeAllUnparcelledRciTiles(TileBuffer& writeBuffer);
-    float rciDemandForZoningType(std::uint16_t zoningType) const;
-    float rciPendingConstructionCapacity(std::uint16_t zoningType) const;
+    float rciDemandForRciType(const std::string& rciTypeId) const;
+    float rciPendingConstructionCapacity(const std::string& rciTypeId) const;
     float rciCapacityForLotAsset(const LotAsset& lotAsset, std::uint16_t zoningType) const;
+    int rciDemandParameterId(const std::string& rciTypeId) const;
     int rciDemandParameterId(std::uint16_t zoningType) const;
     bool exposeRciLotForRedevelopment(std::size_t lotIndex, const LotAsset& lotAsset, TileBuffer& writeBuffer, std::uint64_t availableAfterTick);
-    RciLot buildRedevelopmentRciLot(const Lot& lot, const LotAsset& lotAsset, std::uint64_t availableAfterTick) const;
+    RciLot buildRedevelopmentRciLot(const Lot& lot, const LotAsset& lotAsset, std::uint16_t zoningType, std::uint64_t availableAfterTick) const;
     bool tryAddModuleAtTile(const LotModule& moduleAsset, int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
     bool tryRemoveModuleAtTile(int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
     bool tryBulldozeAtTile(int clickedTileX, int clickedTileY, TileBuffer& writeBuffer);
@@ -487,7 +532,7 @@ private:
     static const int kMapWidth = 1024;
     static const int kMapHeight = 1024;
     static const int kMinimumJobsPerWorkerMultiplier = 8;
-    static const int kPollutionSpreadRate = 4;
+    static const int kPollutionSpreadRate = 16;
     static const int kInvalidLotId = -1;
 
     RuntimeOptions runtimeOptions_;
@@ -516,6 +561,7 @@ private:
     std::vector<LotModule> moduleAssets_;
     std::vector<LotAsset> lotAssets_;
     std::vector<RciGrowthRule> rciGrowthRules_;
+    std::vector<RciDesirabilityRule> rciDesirabilityRules_;
     RciToolCatalog rciTools_;
     std::unordered_map<std::string, std::size_t> moduleAssetIndexById_;
     std::unordered_map<std::string, std::size_t> lotAssetIndexById_;
@@ -535,6 +581,7 @@ private:
     int rciConstructorAttemptsPerTick_;
     float rciConstructorOverbuildMultiplier_;
     int rciBaselineLandValue_;
+    std::unordered_map<std::string, RciConstructorSourceCursor> rciConstructorSourceCursors_;
     std::uint64_t commuteRevision_;
     bool commutesDirty_;
     std::vector<int> forcedCommuteLotIds_;

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 
 namespace {
 const int kKeyActionPress = 1;
@@ -69,6 +70,12 @@ const char* OverlayModeName(OverlayMode overlayMode) {
 
         case OverlayMode::LandValue:
             return "land value";
+
+        case OverlayMode::Rci:
+            return "RCI parcels";
+
+        case OverlayMode::RciDesirability:
+            return "RCI desirability";
     }
 
     return "unknown";
@@ -123,6 +130,27 @@ std::string GameSpeedAction(GameSpeed gameSpeed) {
     return std::string();
 }
 
+std::string OverlayAction(OverlayMode overlayMode) {
+    switch (overlayMode) {
+        case OverlayMode::TrafficCapacity:
+            return "toggle_overlay_traffic";
+
+        case OverlayMode::LandValue:
+            return "toggle_overlay_land_value";
+
+        case OverlayMode::Rci:
+            return "toggle_overlay_rci";
+
+        case OverlayMode::RciDesirability:
+            return std::string();
+
+        case OverlayMode::None:
+            return std::string();
+    }
+
+    return std::string();
+}
+
 bool TryGameSpeedForAction(const std::string& action, GameSpeed& gameSpeed) {
     if (action == "set_speed_paused") {
         gameSpeed = GameSpeed::Paused;
@@ -142,6 +170,47 @@ bool TryGameSpeedForAction(const std::string& action, GameSpeed& gameSpeed) {
     }
 
     return false;
+}
+
+const std::string kSelectRciActionPrefix = "select_rci_";
+const std::string kToggleDesirabilityOverlayActionPrefix = "toggle_overlay_desirability_";
+
+std::string RciSelectAction(const std::string& toolId) {
+    return kSelectRciActionPrefix + toolId;
+}
+
+std::string RciDesirabilityOverlayAction(const std::string& rciTypeId) {
+    return kToggleDesirabilityOverlayActionPrefix + rciTypeId;
+}
+
+UiColor RciButtonColor(const RciTool& tool, float alpha) {
+    return UiColor(
+        std::max(0.0f, std::min(tool.color().r * 0.58f, 1.0f)),
+        std::max(0.0f, std::min(tool.color().g * 0.58f, 1.0f)),
+        std::max(0.0f, std::min(tool.color().b * 0.58f, 1.0f)),
+        alpha);
+}
+
+UiColor RciButtonActiveColor(const RciTool& tool) {
+    return UiColor(
+        std::max(0.0f, std::min(tool.color().r * 0.92f, 1.0f)),
+        std::max(0.0f, std::min(tool.color().g * 0.92f, 1.0f)),
+        std::max(0.0f, std::min(tool.color().b * 0.92f, 1.0f)),
+        0.96f);
+}
+
+UiColor RciButtonColor(const RciType& rciType, float alpha) {
+    return UiColor(
+        std::max(0.0f, std::min(rciType.color().r * 0.58f, 1.0f)),
+        std::max(0.0f, std::min(rciType.color().g * 0.58f, 1.0f)),
+        std::max(0.0f, std::min(rciType.color().b * 0.58f, 1.0f)),
+        alpha);
+}
+
+UiButton BuildMenuButton(const std::string& id, const std::string& text, const std::string& action, const UiColor& color, const UiColor& activeColor) {
+    UiButton button;
+    button.setDefinition(id, text, action, 0, 0, 132, 38, false, false, false, false, color, activeColor);
+    return button;
 }
 
 // Returns the human-readable label used when the active tool changes.
@@ -189,11 +258,8 @@ const char* ActiveToolName(ActiveTool activeTool) {
         case ActiveTool::Query:
             return "query";
 
-        case ActiveTool::ZoneResidential:
-            return "residential zoning";
-
-        case ActiveTool::ZoneIndustrial:
-            return "industrial zoning";
+        case ActiveTool::ZoneRci:
+            return "RCI zoning";
 
         case ActiveTool::ZoneUnzone:
             return "unzone";
@@ -241,13 +307,17 @@ void ClearQuerySelection(ViewState& viewState) {
     viewState.queriedLotId = -1;
     viewState.queriedLotRevision = 0;
     viewState.queriedCommuteRevision = 0;
+    viewState.queriedGeneration = 0;
     viewState.queriedCommuteRouteSegments.clear();
     viewState.queryWindowLines.clear();
 }
 
 const char* ZoningTypeName(std::uint16_t zoningType) {
-    if (zoningType == TileZoningResidential) {
-        return "Residence";
+    if (zoningType == TileZoningResidentialLow) {
+        return "Low Density Residence";
+    }
+    if (zoningType == TileZoningResidentialHigh) {
+        return "High Density Residence";
     }
     if (zoningType == TileZoningIndustrial) {
         return "Industry";
@@ -293,6 +363,9 @@ std::vector<std::string> BuildLotQueryWindowLines(const TileQueryResult& queryRe
     }
     if (!queryResult.moduleSummary.empty()) {
         lines.push_back("Modules: " + queryResult.moduleSummary);
+    }
+    if (!queryResult.rciLandValueLevel.empty()) {
+        lines.push_back("Land value: " + queryResult.rciLandValueLevel);
     }
     lines.push_back(BuildCommuteCategoryLine(queryResult));
     if (queryResult.residentsLowWealthTotal > 0) {
@@ -653,8 +726,7 @@ void AppController::onLeftMouseButtonPressed() {
             printQueryResult();
             break;
 
-        case ActiveTool::ZoneResidential:
-        case ActiveTool::ZoneIndustrial:
+        case ActiveTool::ZoneRci:
         case ActiveTool::ZoneUnzone:
             beginZoneDrag(tileX, tileY);
             break;
@@ -1044,11 +1116,29 @@ bool AppController::rciPreviewPlan(RciPlan& plan) const {
 }
 
 bool AppController::loadUiLayoutFromXmlFile(const std::string& filePath) {
-    return uiLayout_.loadFromXmlFile(filePath);
+    const bool loaded = uiLayout_.loadFromXmlFile(filePath);
+    if (!rciTools_.tools().empty()) {
+        instantiateRciUiFromCatalog();
+    }
+    return loaded;
+}
+
+bool AppController::loadLocaleFromJsonFile(const std::string& filePath) {
+    std::string errorMessage;
+    if (!localization_.loadFromJsonFile(filePath, errorMessage)) {
+        throw std::runtime_error("AppController::loadLocaleFromJsonFile: " + errorMessage);
+    }
+
+    return true;
 }
 
 bool AppController::loadRciToolsFromXmlFile(const std::string& filePath) {
-    return rciTools_.loadFromXmlFile(filePath);
+    if (!rciTools_.loadFromXmlFile(filePath)) {
+        throw std::runtime_error("AppController::loadRciToolsFromXmlFile: failed to load " + filePath);
+    }
+
+    instantiateRciUiFromCatalog();
+    return true;
 }
 
 const UiLayout& AppController::uiLayout() const {
@@ -1075,11 +1165,8 @@ std::string AppController::activeUiAction() const {
         case ActiveTool::Query:
             return "select_query";
 
-        case ActiveTool::ZoneResidential:
-            return "select_rci_residential";
-
-        case ActiveTool::ZoneIndustrial:
-            return "select_rci_industrial";
+        case ActiveTool::ZoneRci:
+            return viewState_.activeRciToolId.empty() ? std::string() : RciSelectAction(viewState_.activeRciToolId);
 
         case ActiveTool::ZoneUnzone:
             return "select_rci_unzone";
@@ -1098,6 +1185,18 @@ std::vector<std::string> AppController::activeUiActions() const {
 
     if (gameSession_.isCityMode()) {
         actions.push_back(GameSpeedAction(gameSession_.gameSpeed()));
+        if (uiLayout_.menuVisible("rci_tools")) {
+            actions.push_back("toggle_rci_tool_menu");
+        }
+        if (uiLayout_.menuVisible("rci_desirability_overlays")) {
+            actions.push_back("toggle_rci_overlay_menu");
+        }
+        const std::string activeOverlayAction = viewState_.overlayMode == OverlayMode::RciDesirability
+            ? (viewState_.overlayRciTypeId.empty() ? std::string() : RciDesirabilityOverlayAction(viewState_.overlayRciTypeId))
+            : OverlayAction(viewState_.overlayMode);
+        if (!activeOverlayAction.empty()) {
+            actions.push_back(activeOverlayAction);
+        }
     }
 
     return actions;
@@ -1133,20 +1232,46 @@ void AppController::setActiveTool(ActiveTool activeTool) {
     viewState_.bulldozeDragActive = false;
     viewState_.zoneDragActive = false;
     viewState_.zoneDragToolId.clear();
+    if (activeTool != ActiveTool::ZoneRci) {
+        viewState_.activeRciToolId.clear();
+    }
     if (activeToolIsRoad()) {
         NormalizeRoadTemplateSelection(viewState_);
     }
     std::cout << "Selected tool: " << ActiveToolName(activeTool) << std::endl;
 }
 
-void AppController::toggleTrafficOverlay() {
-    viewState_.overlayMode = viewState_.overlayMode == OverlayMode::TrafficCapacity ? OverlayMode::None : OverlayMode::TrafficCapacity;
+void AppController::setActiveRciTool(const RciTool& rciTool) {
+    setActiveTool(ActiveTool::ZoneRci);
+    viewState_.activeRciToolId = rciTool.id();
+    std::cout << "Selected RCI tool: " << rciTool.id() << std::endl;
+}
+
+void AppController::toggleOverlayMode(OverlayMode overlayMode) {
+    viewState_.overlayMode = viewState_.overlayMode == overlayMode ? OverlayMode::None : overlayMode;
+    if (viewState_.overlayMode != OverlayMode::RciDesirability) {
+        viewState_.overlayRciTypeId.clear();
+    }
     std::cout << "Overlay: " << OverlayModeName(viewState_.overlayMode) << std::endl;
 }
 
-void AppController::toggleLandValueOverlay() {
-    viewState_.overlayMode = viewState_.overlayMode == OverlayMode::LandValue ? OverlayMode::None : OverlayMode::LandValue;
+void AppController::toggleRciDesirabilityOverlay(const RciType& rciType) {
+    if (viewState_.overlayMode == OverlayMode::RciDesirability && viewState_.overlayRciTypeId == rciType.id()) {
+        viewState_.overlayMode = OverlayMode::None;
+        viewState_.overlayRciTypeId.clear();
+    } else {
+        viewState_.overlayMode = OverlayMode::RciDesirability;
+        viewState_.overlayRciTypeId = rciType.id();
+    }
     std::cout << "Overlay: " << OverlayModeName(viewState_.overlayMode) << std::endl;
+}
+
+void AppController::toggleTrafficOverlay() {
+    toggleOverlayMode(OverlayMode::TrafficCapacity);
+}
+
+void AppController::toggleLandValueOverlay() {
+    toggleOverlayMode(OverlayMode::LandValue);
 }
 
 void AppController::toggleRoadDebugGraphics() {
@@ -1204,21 +1329,75 @@ bool AppController::activeToolIsRoad() const {
 }
 
 bool AppController::activeToolIsZoning() const {
-    return viewState_.activeTool == ActiveTool::ZoneResidential ||
-        viewState_.activeTool == ActiveTool::ZoneIndustrial ||
+    return viewState_.activeTool == ActiveTool::ZoneRci ||
         viewState_.activeTool == ActiveTool::ZoneUnzone;
 }
 
 std::string AppController::activeRciToolId() const {
-    if (viewState_.activeTool == ActiveTool::ZoneResidential) {
-        return "residential";
+    return viewState_.activeTool == ActiveTool::ZoneRci ? viewState_.activeRciToolId : std::string();
+}
+
+void AppController::instantiateRciUiFromCatalog() {
+    if (!uiLayout_.removeButtonsWithActionPrefix("rci_tools", kSelectRciActionPrefix)) {
+        throw std::runtime_error("UI layout is missing rci_tools menu for RCI tools.");
+    }
+    if (!uiLayout_.removeButtonsWithActionPrefix("rci_desirability_overlays", kToggleDesirabilityOverlayActionPrefix)) {
+        throw std::runtime_error("UI layout is missing rci_desirability_overlays menu for RCI desirability overlays.");
     }
 
-    if (viewState_.activeTool == ActiveTool::ZoneIndustrial) {
-        return "industrial";
+    const std::vector<RciTool>& tools = rciTools_.tools();
+    std::size_t toolIndex = 0;
+    for (; toolIndex < tools.size(); ++toolIndex) {
+        const RciTool& tool = tools[toolIndex];
+        if (tool.labelStringId().empty()) {
+            throw std::runtime_error("RCI zone '" + tool.id() + "' is missing labelStringId.");
+        }
+
+        const int toolLabelId = localization_.requireStringId(tool.labelStringId(), "RCI zone " + tool.id());
+
+        if (!uiLayout_.addButtonToMenu(
+            "rci_tools",
+            BuildMenuButton(
+                "rci_" + tool.id(),
+                localization_.stringForId(toolLabelId),
+                RciSelectAction(tool.id()),
+                RciButtonColor(tool, 0.90f),
+                RciButtonActiveColor(tool)))) {
+            throw std::runtime_error("Failed to add RCI zone tool button for " + tool.id());
+        }
     }
 
-    return std::string();
+    const std::vector<RciType>& rciTypes = rciTools_.rciTypes();
+    std::size_t rciTypeIndex = 0;
+    for (; rciTypeIndex < rciTypes.size(); ++rciTypeIndex) {
+        const RciType& rciType = rciTypes[rciTypeIndex];
+        if (rciType.desirabilityOverlayStringId().empty()) {
+            throw std::runtime_error("RCI type '" + rciType.id() + "' is missing desirabilityOverlayStringId.");
+        }
+
+        const int overlayLabelId = localization_.requireStringId(rciType.desirabilityOverlayStringId(), "RCI desirability overlay " + rciType.id());
+        if (!uiLayout_.addButtonToMenu(
+            "rci_desirability_overlays",
+            BuildMenuButton(
+                "overlay_desirability_" + rciType.id(),
+                localization_.stringForId(overlayLabelId),
+                RciDesirabilityOverlayAction(rciType.id()),
+                RciButtonColor(rciType, 0.90f),
+                UiColor(0.52f, 0.66f, 0.47f, 0.96f)))) {
+            throw std::runtime_error("Failed to add RCI desirability overlay button for " + rciType.id());
+        }
+    }
+
+    if (!uiLayout_.addButtonToMenu(
+        "rci_tools",
+        BuildMenuButton(
+            "rci_unzone",
+            localization_.stringForKey("rci.tool.unzone", "RCI unzone tool"),
+            "select_rci_unzone",
+            UiColor(0.24f, 0.24f, 0.27f, 0.90f),
+            UiColor(0.44f, 0.44f, 0.48f, 0.96f)))) {
+        throw std::runtime_error("Failed to add RCI unzone button.");
+    }
 }
 
 RciPlanMode AppController::currentRciPlanMode() const {
@@ -1278,7 +1457,11 @@ bool AppController::handleUiClick() {
     } else {
         menuIds.push_back("date_speed");
         menuIds.push_back("side_tools");
+        menuIds.push_back("rci_tools");
+        menuIds.push_back("side_overlays");
+        menuIds.push_back("rci_desirability_overlays");
         menuIds.push_back("menu_toggle");
+        menuIds.push_back("overlay_toggle");
     }
 
     return handleUiClickForMenus(menuIds);
@@ -1353,6 +1536,71 @@ void AppController::invokeUiAction(const std::string& action) {
     if (action == "toggle_side_menu") {
         clearTransientInteractions();
         uiLayout_.toggleMenu("side_tools");
+        if (!uiLayout_.menuVisible("side_tools")) {
+            uiLayout_.setMenuVisible("rci_tools", false);
+        }
+        return;
+    }
+
+    if (action == "toggle_rci_tool_menu") {
+        clearTransientInteractions();
+        uiLayout_.toggleMenu("rci_tools");
+        return;
+    }
+
+    if (action == "toggle_overlay_menu") {
+        clearTransientInteractions();
+        uiLayout_.toggleMenu("side_overlays");
+        if (!uiLayout_.menuVisible("side_overlays")) {
+            uiLayout_.setMenuVisible("rci_desirability_overlays", false);
+        }
+        return;
+    }
+
+    if (action == "toggle_rci_overlay_menu") {
+        clearTransientInteractions();
+        uiLayout_.toggleMenu("rci_desirability_overlays");
+        return;
+    }
+
+    if (action == "toggle_overlay_traffic") {
+        clearTransientInteractions();
+        toggleOverlayMode(OverlayMode::TrafficCapacity);
+        return;
+    }
+
+    if (action == "toggle_overlay_land_value") {
+        clearTransientInteractions();
+        toggleOverlayMode(OverlayMode::LandValue);
+        return;
+    }
+
+    if (action == "toggle_overlay_rci") {
+        clearTransientInteractions();
+        toggleOverlayMode(OverlayMode::Rci);
+        return;
+    }
+
+    if (action.find(kToggleDesirabilityOverlayActionPrefix) == 0u) {
+        const std::string rciTypeId = action.substr(kToggleDesirabilityOverlayActionPrefix.size());
+        const RciType* rciType = rciTools_.findRciType(rciTypeId);
+        if (rciType == 0) {
+            throw std::runtime_error("Unknown RCI desirability overlay action: " + action);
+        }
+
+        clearTransientInteractions();
+        toggleRciDesirabilityOverlay(*rciType);
+        return;
+    }
+
+    if (action.find(kSelectRciActionPrefix) == 0u && action != "select_rci_unzone") {
+        const std::string toolId = action.substr(kSelectRciActionPrefix.size());
+        const RciTool* tool = rciTools_.findTool(toolId);
+        if (tool == 0) {
+            throw std::runtime_error("Unknown RCI tool action: " + action);
+        }
+
+        setActiveRciTool(*tool);
         return;
     }
 
@@ -1372,10 +1620,6 @@ void AppController::invokeUiAction(const std::string& action) {
         printRoadTemplate();
     } else if (action == "select_query") {
         setActiveTool(ActiveTool::Query);
-    } else if (action == "select_rci_residential") {
-        setActiveTool(ActiveTool::ZoneResidential);
-    } else if (action == "select_rci_industrial") {
-        setActiveTool(ActiveTool::ZoneIndustrial);
     } else if (action == "select_rci_unzone") {
         setActiveTool(ActiveTool::ZoneUnzone);
     }
@@ -1619,15 +1863,22 @@ void AppController::refreshQueryResultIfNeeded() {
         }
 
         if (queryResult.lotRevision == viewState_.queriedLotRevision &&
+            queryResult.generation == viewState_.queriedGeneration &&
             queryResult.commuteRevision == viewState_.queriedCommuteRevision) {
             return;
         }
 
+        const bool routeOverlayChanged =
+            queryResult.lotRevision != viewState_.queriedLotRevision ||
+            queryResult.commuteRevision != viewState_.queriedCommuteRevision;
         viewState_.queriedLotRevision = queryResult.lotRevision;
         viewState_.queriedCommuteRevision = queryResult.commuteRevision;
+        viewState_.queriedGeneration = queryResult.generation;
         viewState_.queriedCommuteRouteSegments = queryResult.commuteRouteSegments;
         viewState_.queryWindowLines = BuildLotQueryWindowLines(queryResult);
-        ++viewState_.queryRouteRevision;
+        if (routeOverlayChanged) {
+            ++viewState_.queryRouteRevision;
+        }
         return;
     }
 
@@ -1657,6 +1908,7 @@ void AppController::refreshQueryResultIfNeeded() {
             viewState_.queriedLotId = queryResult.lotId;
             viewState_.queriedLotRevision = queryResult.lotRevision;
             viewState_.queriedCommuteRevision = queryResult.commuteRevision;
+            viewState_.queriedGeneration = queryResult.generation;
             viewState_.queriedCommuteRouteSegments = queryResult.commuteRouteSegments;
             viewState_.queryWindowLines = BuildLotQueryWindowLines(queryResult);
             ++viewState_.queryRouteRevision;
@@ -1671,6 +1923,7 @@ void AppController::refreshQueryResultIfNeeded() {
 
         viewState_.queriedLotRevision = queryResult.roadRevision;
         viewState_.queriedCommuteRevision = queryResult.commuteRevision;
+        viewState_.queriedGeneration = queryResult.generation;
         viewState_.queriedCommuteRouteSegments.clear();
         viewState_.queryWindowLines = BuildRciQueryWindowLines(queryResult);
         ++viewState_.queryRouteRevision;
@@ -1737,6 +1990,7 @@ void AppController::printQueryResult() {
         viewState_.queriedTileY = tileY;
         viewState_.queriedLotRevision = queryResult.lotRevision;
         viewState_.queriedCommuteRevision = queryResult.commuteRevision;
+        viewState_.queriedGeneration = queryResult.generation;
         viewState_.queriedCommuteRouteSegments = queryResult.commuteRouteSegments;
         viewState_.queryWindowLines = BuildLotQueryWindowLines(queryResult);
         ++viewState_.queryRouteRevision;
@@ -1756,6 +2010,7 @@ void AppController::printQueryResult() {
         viewState_.queriedTileY = tileY;
         viewState_.queriedLotRevision = queryResult.lotRevision;
         viewState_.queriedCommuteRevision = queryResult.commuteRevision;
+        viewState_.queriedGeneration = queryResult.generation;
         viewState_.queriedCommuteRouteSegments = queryResult.roadCommuteSegments;
         viewState_.queryWindowLines = BuildRoadQueryWindowLines(queryResult);
         ++viewState_.queryRouteRevision;
@@ -1769,6 +2024,7 @@ void AppController::printQueryResult() {
         viewState_.queriedTileY = tileY;
         viewState_.queriedLotRevision = queryResult.lotRevision;
         viewState_.queriedCommuteRevision = queryResult.commuteRevision;
+        viewState_.queriedGeneration = queryResult.generation;
         viewState_.queriedCommuteRouteSegments.clear();
         viewState_.queryWindowLines = BuildRciQueryWindowLines(queryResult);
         ++viewState_.queryRouteRevision;

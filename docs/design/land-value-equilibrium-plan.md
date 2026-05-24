@@ -35,27 +35,30 @@ These are design references, not formulas to copy. The important lesson is the s
 
 Current code anchors:
 
-- `City Builder/SimulationRuntime.cpp` computes neighbor diffusion, applies the XML land-value floor, and decays air pollution toward zero.
-- `City Builder/Lot.cpp` applies lot air-pollution effects to occupied lot tiles.
-- `City Builder/SimulationRuntime.cpp` converts average candidate land value into the current density multiplier.
+- `City Builder/SimulationRuntime.cpp` computes neighbor diffusion, clamps land value to the displayed min/cap range, and decays air pollution toward zero.
+- `City Builder/Lot.cpp` applies lot air-pollution and land-value effects to occupied lot tiles.
+- `City Builder/SimulationRuntime.cpp` converts average candidate land value into the current local density factor.
 - `City Builder/Tile.h` defines the displayed land-value cap.
-- `City Builder/Data/RCI/rci_tools.xml` defines `baselineLandValue`, the floor used by new and imported tiles.
+- `City Builder/Data/RCI/rci_tools.xml` defines `baselineLandValue`, currently `0`, used to seed new tiles.
 
 The current diffusion pass uses this shape for interior tiles:
 
 ```text
-newValue = oldValue + sum(neighborValue - oldValue) / 4
+newValue = oldValue + sum(neighborValue - oldValue) / 16
 ```
 
-For a tile with four neighbors this is exactly the four-neighbor average. There is no self-retention term for interior tiles. The local pass keeps land value at or above the XML baseline and decays air pollution independently. Pollution no longer subtracts land value directly, road medians no longer add direct land value, and lots no longer apply module land-value effects to their occupied tiles.
+For a tile with four neighbors this is 75 percent self-retention and 25 percent four-neighbor average. The local pass clamps land value to the display min/cap range and decays air pollution independently. Lots currently apply module air-pollution, park-effect, and land-value effects to their occupied tiles as separate fields. Pollution and park effect no longer subtract from or add to land value directly, and road medians no longer add direct land value.
 
-Current module land-value XML remains authored data, but it is not applied to tiles in the interim baseline model:
+Current module land-value XML is active again:
 
-- Park modules still reduce air pollution, but their old direct land-value boost is inactive.
-- Industrial modules still add air pollution, but their old direct negative land-value effect is inactive.
-- Residential, service, yard, path, parking, and related module land-value effects are preserved in XML for a future target-value model.
+- Residential modules add direct land value, scaled roughly by authored density/form.
+- Industrial modules add air pollution but currently use zero direct land-value effect.
+- Park modules reduce air pollution and emit `parkEffect` but currently use zero direct land-value effect.
+- Service, yard, path, parking, and related module land-value effects are neutral or small direct sources until the future composed target-value model replaces this interim source model.
 
-This removes the previous industrial double-negative and the park-driven land-value spike while leaving room for a later composed target model.
+This restores the older direct source behavior while leaving room for a later composed target model.
+
+The important balancing problem is that the current local density formula can double-count density. Population raises the zone-owned citywide density cap. That allows denser residential assets. Those assets emit larger land-value values. The higher land value is then multiplied back into future candidate density through `rciLocalMaxDensityPerTile`. The loop is bounded by the displayed cap and by constructor attempts, so it is not an unbounded one-tick exponential, but it can still create a compounding redevelopment cascade.
 
 ## Scratch Simulation
 
@@ -100,6 +103,8 @@ next = approach(diffused, landValueTarget, targetBlend) - globalDecay
 
 The key change from the old coupled model is the self-retention term and the absence of direct universal park/pollution modifiers. A starting value around `diffusionRate = 0.15` to `0.25` is easier to tune than the old effective interior rate of `1.0`.
 
+Density-linked sources should be normalized against city maturity before they feed the target. In particular, nearby density should use completed capacity per tile divided by the current zone cap, not raw completed capacity alone. Replacement scoring should exclude the source lots the candidate would consume, otherwise a dense existing lot self-justifies its own next redevelopment.
+
 The system should stay data-driven. Add a future XML file such as:
 
 ```text
@@ -141,13 +146,32 @@ Target bands:
 | Very high | `120k-155k` | `78-97%` | strong downtown, dense mixed services |
 | Cap | `155k-160k` | `97-100%` | Manhattan-like high density with plentiful services and easy commutes |
 
-The existing density formula can remain for the first implementation:
+The current interim density formula uses land value as the local density factor, with a small starter floor so zero-value land can still grow low-density starter buildings:
 
 ```text
-densityMultiplier = 0.10 + 0.90 * clamp01(landValue / displayedCap)
+localMaxDensityPerTile =
+    max(starterDensityFloor, cityMaxDensityPerTile * clamp01(landValue / displayedCap))
 ```
 
 The balancing work should focus on making land value itself hard to maximize without a genuinely intense and well-served district.
+
+Recommended replacement shape:
+
+```text
+localMaxDensityPerTile =
+    starterDensityFloor
+  + (cityMaxDensityPerTile - starterDensityFloor)
+    * smoothstep(localIntensity01)
+```
+
+`localIntensity01` should be a saturated score, not a second raw density scale. A geometric mean is a good first prototype because it rewards places that are simultaneously developed, accessible, serviced, and near other completed density, while one missing prerequisite drags the result down:
+
+```text
+nearbyDensity01 = completedNearbyCapacityPerTile / max(cityMaxDensityPerTile, starterDensityFloor)
+localIntensity01 = geometricMean(developedSite01, access01, nearbyDensity01, serviceSite01) * (1 - edgePenalty01)
+```
+
+This keeps population as the only global unlock curve. Local intensity decides how much of that unlock a place can use, rather than multiplying a density-derived field back into another density-derived cap.
 
 ## Desirability And Demand Pressure
 
@@ -156,23 +180,26 @@ The cheap first-pass model should avoid speculative pathfinding for hypothetical
 Separate three decisions:
 
 1. **Growth eligibility:** no new RCI growth below desirability `60`.
-2. **Maximum density for construction:** desirability does not multiply the cap. If the candidate is eligible, the density cap is land value plus demand pressure.
+2. **Maximum density for construction:** desirability does not multiply the cap. If the candidate is eligible, the density cap is local intensity plus modest demand pressure.
 3. **Current active capacity for built lots:** built lots recalculate average desirability from the tiles they own and scale active residents/jobs between `50%` and `100%`.
 
 Construction density should use:
 
 ```text
 effectiveMaxDensity =
-    populationMaxDensity
-  * landValueDensityFactor
-  * demandPressureDensityFactor
+    min(
+        populationMaxDensity,
+        starterDensityFloor
+      + (populationMaxDensity - starterDensityFloor)
+        * localIntensityFactor
+        * demandPressureDensityFactor)
 ```
 
 Interpretation:
 
-- `populationMaxDensity` is the existing citywide maturity curve by RCI type.
-- `landValueDensityFactor` is the existing local cap: `0.10` at land value `0`, `1.00` at the displayed land-value cap.
-- `demandPressureDensityFactor` lets pent-up demand justify somewhat denser buildings than a relaxed market would choose.
+- `populationMaxDensity` is the existing citywide maturity curve by zone.
+- `localIntensityFactor` is the local cap: `0.00` at weak local intensity, `1.00` only for an exceptional completed core, with starter low-density growth preserved by a separate floor.
+- `demandPressureDensityFactor` lets pent-up demand justify somewhat denser buildings than a relaxed market would choose, but it should have a small slope and a hard cap.
 - `desirability >= 60` is a prerequisite for growth, not a partial density multiplier.
 
 Built-lot active capacity should use the lot's own averaged desirability for its RCI type:
@@ -204,7 +231,7 @@ Sensitivity tables should live in RCI XML, either inside `Data/RCI/rci_tools.xml
 Example low-wealth residential pollution and commute curves:
 
 ```xml
-<rciDesirability rciType="residential" wealth="low" baseline="60">
+<rciDesirability rciType="low_wealth_residential" baseline="60">
   <sensitivity field="airPollution" input="normalized">
     <point value="0.0" desirabilityDelta="5" />
     <point value="0.2" desirabilityDelta="0" />
@@ -223,7 +250,7 @@ For the current `600` second maximum commute, that residential commute table mea
 Residential park effect should be a positive curve. Dirty industry should initially declare zero deltas for both `parkEffect` and `airPollution`, keeping it at the baseline `60` for those fields:
 
 ```xml
-<rciDesirability rciType="dirtyIndustry" baseline="60">
+<rciDesirability rciType="dirty_industry" baseline="60">
   <sensitivity field="parkEffect" input="normalized">
     <point value="0.0" desirabilityDelta="0" />
     <point value="1.0" desirabilityDelta="0" />
@@ -239,10 +266,10 @@ Demand pressure should be calculated per RCI type and eventually per wealth/job 
 
 ```text
 demandPressureRatio = unsatisfiedDemand / max(activeCapacityForThisRciType, seedCapacity, 1)
-demandPressureDensityFactor = clamp(1.0 + demandPressureRatio, 1.0, demandPressureCap)
+demandPressureDensityFactor = clamp(1.0 + demandPressureRatio * demandSlope, 1.0, demandPressureCap)
 ```
 
-With `activeCapacity = 1000` and `unsatisfiedDemand = 200`, the factor is `1.20`. That matches the desired intuition: a city with demand for 200 more houses against an existing base of 1000 residents can tolerate a 20 percent density premium. For dirty industry, the denominator should be active dirty-industry capacity/jobs rather than total city population.
+With `activeCapacity = 1000`, `unsatisfiedDemand = 200`, and `demandSlope = 0.5`, the factor is `1.10`. That matches the desired intuition: a city with demand for 200 more houses against an existing base of 1000 residents can tolerate a small density premium without demand becoming a hidden second population curve. For dirty industry, the denominator should be active dirty-industry capacity/jobs rather than total city population.
 
 The first `demandPressureCap` should be conservative, likely `1.25` to `1.50`, and should be XML-authored. Demand pressure should also be smoothed over time with a short moving average so one tick of demand noise does not cause a sudden tower jump.
 
@@ -311,7 +338,7 @@ These target values should guide scripts and integration tests.
 
 6. Add per-RCI demand-pressure density scaling.
    - Replace fixed overbuild intuition with `unsatisfiedDemand / activeCapacityForThisRciType`.
-   - Apply the resulting multiplier both to construction budget and to maximum density.
+   - Apply the resulting multiplier both to construction budget and to maximum density, with a conservative slope.
    - Smooth and cap the multiplier through XML.
 
 7. Feed services into land value.
@@ -320,7 +347,7 @@ These target values should guide scripts and integration tests.
    - Service-site value and emitted service fields should have distance decay and saturation so repeated identical services have diminishing returns.
 
 8. Preserve the current local density cap interface.
-   - `rciLocalMaxDensityPerTile` can continue reading average candidate land value.
+   - `rciLocalMaxDensityPerTile` can continue reading average candidate land value if `landValue` has been converted into the composed local-intensity field.
    - Tests should assert that a far serviced suburb remains below medium/high caps while a dense, serviced, low-pollution core can approach the cap.
 
 ## Test Plan
@@ -341,7 +368,7 @@ Prefer sandbox integration tests over helper-only unit tests.
 - Assert sensitivity interpolation: low-wealth residential air pollution gives about `+5` at `0%`, `0` at `20%`, and about `-30` at `100%` normalized pollution.
 - Assert residential commute interpolation: `0%` of max commute gives about `+5`, `50%` gives `0`, and `100%` gives about `-20`.
 - Assert dirty-industry neutrality: dirty industry park-effect and air-pollution tables both interpolate to `0`, leaving baseline desirability `60` for those fields.
-- Assert demand pressure: with active capacity `1000` and unsatisfied demand `200`, the density pressure multiplier is `1.20` before XML cap/smoothing.
+- Assert demand pressure: with active capacity `1000`, unsatisfied demand `200`, and slope `0.5`, the density pressure multiplier is `1.10` before XML cap/smoothing.
 
 ## Open Balancing Questions
 

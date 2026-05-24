@@ -308,10 +308,15 @@ void RendererFillZoningOverlayChunkPixels(const std::vector<Tile>& tiles, int ma
         for (; tileX < chunkRect.startX + chunkRect.width; ++tileX) {
             const std::size_t sourceIndex = static_cast<std::size_t>(tileY) * static_cast<std::size_t>(mapWidth) + static_cast<std::size_t>(tileX);
             const Tile& tile = tiles[sourceIndex];
-            if (tile.zoningType == TileZoningResidential) {
-                texturePixels[writeIndex++] = 50u;
-                texturePixels[writeIndex++] = 210u;
-                texturePixels[writeIndex++] = 92u;
+            if (tile.zoningType == TileZoningResidentialLow) {
+                texturePixels[writeIndex++] = 112u;
+                texturePixels[writeIndex++] = 235u;
+                texturePixels[writeIndex++] = 117u;
+                texturePixels[writeIndex++] = 96u;
+            } else if (tile.zoningType == TileZoningResidentialHigh) {
+                texturePixels[writeIndex++] = 26u;
+                texturePixels[writeIndex++] = 122u;
+                texturePixels[writeIndex++] = 51u;
                 texturePixels[writeIndex++] = 96u;
             } else if (tile.zoningType == TileZoningIndustrial) {
                 texturePixels[writeIndex++] = 238u;
@@ -471,7 +476,10 @@ std::vector<UiQuadInstanceData> RendererBuildUiMenuQuads(const UiLayout& uiLayou
             continue;
         }
 
-        const UiRect menuRect = menu.resolvedRect(framebufferWidth, framebufferHeight);
+        UiRect menuRect;
+        if (!uiLayout.resolveMenuRect(menu.id(), framebufferWidth, framebufferHeight, menuRect)) {
+            continue;
+        }
         RendererAddUiQuad(
             quads,
             static_cast<float>(menuRect.x),
@@ -482,15 +490,7 @@ std::vector<UiQuadInstanceData> RendererBuildUiMenuQuads(const UiLayout& uiLayou
     }
 
     std::vector<UiResolvedButton> resolvedButtons;
-    for (menuIndex = 0; menuIndex < menus.size(); ++menuIndex) {
-        const UiMenu& menu = menus[menuIndex];
-        if (!menu.visible() ||
-            (!includeAllMenus && std::find(menuIds.begin(), menuIds.end(), menu.id()) == menuIds.end())) {
-            continue;
-        }
-
-        menu.resolveButtons(framebufferWidth, framebufferHeight, activeActions, resolvedButtons);
-    }
+    uiLayout.resolveButtons(framebufferWidth, framebufferHeight, activeActions, menuIds, resolvedButtons);
 
     std::size_t buttonIndex = 0;
     for (; buttonIndex < resolvedButtons.size(); ++buttonIndex) {

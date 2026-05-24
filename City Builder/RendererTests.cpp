@@ -246,8 +246,9 @@ void TestTileLiftChunkPacking(TestRunner& runner) {
 
 void TestZoningOverlayChunkPacking(TestRunner& runner) {
     std::vector<Tile> tiles(16);
-    tiles[5].zoningType = TileZoningResidential;
+    tiles[5].zoningType = TileZoningResidentialHigh;
     tiles[6].zoningType = TileZoningIndustrial;
+    tiles[9].zoningType = TileZoningResidentialLow;
 
     ChunkRect chunk;
     chunk.startX = 1;
@@ -259,9 +260,10 @@ void TestZoningOverlayChunkPacking(TestRunner& runner) {
     RendererFillZoningOverlayChunkPixels(tiles, 4, chunk, pixels);
 
     runner.expect(pixels.size() == 16u, "zoning overlay writes RGBA bytes per tile");
-    runner.expect(pixels[0] == 50u && pixels[1] == 210u && pixels[3] > 0u, "residential zoning packs green tint");
+    runner.expect(pixels[0] == 26u && pixels[1] == 122u && pixels[3] > 0u, "high density residential zoning packs dark green tint");
     runner.expect(pixels[4] == 238u && pixels[5] == 211u && pixels[7] > 0u, "industrial zoning packs yellow tint");
-    runner.expect(pixels[11] == 0u && pixels[15] == 0u, "un-zoned tiles pack transparent overlay");
+    runner.expect(pixels[8] == 112u && pixels[9] == 235u && pixels[11] > 0u, "low density residential zoning packs light green tint");
+    runner.expect(pixels[15] == 0u, "un-zoned tiles pack transparent overlay");
 }
 
 void TestLandValueOverlayChunkPacking(TestRunner& runner) {
@@ -395,13 +397,23 @@ void TestUiMenuQuadsAndHitTesting(TestRunner& runner) {
     std::vector<std::string> regionMenuIds;
     regionMenuIds.push_back("region_exit");
     runner.expect(layout.hitTestAction(24.0, 24.0, 1024, 768, regionMenuIds, action) && action == "open_exit_confirm", "fallback region exit button hit tests in filtered region UI");
-    runner.expect(layout.hitTestAction(24.0, 300.0, 1024, 768, action) && action == "select_bulldozer", "fallback side-menu button hit tests by screen position");
-    runner.expect(layout.hitTestAction(24.0, 664.0, 1024, 768, action) && action == "select_rci_unzone", "fallback side-menu exposes unzone button");
+    runner.expect(layout.hitTestAction(24.0, 390.0, 1024, 768, action) && action == "select_bulldozer", "fallback side-menu button hit tests by screen position");
+    runner.expect(layout.hitTestAction(24.0, 664.0, 1024, 768, action) && action == "toggle_rci_tool_menu", "fallback side-menu exposes RCI submenu button");
+    layout.setMenuVisible("rci_tools", true);
+    runner.expect(layout.hitTestAction(172.0, 733.0, 1024, 768, action) && action == "select_rci_unzone", "fallback RCI child menu exposes unzone button");
+    runner.expect(layout.hitTestAction(900.0, 530.0, 1024, 768, action) && action == "toggle_overlay_traffic", "fallback overlay menu hit tests from the bottom-right");
+    runner.expect(layout.hitTestAction(900.0, 740.0, 1024, 768, action) && action == "toggle_overlay_menu", "bottom-right overlay menu toggle remains clickable");
 
     std::vector<UiQuadInstanceData> quads = RendererBuildUiMenuQuads(layout, 1024, 768, "select_road_street");
     runner.expect(!quads.empty(), "visible UI menus produce quads");
     runner.expect(AlmostEqual(quads[0].x, 16.0f), "side menu resolves to left edge");
     runner.expect(quads[0].colorA >= 0.0f, "menu background alpha is stable");
+    UiRect rciMenuRect;
+    runner.expect(layout.resolveMenuRect("rci_tools", 1024, 768, rciMenuRect) && rciMenuRect.x == 164 && rciMenuRect.y == 589, "centered-right RCI child menu resolves beside its parent button");
+    layout.setMenuVisible("rci_desirability_overlays", true);
+    UiRect rciOverlayMenuRect;
+    runner.expect(layout.resolveMenuRect("rci_desirability_overlays", 1024, 768, rciOverlayMenuRect) && rciOverlayMenuRect.x == 728 && rciOverlayMenuRect.y == 635, "centered-left RCI overlay child menu resolves beside its parent button");
+    layout.setMenuVisible("rci_desirability_overlays", false);
 
     layout.setMenuVisible("escape_menu", true);
     std::vector<UiResolvedButton> resolvedButtons;
@@ -468,13 +480,15 @@ void TestUiButtonIconXmlAndRendering(TestRunner& runner) {
 
 void TestRciToolFallbacksAndPlanning(TestRunner& runner) {
     RciToolCatalog catalog;
-    const RciTool* residential = catalog.findTool("residential");
+    const RciTool* residential = catalog.findTool("residential_high");
+    const RciTool* residentialLow = catalog.findTool("residential_low");
     const RciTool* industrial = catalog.findTool("industrial");
-    runner.expect(residential != 0 && industrial != 0, "fallback RCI catalog exposes residential and industrial tools");
-    if (residential == 0 || industrial == 0) {
+    runner.expect(residential != 0 && residentialLow != 0 && industrial != 0, "fallback RCI catalog exposes low residential, high residential, and industrial zone tools");
+    if (residential == 0 || residentialLow == 0 || industrial == 0) {
         return;
     }
 
+    runner.expect(residentialLow->zoningType() == TileZoningResidentialLow, "low density residential zone uses distinct zoning type");
     runner.expect(residential->minDepth() == 2 && residential->preferredDepth() == 4 && residential->maxDepth() == 8, "residential RCI depth preferences match design");
     runner.expect(industrial->minDepth() == 2 && industrial->preferredDepth() == 8 && industrial->maxDepth() == 8, "industrial RCI depth preferences match design");
 
@@ -628,16 +642,21 @@ void TestRciToolXmlLoading(TestRunner& runner) {
     const char* filePath = "rci_tool_test.xml";
     {
         std::ofstream file(filePath, std::ios::out | std::ios::trunc);
-        file << "<rciTools><tool id=\"residential\" name=\"Homes\" zoningType=\"residential\" colorR=\"0.1\" colorG=\"0.8\" colorB=\"0.2\" colorA=\"0.5\" minDepth=\"2\" preferedDepth=\"5\" maxDepth=\"8\" minWidth=\"2\" preferedWidth=\"16\" maxWidth=\"24\" /></rciTools>";
+        file << "<rciTools><zone id=\"residential_high\" name=\"Homes\" zoningType=\"high_density_residential\" colorR=\"0.1\" colorG=\"0.8\" colorB=\"0.2\" colorA=\"0.5\" minDepth=\"2\" preferedDepth=\"5\" maxDepth=\"8\" minWidth=\"2\" preferedWidth=\"16\" maxWidth=\"24\" /><rciType id=\"low_wealth_residential\" desirabilityOverlayStringId=\"overlay.desirability.low_wealth_residential\" demandParameterId=\"residents.low_wealth\" zoneTypes=\"high_density_residential\" /></rciTools>";
     }
 
     RciToolCatalog catalog;
     const bool loaded = catalog.loadFromXmlFile(filePath);
-    const RciTool* tool = catalog.findTool("residential");
-    runner.expect(loaded && tool != 0, "RCI XML catalog loads tool definitions");
+    const RciTool* tool = catalog.findTool("residential_high");
+    const RciType* rciType = catalog.findRciType("low_wealth_residential");
+    runner.expect(loaded && tool != 0 && rciType != 0, "RCI XML catalog loads zone and RCI type definitions");
     if (tool != 0) {
-        runner.expect(tool->name() == "Homes", "RCI XML tool name is stored");
+        runner.expect(tool->name() == "Homes", "RCI XML zone name is stored");
+        runner.expect(tool->zoningType() == TileZoningResidentialHigh, "RCI XML high-density residential zone type is stored");
         runner.expect(tool->preferredDepth() == 5 && tool->preferredWidth() == 16, "RCI XML accepts prefered spelling aliases");
+    }
+    if (rciType != 0) {
+        runner.expect(rciType->allowsZoningType(TileZoningResidentialHigh), "RCI type records allowed zone types");
     }
 
     std::remove(filePath);

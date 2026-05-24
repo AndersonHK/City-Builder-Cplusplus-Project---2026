@@ -10,9 +10,10 @@ Use this guide when changing `InGameWindow`, `UiWidgets`, UI XML under `Data/UI`
 
 ## Current Shape
 - `InGameWindow` loads one `<window>` root and a flat list of `<textField>` elements from XML.
-- `UiLayout` loads flat `<menu>` containers with `<button>` children from XML. It supports top-left, bottom-left, and center anchors, and falls back to a built-in city tool menu when XML is absent.
+- `UiLayout` loads `<menu>` containers with `<button>` children from XML. Menus may be root menus or child menus anchored to another menu or to a specific parent button.
+- Root menus support top-left, bottom-left, bottom-right, and center anchors. Child menus resolve from their parent menu/button rectangle and can stack away from the parent or centered on the parent.
 - The renderer loads the lot query window from `Data/UI/lot_query.xml` through `BuildDataPath("UI\\lot_query.xml")`.
-- The renderer loads the city tool buttons from `Data/UI/city_tools.xml` through `BuildDataPath("UI\\city_tools.xml")`.
+- The renderer loads city tool, overlay, and nested menu definitions from `Data/UI/city_tools.xml` through `BuildDataPath("UI\\city_tools.xml")`.
 - If the file is missing, malformed, or contains no text fields, `InGameWindow::setFallbackDefinition` creates a built-in `lot_query` layout.
 - `AppController::printQueryResult` fills `ViewState::queryWindowLines` for lot, road, and empty RCI-lot queries. The renderer copies the first line into `title` and later lines into `line0`, `line1`, and so on.
 - Empty text fields are skipped during layout and draw. This lets a query window show only the fields that apply to the queried selection.
@@ -28,7 +29,9 @@ Use this guide when changing `InGameWindow`, `UiWidgets`, UI XML under `Data/UI`
 - The city date widget adds four icon-only speed buttons through the UI layout: paused, play, fast, and fast-forward.
 - The region view has a top-left `Exit` menu button that opens the same save-before-exit dialog as the centered escape menu.
 - The centered escape menu, save-before-exit dialog, and save-before-leaving-city dialog are ordinary hidden UI menus. `AppController` toggles their visibility from the `escape_menu`, `open_exit_confirm`, `exit_save_yes`, `exit_save_no`, `city_switch_save_yes`, and `city_switch_save_no` actions. The city-switch dialog is only used when the clicked region city would replace a different dirty cached city.
-- RCI button actions select XML-backed RCI tools; the tool details live in `Data/RCI/rci_tools.xml` so menus stay concerned only with presentation and intent.
+- RCI zone-tool buttons are instantiated at startup from XML-defined zones in `Data/RCI/rci_tools.xml` and inserted into the `rci_tools` child menu under the Tools menu. RCI desirability overlay buttons are instantiated from XML-defined RCI types and inserted into the `rci_desirability_overlays` child menu under the Overlays menu.
+- Static overlay buttons live in the bottom-right Overlays menu. The RCI tile overlay colors parcel/zoning tiles and hides RCI buildings so their parcels remain inspectable while active. RCI desirability overlays are type-specific tint overlays generated from RCI type definitions.
+- RCI button actions select XML-backed RCI zone tools; RCI type overlay actions select XML-backed desirability overlays. The RCI catalog owns zoning colors, parcel sizing, density curves, demand ids, and desirability labels so menus stay concerned only with presentation and intent.
 - Keyboard shortcuts are not stored in UI XML. They live in `Data/config.ini` and are dispatched through `AppController`, so menu button actions and hotkeys can point at the same tool intent without coupling the UI schema to physical keys.
 
 ## XML Schema
@@ -64,17 +67,23 @@ Current menu XML is also intentionally simple:
 <menu id="side_tools" anchor="bottomLeft" x="16" bottom="72" width="132" buttonWidth="132" buttonHeight="38" spacing="8">
   <button id="bulldozer" text="Bulldoze" action="select_bulldozer" />
 </menu>
+<menu id="rci_tools" parentMenu="side_tools" parentButton="rci_menu" stack="centered" direction="right" visible="false">
+</menu>
 ```
 
 Supported `<menu>` attributes:
 
 - `id`: menu identifier.
-- `x`, `y`, `bottom`: screen-space placement values. `bottom` is used by `anchor="bottomLeft"`.
+- `x`, `y`, `bottom`: screen-space placement values for root menus; `bottom` is used by bottom-left and bottom-right anchors. For child menus, `x`/`y` are offsets from the resolved parent rectangle.
 - `width`, `height`: menu bounds. Missing or zero height uses the flowed button height.
 - `buttonWidth`, `buttonHeight`: fallback button size.
 - `spacing`: space between flowed buttons.
-- `anchor`: `topLeft`, `bottomLeft`, or `center`.
+- `anchor`: `topLeft`, `bottomLeft`, `bottomRight`, or `center`.
 - `flow`: `down` or `up`.
+- `parentMenu` / `parent`: optional parent menu id. When set, this menu is resolved relative to the parent instead of the screen anchor.
+- `parentButton`: optional parent button id inside `parentMenu`. When set, this menu is resolved relative to that button instead of the whole parent menu rectangle.
+- `stack` / `stackMode`: `away`/`stacked` keeps the menu edge-aligned from the parent; `centered`/`center` centers the child menu across the parent axis.
+- `direction` / `stackDirection`: child expansion direction: `up`, `right`, `down`, or `left`.
 - `visible`: `true`, `1`, or `yes` keeps the menu active at load.
 - `backgroundR/G/B/A`: menu background color.
 
@@ -100,6 +109,8 @@ Supported `<button>` attributes:
 - Draw UI after world geometry, tile overlays, and query route arrows with depth disabled and restored afterward.
 - Menus hidden through `UiLayout::setMenuVisible` or `toggleMenu` should not draw buttons or hit-test button actions.
 - Keep RCI zoning settings out of menu XML. Menus select tools; the RCI catalog defines zoning color and parcel sizing.
+- Keep RCI zone tools and RCI type overlays separate. Zone tools paint land-use zoning; type overlays visualize desirability for the building type that can grow inside one or more zones.
+- Root menu toggles should hide their child menus when closed so child buttons do not remain visible or clickable after the parent disappears.
 - Avoid adding a full UI framework until there is a second real window or menu pattern that needs shared behavior beyond the current text fields and buttons.
 
 ## Checks
@@ -111,6 +122,8 @@ Supported `<button>` attributes:
 - Temporarily rename `Data/UI/lot_query.xml` in the output folder and confirm the fallback query window still renders.
 - Add a long query line and confirm text clips inside its text field rather than spilling outside the window.
 - Toggle the bottom-left `Tools` button and confirm the side menu hides, shows, and does not block world clicks while hidden.
+- Open the Tools RCI child menu and confirm it expands centered to the right of the RCI button with one generated button per XML-defined zone plus Unzone.
+- Open the bottom-right Overlays menu, then the RCI Desire child menu, and confirm it expands centered to the left with one generated button per XML-defined RCI type.
 - In region mode, click the top-left `Exit` button and confirm the centered save-before-exit dialog shows `Yes` and `No`.
 - Return to region after editing a city, double-click the same city, and confirm no save-before-leaving-city dialog appears. Then double-click another city and confirm the centered save-before-leaving-city dialog can save or discard the cached city before loading the selected city.
 - Select each tool button and confirm active-tool highlighting follows bulldoze, road, query, zoning, and unzone tools.

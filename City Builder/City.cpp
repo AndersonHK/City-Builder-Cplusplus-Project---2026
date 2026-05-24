@@ -188,6 +188,7 @@ CitySaveState City::createDefaultSaveState(std::uint32_t seed, int width, int he
     for (; tileIndex < saveState.tiles.size(); ++tileIndex) {
         saveState.tiles[tileIndex].landValue = 0;
         saveState.tiles[tileIndex].airPollution = 0;
+        saveState.tiles[tileIndex].parkEffect = 0;
         saveState.tiles[tileIndex].isVacant = true;
         saveState.tiles[tileIndex].zoningType = 0;
     }

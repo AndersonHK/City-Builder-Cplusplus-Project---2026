@@ -71,6 +71,10 @@ UiAnchor AttributeAnchorValue(const std::string& tag, const std::string& attribu
         return UiAnchor::BottomLeft;
     }
 
+    if (value == "bottomRight") {
+        return UiAnchor::BottomRight;
+    }
+
     if (value == "topLeft") {
         return UiAnchor::TopLeft;
     }
@@ -90,6 +94,40 @@ UiFlow AttributeFlowValue(const std::string& tag, const std::string& attributeNa
 
     if (value == "down") {
         return UiFlow::Down;
+    }
+
+    return fallback;
+}
+
+UiMenuStackMode AttributeStackModeValue(const std::string& tag, UiMenuStackMode fallback) {
+    const std::string value = AttributeValue(tag, "stack", AttributeValue(tag, "stackMode", std::string()));
+    if (value == "away" || value == "stacked") {
+        return UiMenuStackMode::Away;
+    }
+
+    if (value == "centered" || value == "center") {
+        return UiMenuStackMode::Centered;
+    }
+
+    return fallback;
+}
+
+UiMenuStackDirection AttributeStackDirectionValue(const std::string& tag, UiMenuStackDirection fallback) {
+    const std::string value = AttributeValue(tag, "direction", AttributeValue(tag, "stackDirection", std::string()));
+    if (value == "up") {
+        return UiMenuStackDirection::Up;
+    }
+
+    if (value == "right") {
+        return UiMenuStackDirection::Right;
+    }
+
+    if (value == "down") {
+        return UiMenuStackDirection::Down;
+    }
+
+    if (value == "left") {
+        return UiMenuStackDirection::Left;
     }
 
     return fallback;
@@ -251,12 +289,22 @@ UiMenu::UiMenu()
       spacing_(8),
       anchor_(UiAnchor::TopLeft),
       flow_(UiFlow::Down),
+      stackMode_(UiMenuStackMode::Away),
+      stackDirection_(UiMenuStackDirection::Down),
       visible_(true),
       backgroundColor_(UiColor(0.0f, 0.0f, 0.0f, 0.0f)) {
 }
 
 const std::string& UiMenu::id() const {
     return id_;
+}
+
+const std::string& UiMenu::parentMenuId() const {
+    return parentMenuId_;
+}
+
+const std::string& UiMenu::parentButtonId() const {
+    return parentButtonId_;
 }
 
 bool UiMenu::visible() const {
@@ -287,6 +335,10 @@ void UiMenu::setDefinition(
     int spacing,
     UiAnchor anchor,
     UiFlow flow,
+    UiMenuStackMode stackMode,
+    UiMenuStackDirection stackDirection,
+    const std::string& parentMenuId,
+    const std::string& parentButtonId,
     bool visible,
     const UiColor& backgroundColor) {
     id_ = id;
@@ -300,13 +352,66 @@ void UiMenu::setDefinition(
     spacing_ = spacing;
     anchor_ = anchor;
     flow_ = flow;
+    stackMode_ = stackMode;
+    stackDirection_ = stackDirection;
+    parentMenuId_ = parentMenuId;
+    parentButtonId_ = parentButtonId;
     visible_ = visible;
     backgroundColor_ = backgroundColor;
     buttons_.clear();
 }
 
+void UiMenu::setDefinition(
+    const std::string& id,
+    int x,
+    int y,
+    int bottom,
+    int width,
+    int height,
+    int buttonWidth,
+    int buttonHeight,
+    int spacing,
+    UiAnchor anchor,
+    UiFlow flow,
+    bool visible,
+    const UiColor& backgroundColor) {
+    setDefinition(
+        id,
+        x,
+        y,
+        bottom,
+        width,
+        height,
+        buttonWidth,
+        buttonHeight,
+        spacing,
+        anchor,
+        flow,
+        UiMenuStackMode::Away,
+        flow == UiFlow::Up ? UiMenuStackDirection::Up : UiMenuStackDirection::Down,
+        std::string(),
+        std::string(),
+        visible,
+        backgroundColor);
+}
+
 void UiMenu::addButton(const UiButton& button) {
     buttons_.push_back(button);
+}
+
+void UiMenu::removeButtonsWithActionPrefix(const std::string& actionPrefix) {
+    if (actionPrefix.empty()) {
+        return;
+    }
+
+    buttons_.erase(
+        std::remove_if(
+            buttons_.begin(),
+            buttons_.end(),
+            [&actionPrefix](const UiButton& button) {
+                return button.action().find(actionPrefix) == 0u;
+            }),
+        buttons_.end());
 }
 
 UiRect UiMenu::resolvedRect(int framebufferWidth, int framebufferHeight) const {
@@ -316,10 +421,39 @@ UiRect UiMenu::resolvedRect(int framebufferWidth, int framebufferHeight) const {
     if (anchor_ == UiAnchor::Center) {
         rect.x = std::max(0, (framebufferWidth - rect.width) / 2 + x_);
         rect.y = std::max(0, (framebufferHeight - rect.height) / 2 + y_);
+    } else if (anchor_ == UiAnchor::BottomRight) {
+        rect.x = std::max(0, framebufferWidth - x_ - rect.width);
+        rect.y = std::max(0, framebufferHeight - bottom_ - rect.height);
     } else {
         rect.x = x_;
         rect.y = anchor_ == UiAnchor::BottomLeft ? std::max(0, framebufferHeight - bottom_ - rect.height) : y_;
     }
+    return rect;
+}
+
+UiRect UiMenu::resolvedChildRect(const UiRect& parentRect, int framebufferWidth, int framebufferHeight) const {
+    UiRect rect;
+    rect.width = width_;
+    rect.height = height_ > 0 ? height_ : automaticHeight();
+
+    const int parentCenterX = parentRect.x + (parentRect.width / 2);
+    const int parentCenterY = parentRect.y + (parentRect.height / 2);
+    if (stackDirection_ == UiMenuStackDirection::Up) {
+        rect.x = stackMode_ == UiMenuStackMode::Centered ? parentCenterX - (rect.width / 2) + x_ : parentRect.x + x_;
+        rect.y = parentRect.y - y_ - rect.height;
+    } else if (stackDirection_ == UiMenuStackDirection::Down) {
+        rect.x = stackMode_ == UiMenuStackMode::Centered ? parentCenterX - (rect.width / 2) + x_ : parentRect.x + x_;
+        rect.y = parentRect.y + parentRect.height + y_;
+    } else if (stackDirection_ == UiMenuStackDirection::Right) {
+        rect.x = parentRect.x + parentRect.width + x_;
+        rect.y = stackMode_ == UiMenuStackMode::Centered ? parentCenterY - (rect.height / 2) + y_ : parentRect.y + y_;
+    } else {
+        rect.x = parentRect.x - x_ - rect.width;
+        rect.y = stackMode_ == UiMenuStackMode::Centered ? parentCenterY - (rect.height / 2) + y_ : parentRect.y + y_;
+    }
+
+    rect.x = std::max(0, rect.x);
+    rect.y = std::max(0, rect.y);
     return rect;
 }
 
@@ -337,6 +471,10 @@ void UiMenu::resolveButtons(int framebufferWidth, int framebufferHeight, const s
     }
 
     const UiRect menuRect = resolvedRect(framebufferWidth, framebufferHeight);
+    resolveButtonsInRect(menuRect, activeActions, resolvedButtons);
+}
+
+void UiMenu::resolveButtonsInRect(const UiRect& menuRect, const std::vector<std::string>& activeActions, std::vector<UiResolvedButton>& resolvedButtons) const {
     int flowCursor = flow_ == UiFlow::Up ? menuRect.height : 0;
 
     std::size_t buttonIndex = 0;
@@ -413,6 +551,8 @@ bool UiLayout::loadFromXmlFile(const std::string& filePath) {
         const int defaultWidth = AttributeIntValue(menuTag, "width", 128);
         const int defaultButtonWidth = AttributeIntValue(menuTag, "buttonWidth", defaultWidth);
         const int defaultButtonHeight = AttributeIntValue(menuTag, "buttonHeight", 36);
+        const UiFlow flow = AttributeFlowValue(menuTag, "flow", UiFlow::Down);
+        const UiMenuStackDirection defaultStackDirection = flow == UiFlow::Up ? UiMenuStackDirection::Up : UiMenuStackDirection::Down;
         UiMenu menu;
         menu.setDefinition(
             AttributeValue(menuTag, "id", "menu"),
@@ -425,7 +565,11 @@ bool UiLayout::loadFromXmlFile(const std::string& filePath) {
             defaultButtonHeight,
             AttributeIntValue(menuTag, "spacing", 8),
             AttributeAnchorValue(menuTag, "anchor", UiAnchor::TopLeft),
-            AttributeFlowValue(menuTag, "flow", UiFlow::Down),
+            flow,
+            AttributeStackModeValue(menuTag, UiMenuStackMode::Away),
+            AttributeStackDirectionValue(menuTag, defaultStackDirection),
+            AttributeValue(menuTag, "parentMenu", AttributeValue(menuTag, "parent", std::string())),
+            AttributeValue(menuTag, "parentButton", std::string()),
             AttributeBoolValue(menuTag, "visible", true),
             AttributeColorValue(menuTag, "background", UiColor(0.0f, 0.0f, 0.0f, 0.0f)));
 
@@ -492,11 +636,11 @@ void UiLayout::setFallbackDefinition() {
     menus_.push_back(speedMenu);
 
     UiMenu sideMenu;
-    sideMenu.setDefinition("side_tools", 16, 16, 72, 132, 0, 132, 38, 8, UiAnchor::BottomLeft, UiFlow::Down, true, UiColor(0.0f, 0.0f, 0.0f, 0.0f));
+    sideMenu.setDefinition("side_tools", 0, 16, 72, 132, 0, 132, 38, 8, UiAnchor::BottomLeft, UiFlow::Down, UiMenuStackMode::Away, UiMenuStackDirection::Up, "menu_toggle", "toggle_tools", true, UiColor(0.0f, 0.0f, 0.0f, 0.0f));
 
-    const char* buttonIds[] = {"bulldozer", "street", "road", "one_way", "avenue", "query", "rci_residential", "rci_industrial", "rci_unzone"};
-    const char* buttonTexts[] = {"Bulldoze", "Street", "Road", "One-Way", "Avenue", "Query", "Residence", "Industry", "Unzone"};
-    const char* buttonActions[] = {"select_bulldozer", "select_road_street", "select_road_road", "select_road_one_way", "select_road_avenue", "select_query", "select_rci_residential", "select_rci_industrial", "select_rci_unzone"};
+    const char* buttonIds[] = {"bulldozer", "street", "road", "one_way", "avenue", "query", "rci_menu"};
+    const char* buttonTexts[] = {"Bulldoze", "Street", "Road", "One-Way", "Avenue", "Query", "RCI"};
+    const char* buttonActions[] = {"select_bulldozer", "select_road_street", "select_road_road", "select_road_one_way", "select_road_avenue", "select_query", "toggle_rci_tool_menu"};
     const UiColor colors[] = {
         UiColor(0.34f, 0.12f, 0.11f, 0.90f),
         UiColor(0.20f, 0.24f, 0.25f, 0.90f),
@@ -504,17 +648,63 @@ void UiLayout::setFallbackDefinition() {
         UiColor(0.18f, 0.20f, 0.28f, 0.90f),
         UiColor(0.18f, 0.26f, 0.31f, 0.90f),
         UiColor(0.16f, 0.24f, 0.22f, 0.90f),
-        UiColor(0.12f, 0.34f, 0.18f, 0.90f),
-        UiColor(0.42f, 0.35f, 0.10f, 0.90f),
         UiColor(0.24f, 0.24f, 0.27f, 0.90f)
     };
 
-    for (std::size_t index = 0; index < 9u; ++index) {
+    for (std::size_t index = 0; index < 7u; ++index) {
         UiButton button;
         button.setDefinition(buttonIds[index], buttonTexts[index], buttonActions[index], 0, 0, 132, 38, false, false, false, false, colors[index], UiColor(0.52f, 0.66f, 0.47f, 0.96f));
         sideMenu.addButton(button);
     }
     menus_.push_back(sideMenu);
+
+    UiMenu rciToolsMenu;
+    rciToolsMenu.setDefinition("rci_tools", 16, 0, 16, 132, 0, 132, 38, 8, UiAnchor::BottomLeft, UiFlow::Down, UiMenuStackMode::Centered, UiMenuStackDirection::Right, "side_tools", "rci_menu", false, UiColor(0.0f, 0.0f, 0.0f, 0.0f));
+    const char* rciButtonIds[] = {"rci_residential_low", "rci_residential_high", "rci_industrial", "rci_unzone"};
+    const char* rciButtonTexts[] = {"Low Res", "High Res", "Industry", "Unzone"};
+    const char* rciButtonActions[] = {"select_rci_residential_low", "select_rci_residential_high", "select_rci_industrial", "select_rci_unzone"};
+    const UiColor rciColors[] = {
+        UiColor(0.32f, 0.66f, 0.34f, 0.90f),
+        UiColor(0.10f, 0.36f, 0.18f, 0.90f),
+        UiColor(0.42f, 0.35f, 0.10f, 0.90f),
+        UiColor(0.24f, 0.24f, 0.27f, 0.90f)
+    };
+    for (std::size_t index = 0; index < 4u; ++index) {
+        UiButton button;
+        button.setDefinition(rciButtonIds[index], rciButtonTexts[index], rciButtonActions[index], 0, 0, 132, 38, false, false, false, false, rciColors[index], UiColor(0.52f, 0.66f, 0.47f, 0.96f));
+        rciToolsMenu.addButton(button);
+    }
+    menus_.push_back(rciToolsMenu);
+
+    UiMenu overlayMenu;
+    overlayMenu.setDefinition("side_overlays", 0, 16, 72, 132, 0, 132, 38, 8, UiAnchor::BottomRight, UiFlow::Down, UiMenuStackMode::Away, UiMenuStackDirection::Up, "overlay_toggle", "toggle_overlays", true, UiColor(0.0f, 0.0f, 0.0f, 0.0f));
+    const char* overlayButtonIds[] = {"overlay_traffic", "overlay_land_value", "overlay_rci", "overlay_rci_desirability_menu"};
+    const char* overlayButtonTexts[] = {"Traffic", "Land Value", "RCI", "RCI Desire"};
+    const char* overlayButtonActions[] = {"toggle_overlay_traffic", "toggle_overlay_land_value", "toggle_overlay_rci", "toggle_rci_overlay_menu"};
+    const UiColor overlayColors[] = {
+        UiColor(0.14f, 0.24f, 0.28f, 0.90f),
+        UiColor(0.18f, 0.30f, 0.16f, 0.90f),
+        UiColor(0.24f, 0.22f, 0.12f, 0.90f),
+        UiColor(0.20f, 0.22f, 0.20f, 0.90f)
+    };
+    for (std::size_t index = 0; index < 4u; ++index) {
+        UiButton button;
+        button.setDefinition(overlayButtonIds[index], overlayButtonTexts[index], overlayButtonActions[index], 0, 0, 132, 38, false, false, false, false, overlayColors[index], UiColor(0.52f, 0.66f, 0.47f, 0.96f));
+        overlayMenu.addButton(button);
+    }
+    menus_.push_back(overlayMenu);
+
+    UiMenu rciOverlayMenu;
+    rciOverlayMenu.setDefinition("rci_desirability_overlays", 16, 0, 16, 132, 0, 132, 38, 8, UiAnchor::BottomRight, UiFlow::Down, UiMenuStackMode::Centered, UiMenuStackDirection::Left, "side_overlays", "overlay_rci_desirability_menu", false, UiColor(0.0f, 0.0f, 0.0f, 0.0f));
+    const char* rciOverlayButtonIds[] = {"overlay_desirability_low_wealth_residential", "overlay_desirability_dirty_industry"};
+    const char* rciOverlayButtonTexts[] = {"Low Wealth Res", "Dirty Industry"};
+    const char* rciOverlayButtonActions[] = {"toggle_overlay_desirability_low_wealth_residential", "toggle_overlay_desirability_dirty_industry"};
+    for (std::size_t index = 0; index < 2u; ++index) {
+        UiButton button;
+        button.setDefinition(rciOverlayButtonIds[index], rciOverlayButtonTexts[index], rciOverlayButtonActions[index], 0, 0, 132, 38, false, false, false, false, UiColor(0.20f, 0.22f, 0.20f, 0.90f), UiColor(0.52f, 0.66f, 0.47f, 0.96f));
+        rciOverlayMenu.addButton(button);
+    }
+    menus_.push_back(rciOverlayMenu);
 
     UiMenu regionExitMenu;
     regionExitMenu.setDefinition("region_exit", 16, 16, 16, 92, 40, 92, 40, 0, UiAnchor::TopLeft, UiFlow::Down, true, UiColor(0.0f, 0.0f, 0.0f, 0.0f));
@@ -562,6 +752,13 @@ void UiLayout::setFallbackDefinition() {
     toggleButton.setDefinition("toggle_tools", "Tools", "toggle_side_menu", 0, 0, 92, 40, false, false, false, false, UiColor(0.08f, 0.12f, 0.13f, 0.94f), UiColor(0.08f, 0.12f, 0.13f, 0.94f));
     toggleMenu.addButton(toggleButton);
     menus_.push_back(toggleMenu);
+
+    UiMenu overlayToggleMenu;
+    overlayToggleMenu.setDefinition("overlay_toggle", 16, 16, 16, 132, 0, 132, 40, 0, UiAnchor::BottomRight, UiFlow::Down, true, UiColor(0.0f, 0.0f, 0.0f, 0.0f));
+    UiButton overlayToggleButton;
+    overlayToggleButton.setDefinition("toggle_overlays", "Overlays", "toggle_overlay_menu", 0, 0, 132, 40, false, false, false, false, UiColor(0.08f, 0.12f, 0.13f, 0.94f), UiColor(0.08f, 0.12f, 0.13f, 0.94f));
+    overlayToggleMenu.addButton(overlayToggleButton);
+    menus_.push_back(overlayToggleMenu);
 }
 
 const std::vector<UiMenu>& UiLayout::menus() const {
@@ -587,6 +784,30 @@ bool UiLayout::menuVisible(const std::string& menuId) const {
     return menu != 0 && menu->visible();
 }
 
+bool UiLayout::addButtonToMenu(const std::string& menuId, const UiButton& button) {
+    UiMenu* menu = findMenu(menuId);
+    if (menu == 0) {
+        return false;
+    }
+
+    menu->addButton(button);
+    return true;
+}
+
+bool UiLayout::removeButtonsWithActionPrefix(const std::string& menuId, const std::string& actionPrefix) {
+    UiMenu* menu = findMenu(menuId);
+    if (menu == 0) {
+        return false;
+    }
+
+    menu->removeButtonsWithActionPrefix(actionPrefix);
+    return true;
+}
+
+bool UiLayout::resolveMenuRect(const std::string& menuId, int framebufferWidth, int framebufferHeight, UiRect& rect) const {
+    return resolveMenuRectRecursive(menuId, framebufferWidth, framebufferHeight, rect, 0);
+}
+
 bool UiLayout::hitTestAction(double mouseX, double mouseY, int framebufferWidth, int framebufferHeight, std::string& action) const {
     std::vector<UiResolvedButton> resolvedButtons;
     resolveButtons(framebufferWidth, framebufferHeight, std::string(), resolvedButtons);
@@ -605,15 +826,7 @@ bool UiLayout::hitTestAction(double mouseX, double mouseY, int framebufferWidth,
 bool UiLayout::hitTestAction(double mouseX, double mouseY, int framebufferWidth, int framebufferHeight, const std::vector<std::string>& menuIds, std::string& action) const {
     std::vector<UiResolvedButton> resolvedButtons;
     std::vector<std::string> activeActions;
-    std::size_t menuIdIndex = 0;
-    for (; menuIdIndex < menuIds.size(); ++menuIdIndex) {
-        const UiMenu* menu = findMenu(menuIds[menuIdIndex]);
-        if (menu == 0) {
-            continue;
-        }
-
-        menu->resolveButtons(framebufferWidth, framebufferHeight, activeActions, resolvedButtons);
-    }
+    resolveButtons(framebufferWidth, framebufferHeight, activeActions, menuIds, resolvedButtons);
 
     std::vector<UiResolvedButton>::const_reverse_iterator buttonIterator = resolvedButtons.rbegin();
     for (; buttonIterator != resolvedButtons.rend(); ++buttonIterator) {
@@ -640,9 +853,26 @@ void UiLayout::resolveButtons(int framebufferWidth, int framebufferHeight, const
 
 void UiLayout::resolveButtons(int framebufferWidth, int framebufferHeight, const std::vector<std::string>& activeActions, std::vector<UiResolvedButton>& resolvedButtons) const {
     resolvedButtons.clear();
+    const std::vector<std::string> menuIds;
+    resolveButtons(framebufferWidth, framebufferHeight, activeActions, menuIds, resolvedButtons);
+}
+
+void UiLayout::resolveButtons(int framebufferWidth, int framebufferHeight, const std::vector<std::string>& activeActions, const std::vector<std::string>& menuIds, std::vector<UiResolvedButton>& resolvedButtons) const {
+    resolvedButtons.clear();
+    const bool includeAllMenus = menuIds.empty();
     std::size_t menuIndex = 0;
     for (; menuIndex < menus_.size(); ++menuIndex) {
-        menus_[menuIndex].resolveButtons(framebufferWidth, framebufferHeight, activeActions, resolvedButtons);
+        const UiMenu& menu = menus_[menuIndex];
+        if (!includeAllMenus && std::find(menuIds.begin(), menuIds.end(), menu.id()) == menuIds.end()) {
+            continue;
+        }
+
+        UiRect menuRect;
+        if (!resolveMenuRect(menu.id(), framebufferWidth, framebufferHeight, menuRect)) {
+            continue;
+        }
+
+        menu.resolveButtonsInRect(menuRect, activeActions, resolvedButtons);
     }
 }
 
@@ -666,4 +896,68 @@ const UiMenu* UiLayout::findMenu(const std::string& menuId) const {
     }
 
     return 0;
+}
+
+bool UiLayout::resolveMenuRectRecursive(const std::string& menuId, int framebufferWidth, int framebufferHeight, UiRect& rect, int depth) const {
+    if (depth > static_cast<int>(menus_.size())) {
+        return false;
+    }
+
+    const UiMenu* menu = findMenu(menuId);
+    if (menu == 0 || !visibleInMenuTree(*menu, 0)) {
+        return false;
+    }
+
+    if (menu->parentMenuId().empty()) {
+        rect = menu->resolvedRect(framebufferWidth, framebufferHeight);
+        return true;
+    }
+
+    UiRect parentRect;
+    if (!resolveMenuRectRecursive(menu->parentMenuId(), framebufferWidth, framebufferHeight, parentRect, depth + 1)) {
+        return false;
+    }
+
+    UiRect anchorRect = parentRect;
+    if (!menu->parentButtonId().empty()) {
+        const UiMenu* parentMenu = findMenu(menu->parentMenuId());
+        if (parentMenu == 0) {
+            return false;
+        }
+
+        std::vector<std::string> activeActions;
+        std::vector<UiResolvedButton> parentButtons;
+        parentMenu->resolveButtonsInRect(parentRect, activeActions, parentButtons);
+        bool foundParentButton = false;
+        std::size_t buttonIndex = 0;
+        for (; buttonIndex < parentButtons.size(); ++buttonIndex) {
+            if (parentButtons[buttonIndex].buttonId == menu->parentButtonId()) {
+                anchorRect = parentButtons[buttonIndex].rect;
+                foundParentButton = true;
+                break;
+            }
+        }
+
+        if (!foundParentButton) {
+            return false;
+        }
+    }
+
+    rect = menu->resolvedChildRect(anchorRect, framebufferWidth, framebufferHeight);
+    return true;
+}
+
+bool UiLayout::visibleInMenuTree(const UiMenu& menu, int depth) const {
+    if (depth > static_cast<int>(menus_.size())) {
+        return false;
+    }
+    if (!menu.visible()) {
+        return false;
+    }
+    if (menu.parentMenuId().empty()) {
+        return true;
+    }
+
+    const UiMenu* parentMenu = findMenu(menu.parentMenuId());
+    return parentMenu != 0 && visibleInMenuTree(*parentMenu, depth + 1);
 }

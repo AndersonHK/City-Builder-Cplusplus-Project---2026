@@ -32,6 +32,7 @@ struct LotModule {
     int width;
     int height;
     int airPollutionEmit;
+    int parkEffectEmit;
     int landValueEmit;
     float renderHeight;
     float colorR;
@@ -45,6 +46,7 @@ struct LotModule {
           width(1),
           height(1),
           airPollutionEmit(0),
+          parkEffectEmit(0),
           landValueEmit(0),
           renderHeight(0.5f),
           colorR(0.4f),

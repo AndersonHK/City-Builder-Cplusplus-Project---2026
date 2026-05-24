@@ -7,6 +7,7 @@
 
 #include "AppConfig.h"
 #include "GameSession.h"
+#include "Localization.h"
 #include "RciTool.h"
 #include "Tile.h"
 #include "UiWidgets.h"
@@ -26,15 +27,16 @@ enum class ActiveTool {
     RemoveModule,
     Bulldozer,
     Query,
-    ZoneResidential,
-    ZoneIndustrial,
+    ZoneRci,
     ZoneUnzone
 };
 
 enum class OverlayMode {
     None,
     TrafficCapacity,
-    LandValue
+    LandValue,
+    Rci,
+    RciDesirability
 };
 
 enum class QuerySelectionKind {
@@ -73,6 +75,7 @@ struct ViewState {
     int zoneDragCurrentY;
     std::uint16_t zoneDragType;
     std::string zoneDragToolId;
+    std::string activeRciToolId;
     bool shiftModifierDown;
     bool controlModifierDown;
     int roadLaneCount;
@@ -80,6 +83,7 @@ struct ViewState {
     RoadDirectionMode roadDirectionMode;
     int lotRotationSteps;
     OverlayMode overlayMode;
+    std::string overlayRciTypeId;
     bool roadDebugGraphicsEnabled;
     QuerySelectionKind querySelectionKind;
     int queriedLotId;
@@ -87,6 +91,7 @@ struct ViewState {
     int queriedTileY;
     std::uint64_t queriedLotRevision;
     std::uint64_t queriedCommuteRevision;
+    std::uint64_t queriedGeneration;
     std::uint64_t queryRouteRevision;
     std::vector<CommuteRouteSegment> queriedCommuteRouteSegments;
     std::vector<std::string> queryWindowLines;
@@ -123,6 +128,7 @@ struct ViewState {
           zoneDragCurrentX(0),
           zoneDragCurrentY(0),
           zoneDragType(TileZoningNone),
+          activeRciToolId(),
           shiftModifierDown(false),
           controlModifierDown(false),
           roadLaneCount(1),
@@ -130,6 +136,7 @@ struct ViewState {
           roadDirectionMode(RoadDirectionMode::TwoWay),
           lotRotationSteps(0),
           overlayMode(OverlayMode::None),
+          overlayRciTypeId(),
           roadDebugGraphicsEnabled(false),
           querySelectionKind(QuerySelectionKind::None),
           queriedLotId(-1),
@@ -137,6 +144,7 @@ struct ViewState {
           queriedTileY(0),
           queriedLotRevision(0),
           queriedCommuteRevision(0),
+          queriedGeneration(0),
           queryRouteRevision(0),
           hoveredRegionX(0),
           hoveredRegionY(0),
@@ -164,6 +172,7 @@ public:
     bool zonePreviewRect(int& minTileX, int& minTileY, int& maxTileX, int& maxTileY, std::uint16_t& zoningType) const;
     bool rciPreviewPlan(RciPlan& plan) const;
     bool loadUiLayoutFromXmlFile(const std::string& filePath);
+    bool loadLocaleFromJsonFile(const std::string& filePath);
     bool loadRciToolsFromXmlFile(const std::string& filePath);
     const UiLayout& uiLayout() const;
     std::string activeUiAction() const;
@@ -180,6 +189,9 @@ private:
     void clampCameraToMap();
     void panCamera(int deltaX, int deltaY);
     void setActiveTool(ActiveTool activeTool);
+    void setActiveRciTool(const RciTool& rciTool);
+    void toggleOverlayMode(OverlayMode overlayMode);
+    void toggleRciDesirabilityOverlay(const RciType& rciType);
     void toggleTrafficOverlay();
     void toggleLandValueOverlay();
     void toggleRoadDebugGraphics();
@@ -191,6 +203,7 @@ private:
     bool activeToolIsRoad() const;
     bool activeToolIsZoning() const;
     std::string activeRciToolId() const;
+    void instantiateRciUiFromCatalog();
     RciPlanMode currentRciPlanMode() const;
     bool buildActiveRciPlan(RciPlan& plan) const;
     bool handleUiClick();
@@ -218,6 +231,7 @@ private:
     ViewState viewState_;
     UiLayout uiLayout_;
     RciToolCatalog rciTools_;
+    LocalizationCatalog localization_;
     bool uiPressCaptured_;
     bool regionClickPending_;
     bool quitRequested_;

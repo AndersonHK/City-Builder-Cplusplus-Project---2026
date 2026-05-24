@@ -150,6 +150,7 @@ uniform sampler2D uRoadArrowAtlasTexture;
 uniform sampler2D uRegionPreviewTexture;
 uniform vec2 uRoadAtlasGrid;
 uniform int uRoadDebugVisible;
+uniform int uZoningOverlayVisible;
 uniform float uRoadAlphaScale;
 uniform vec3 uRoadTintColor;
 uniform float uRoadTintStrength;
@@ -232,6 +233,10 @@ void main()
     if (vRenderMode == 0) {
         vec2 tileState = clamp(vec2(0.5) + texture(uTileStateTexture, vTileUv).rg * 0.5, vec2(0.0), vec2(1.0));
         vec3 finalColor = vec3(tileState.r, tileState.g, 0.18 + vSurfaceLift * 4.0);
+        if (uZoningOverlayVisible != 0) {
+            vec4 zoningColor = texture(uTileOverlayTexture, vTileUv);
+            finalColor = mix(finalColor, zoningColor.rgb, zoningColor.a);
+        }
 
         vec4 packedRoadState = floor(texture(uGroundRoadStateTexture, vTileUv).rgba * 255.0 + 0.5);
         vec4 roadBase = sampleRoadAtlas(uRoadBaseAtlasTexture, roadTileGlyphIndex(packedRoadState.x, packedRoadState.z, packedRoadState.w), vLocalUv);

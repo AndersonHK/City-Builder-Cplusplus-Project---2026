@@ -224,14 +224,43 @@ std::uint16_t ParseZoningTypeName(const std::string& zoningTypeText) {
     if (zoningType.empty() || zoningType == "none" || zoningType == "empty" || zoningType == "0") {
         return TileZoningNone;
     }
+    if (zoningType == "residential_low" || zoningType == "low_residential" || zoningType == "low_density_residential" || zoningType == "tilezoningresidentiallow" || zoningType == "3") {
+        return TileZoningResidentialLow;
+    }
     if (zoningType == "residential" || zoningType == "residence" || zoningType == "r" || zoningType == "1" || zoningType == "tilezoningresidential") {
-        return TileZoningResidential;
+        return TileZoningResidentialHigh;
+    }
+    if (zoningType == "residential_high" || zoningType == "high_residential" || zoningType == "high_density_residential" || zoningType == "tilezoningresidentialhigh") {
+        return TileZoningResidentialHigh;
     }
     if (zoningType == "industrial" || zoningType == "industry" || zoningType == "i" || zoningType == "2" || zoningType == "tilezoningindustrial") {
         return TileZoningIndustrial;
     }
 
     throw std::runtime_error("Unknown lot zoning type: " + zoningTypeText);
+}
+
+std::string DefaultRciTypeIdForZoningType(std::uint16_t zoningType) {
+    if (zoningType == TileZoningResidentialLow || zoningType == TileZoningResidentialHigh) {
+        return "low_wealth_residential";
+    }
+    if (zoningType == TileZoningIndustrial) {
+        return "dirty_industry";
+    }
+
+    return std::string();
+}
+
+RciDesirabilityField ParseRciDesirabilityFieldName(const std::string& fieldText) {
+    const std::string field = ToLowerAscii(Trim(fieldText));
+    if (field == "airpollution" || field == "air_pollution" || field == "pollution") {
+        return RciDesirabilityField::AirPollution;
+    }
+    if (field == "parkeffect" || field == "park_effect" || field == "parks") {
+        return RciDesirabilityField::ParkEffect;
+    }
+
+    throw std::runtime_error("Unknown RCI desirability field: " + fieldText);
 }
 
 std::uint8_t ParseTransportModeMask(const std::string& modesText) {
@@ -342,6 +371,7 @@ LotModule LoadModuleAsset(const std::string& filePath, const std::string& fileNa
 
         if (tag.name == "effects" && tag.isSelfClosing) {
             module.airPollutionEmit = ParseRequiredInt(tag.attributes, "airPollution");
+            module.parkEffectEmit = ParseOptionalInt(tag.attributes, "parkEffect", 0);
             module.landValueEmit = ParseRequiredInt(tag.attributes, "landValue");
             hasEffects = true;
             continue;
@@ -409,7 +439,8 @@ LotAsset LoadLotAsset(const std::string& filePath, const std::string& fileName) 
     lotAsset.id = GetOptionalAttribute(rootTag.attributes, "id", StripExtension(fileName));
     lotAsset.name = GetOptionalAttribute(rootTag.attributes, "name", lotAsset.id);
     lotAsset.densityBand = GetOptionalAttribute(rootTag.attributes, "densityBand", "");
-    lotAsset.zoningType = ParseZoningTypeName(GetOptionalAttribute(rootTag.attributes, "zoningType", GetOptionalAttribute(rootTag.attributes, "rciType", "")));
+    lotAsset.zoningType = ParseZoningTypeName(GetOptionalAttribute(rootTag.attributes, "zoningType", ""));
+    lotAsset.rciTypeId = GetOptionalAttribute(rootTag.attributes, "rciType", DefaultRciTypeIdForZoningType(lotAsset.zoningType));
     lotAsset.constructionTicks = ParseOptionalInt(rootTag.attributes, "constructionTicks", lotAsset.constructionTicks);
     lotAsset.constructionTicks = ParseOptionalDayDurationAsTicks(rootTag.attributes, "constructionDays", lotAsset.constructionTicks);
     if (lotAsset.id.empty()) {
@@ -420,6 +451,9 @@ LotAsset LoadLotAsset(const std::string& filePath, const std::string& fileName) 
     }
     if (lotAsset.zoningType != TileZoningNone && lotAsset.densityBand.empty()) {
         throw std::runtime_error("RCI lot densityBand cannot be empty: " + filePath);
+    }
+    if (lotAsset.zoningType != TileZoningNone && lotAsset.rciTypeId.empty()) {
+        throw std::runtime_error("RCI lot rciType cannot be empty: " + filePath);
     }
 
     bool hasAnchor = false;
@@ -890,6 +924,17 @@ const RciGrowthRule* FindGrowthRule(const std::vector<RciGrowthRule>& growthRule
     return 0;
 }
 
+const RciDesirabilityRule* FindDesirabilityRule(const std::vector<RciDesirabilityRule>& desirabilityRules, const std::string& rciTypeId) {
+    std::size_t ruleIndex = 0;
+    for (; ruleIndex < desirabilityRules.size(); ++ruleIndex) {
+        if (desirabilityRules[ruleIndex].rciTypeId == rciTypeId) {
+            return &desirabilityRules[ruleIndex];
+        }
+    }
+
+    return 0;
+}
+
 void ValidateRciGrowthRule(const RciGrowthRule& rule, const std::string& filePath) {
     if (rule.zoningType == TileZoningNone) {
         throw std::runtime_error("RCI growth rule has no zoning type in " + filePath);
@@ -918,7 +963,43 @@ void ValidateRciGrowthRule(const RciGrowthRule& rule, const std::string& filePat
     }
 }
 
-void LoadRciConstructorSettings(const std::string& filePath, int& attemptsPerTick, float& overbuildMultiplier, int& baselineLandValue, std::vector<RciGrowthRule>& growthRules) {
+void ValidateRciDesirabilityRule(const RciDesirabilityRule& rule, const std::string& filePath) {
+    if (rule.rciTypeId.empty()) {
+        throw std::runtime_error("RCI desirability rule has no RCI type in " + filePath);
+    }
+    if (rule.baseline < 0 || rule.baseline > 100) {
+        throw std::runtime_error("RCI desirability baseline must be between 0 and 100 in " + filePath);
+    }
+    if (rule.sensitivities.empty()) {
+        throw std::runtime_error("RCI desirability rule is missing sensitivity entries in " + filePath);
+    }
+
+    std::size_t sensitivityIndex = 0;
+    for (; sensitivityIndex < rule.sensitivities.size(); ++sensitivityIndex) {
+        const RciDesirabilitySensitivity& sensitivity = rule.sensitivities[sensitivityIndex];
+        if (sensitivity.normalizer <= 0) {
+            throw std::runtime_error("RCI desirability sensitivity normalizer must be positive in " + filePath);
+        }
+        if (sensitivity.points.empty()) {
+            throw std::runtime_error("RCI desirability sensitivity is missing point entries in " + filePath);
+        }
+
+        std::size_t pointIndex = 0;
+        for (; pointIndex < sensitivity.points.size(); ++pointIndex) {
+            if (pointIndex > 0 && sensitivity.points[pointIndex].value <= sensitivity.points[pointIndex - 1u].value) {
+                throw std::runtime_error("RCI desirability point values must be unique and increasing in " + filePath);
+            }
+        }
+    }
+}
+
+void LoadRciConstructorSettings(
+    const std::string& filePath,
+    int& attemptsPerTick,
+    float& overbuildMultiplier,
+    int& baselineLandValue,
+    std::vector<RciGrowthRule>& growthRules,
+    std::vector<RciDesirabilityRule>& desirabilityRules) {
     const std::vector<std::string> tokens = ExtractTagTokens(ReadTextFile(filePath));
     if (tokens.empty()) {
         throw std::runtime_error("Empty RCI XML: " + filePath);
@@ -936,8 +1017,11 @@ void LoadRciConstructorSettings(const std::string& filePath, int& attemptsPerTic
     baselineLandValue = ParseOptionalInt(rootTag.attributes, "baselineLandValue", baselineLandValue);
     baselineLandValue = ParseOptionalInt(rootTag.attributes, "defaultLandValue", baselineLandValue);
     growthRules.clear();
+    desirabilityRules.clear();
 
     RciGrowthRule* activeGrowthRule = 0;
+    RciDesirabilityRule* activeDesirabilityRule = 0;
+    RciDesirabilitySensitivity* activeSensitivity = 0;
     std::size_t tokenIndex = 1;
     for (; tokenIndex < tokens.size(); ++tokenIndex) {
         const ParsedTag tag = ParseTag(tokens[tokenIndex]);
@@ -946,8 +1030,19 @@ void LoadRciConstructorSettings(const std::string& filePath, int& attemptsPerTic
                 break;
             }
 
-            if (tag.name == "rciGrowth") {
+            if (tag.name == "rciGrowth" || tag.name == "zone") {
                 activeGrowthRule = 0;
+                continue;
+            }
+
+            if (tag.name == "rciDesirability") {
+                activeDesirabilityRule = 0;
+                activeSensitivity = 0;
+                continue;
+            }
+
+            if (tag.name == "sensitivity") {
+                activeSensitivity = 0;
                 continue;
             }
 
@@ -984,6 +1079,60 @@ void LoadRciConstructorSettings(const std::string& filePath, int& attemptsPerTic
             continue;
         }
 
+        if (tag.name == "zone" && !tag.isClosing) {
+            const std::string threshold = GetOptionalAttribute(tag.attributes, "desirabilityThreshold", "");
+            if (!threshold.empty()) {
+                RciGrowthRule growthRule;
+                growthRule.zoningType = ParseZoningTypeName(GetRequiredAttribute(tag.attributes, "zoningType"));
+                growthRule.desirabilityThreshold = std::stoi(threshold);
+                if (FindGrowthRule(growthRules, growthRule.zoningType) != 0) {
+                    throw std::runtime_error("Duplicate RCI zone growth rule in " + filePath);
+                }
+                growthRules.push_back(growthRule);
+                activeGrowthRule = &growthRules.back();
+                if (tag.isSelfClosing) {
+                    activeGrowthRule = 0;
+                }
+            }
+            continue;
+        }
+
+        if (tag.name == "rciDesirability" && !tag.isClosing) {
+            RciDesirabilityRule desirabilityRule;
+            const std::string explicitRciTypeId = GetOptionalAttribute(tag.attributes, "rciType", GetOptionalAttribute(tag.attributes, "rciTypeId", ""));
+            if (!explicitRciTypeId.empty()) {
+                desirabilityRule.rciTypeId = explicitRciTypeId;
+                desirabilityRule.zoningType = ParseZoningTypeName(GetOptionalAttribute(tag.attributes, "zoningType", ""));
+            } else {
+                desirabilityRule.zoningType = ParseZoningTypeName(GetRequiredAttribute(tag.attributes, "zoningType"));
+                desirabilityRule.rciTypeId = DefaultRciTypeIdForZoningType(desirabilityRule.zoningType);
+            }
+            desirabilityRule.baseline = ParseOptionalInt(tag.attributes, "baseline", desirabilityRule.baseline);
+            if (FindDesirabilityRule(desirabilityRules, desirabilityRule.rciTypeId) != 0) {
+                throw std::runtime_error("Duplicate RCI desirability rule in " + filePath);
+            }
+            desirabilityRules.push_back(desirabilityRule);
+            activeDesirabilityRule = &desirabilityRules.back();
+            activeSensitivity = 0;
+            if (tag.isSelfClosing) {
+                activeDesirabilityRule = 0;
+            }
+            continue;
+        }
+
+        if (tag.name == "sensitivity" && !tag.isClosing && activeDesirabilityRule != 0) {
+            RciDesirabilitySensitivity sensitivity;
+            sensitivity.field = ParseRciDesirabilityFieldName(GetRequiredAttribute(tag.attributes, "field"));
+            sensitivity.normalizer = ParseOptionalInt(tag.attributes, "normalizer", sensitivity.normalizer);
+            sensitivity.normalizer = ParseOptionalInt(tag.attributes, "scale", sensitivity.normalizer);
+            activeDesirabilityRule->sensitivities.push_back(sensitivity);
+            activeSensitivity = &activeDesirabilityRule->sensitivities.back();
+            if (tag.isSelfClosing) {
+                activeSensitivity = 0;
+            }
+            continue;
+        }
+
         if ((tag.name == "maxDensityPerTile" || tag.name == "density") && tag.isSelfClosing && activeGrowthRule != 0) {
             RciDensityPoint densityPoint;
             densityPoint.population = ParseRequiredInt(tag.attributes, "population");
@@ -996,6 +1145,14 @@ void LoadRciConstructorSettings(const std::string& filePath, int& attemptsPerTic
             activeGrowthRule->densityPoints.push_back(densityPoint);
             continue;
         }
+
+        if (tag.name == "point" && tag.isSelfClosing && activeSensitivity != 0) {
+            RciDesirabilityPoint point;
+            point.value = ParseRequiredFloat(tag.attributes, "value");
+            point.desirabilityDelta = ParseRequiredInt(tag.attributes, "desirabilityDelta");
+            activeSensitivity->points.push_back(point);
+            continue;
+        }
     }
 
     std::size_t ruleIndex = 0;
@@ -1004,6 +1161,19 @@ void LoadRciConstructorSettings(const std::string& filePath, int& attemptsPerTic
             return left.population < right.population;
         });
         ValidateRciGrowthRule(growthRules[ruleIndex], filePath);
+    }
+
+    for (ruleIndex = 0; ruleIndex < desirabilityRules.size(); ++ruleIndex) {
+        std::size_t sensitivityIndex = 0;
+        for (; sensitivityIndex < desirabilityRules[ruleIndex].sensitivities.size(); ++sensitivityIndex) {
+            std::sort(
+                desirabilityRules[ruleIndex].sensitivities[sensitivityIndex].points.begin(),
+                desirabilityRules[ruleIndex].sensitivities[sensitivityIndex].points.end(),
+                [](const RciDesirabilityPoint& left, const RciDesirabilityPoint& right) {
+                    return left.value < right.value;
+                });
+        }
+        ValidateRciDesirabilityRule(desirabilityRules[ruleIndex], filePath);
     }
 }
 
@@ -1038,6 +1208,7 @@ bool LoadGameAssets(const std::string& dataDirectory, const CityParameterRegistr
     assets.modules.clear();
     assets.lots.clear();
     assets.rciGrowthRules.clear();
+    assets.rciDesirabilityRules.clear();
     assets.initialDemands.assign(parameterRegistry.count(), 0.0f);
     assets.congestionCurve = TransportCongestionCurve();
     assets.roadLaneCapacities = RoadLaneCapacityConfig();
@@ -1096,20 +1267,34 @@ bool LoadGameAssets(const std::string& dataDirectory, const CityParameterRegistr
             assets.initialDemands = LoadInitialDemands(initialDemandsPath, parameterRegistry);
         }
         if (FileExists(rciToolsPath)) {
-            LoadRciConstructorSettings(rciToolsPath, assets.rciConstructorAttemptsPerTick, assets.rciConstructorOverbuildMultiplier, assets.rciBaselineLandValue, assets.rciGrowthRules);
+            LoadRciConstructorSettings(
+                rciToolsPath,
+                assets.rciConstructorAttemptsPerTick,
+                assets.rciConstructorOverbuildMultiplier,
+                assets.rciBaselineLandValue,
+                assets.rciGrowthRules,
+                assets.rciDesirabilityRules);
         }
 
         std::set<std::uint16_t> constructorZoningTypes;
+        std::set<std::string> constructorRciTypeIds;
         std::size_t lotIndex = 0;
         for (; lotIndex < assets.lots.size(); ++lotIndex) {
             if (assets.lots[lotIndex].zoningType != TileZoningNone) {
                 constructorZoningTypes.insert(assets.lots[lotIndex].zoningType);
+                constructorRciTypeIds.insert(assets.lots[lotIndex].rciTypeId);
             }
         }
         std::set<std::uint16_t>::const_iterator zoningTypeIterator = constructorZoningTypes.begin();
         for (; zoningTypeIterator != constructorZoningTypes.end(); ++zoningTypeIterator) {
             if (FindGrowthRule(assets.rciGrowthRules, *zoningTypeIterator) == 0) {
-                throw std::runtime_error("RCI constructor lot assets require a matching rciGrowth rule in " + rciToolsPath);
+                throw std::runtime_error("RCI constructor lot assets require a matching RCI zone density rule in " + rciToolsPath);
+            }
+        }
+        std::set<std::string>::const_iterator rciTypeIterator = constructorRciTypeIds.begin();
+        for (; rciTypeIterator != constructorRciTypeIds.end(); ++rciTypeIterator) {
+            if (FindDesirabilityRule(assets.rciDesirabilityRules, *rciTypeIterator) == 0) {
+                throw std::runtime_error("RCI constructor lot assets require a matching rciDesirability rule for " + *rciTypeIterator + " in " + rciToolsPath);
             }
         }
 
@@ -1122,6 +1307,7 @@ bool LoadGameAssets(const std::string& dataDirectory, const CityParameterRegistr
         assets.modules.clear();
         assets.lots.clear();
         assets.rciGrowthRules.clear();
+        assets.rciDesirabilityRules.clear();
         assets.initialDemands.clear();
         assets.congestionCurve = TransportCongestionCurve();
         assets.roadLaneCapacities = RoadLaneCapacityConfig();

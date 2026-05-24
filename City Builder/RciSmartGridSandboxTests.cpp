@@ -468,14 +468,14 @@ std::string FindActualOutputDirectory() {
 std::vector<SandboxCase> SandboxCases() {
     std::vector<SandboxCase> cases;
     const RciRect fullDrag(8, 8, 55, 55);
-    cases.push_back(SandboxCase{"normal_res_empty_64", "residential", RciPlanMode::LotsAndRoads, fullDrag});
-    cases.push_back(SandboxCase{"normal_res_edge_street_64", "residential", RciPlanMode::LotsAndRoads, fullDrag});
-    cases.push_back(SandboxCase{"normal_res_existing_grid_64", "residential", RciPlanMode::LotsAndRoads, fullDrag});
+    cases.push_back(SandboxCase{"normal_res_empty_64", "residential_low", RciPlanMode::LotsAndRoads, fullDrag});
+    cases.push_back(SandboxCase{"normal_res_edge_street_64", "residential_low", RciPlanMode::LotsAndRoads, fullDrag});
+    cases.push_back(SandboxCase{"normal_res_existing_grid_64", "residential_low", RciPlanMode::LotsAndRoads, fullDrag});
     cases.push_back(SandboxCase{"normal_ind_existing_avenue_64", "industrial", RciPlanMode::LotsAndRoads, fullDrag});
-    cases.push_back(SandboxCase{"normal_res_existing_highway_64", "residential", RciPlanMode::LotsAndRoads, fullDrag});
-    cases.push_back(SandboxCase{"shift_res_existing_roads_64", "residential", RciPlanMode::Lots, fullDrag});
-    cases.push_back(SandboxCase{"normal_res_existing_rci_and_blocker_64", "residential", RciPlanMode::LotsAndRoads, fullDrag});
-    cases.push_back(SandboxCase{"normal_res_offset_grid_snap_64", "residential", RciPlanMode::LotsAndRoads, fullDrag});
+    cases.push_back(SandboxCase{"normal_res_existing_highway_64", "residential_low", RciPlanMode::LotsAndRoads, fullDrag});
+    cases.push_back(SandboxCase{"shift_res_existing_roads_64", "residential_low", RciPlanMode::Lots, fullDrag});
+    cases.push_back(SandboxCase{"normal_res_existing_rci_and_blocker_64", "residential_low", RciPlanMode::LotsAndRoads, fullDrag});
+    cases.push_back(SandboxCase{"normal_res_offset_grid_snap_64", "residential_low", RciPlanMode::LotsAndRoads, fullDrag});
     return cases;
 }
 

@@ -90,6 +90,8 @@ public:
 
     const std::string& id() const;
     const std::string& name() const;
+    const std::string& labelStringId() const;
+    const std::string& desirabilityOverlayStringId() const;
     const RciColor& color() const;
     std::uint16_t zoningType() const;
     int minDepth() const;
@@ -109,7 +111,9 @@ public:
         int maxDepth,
         int minWidth,
         int preferredWidth,
-        int maxWidth);
+        int maxWidth,
+        const std::string& labelStringId = std::string(),
+        const std::string& desirabilityOverlayStringId = std::string());
 
     bool buildPlan(
         int startTileX,
@@ -130,6 +134,8 @@ private:
 
     std::string id_;
     std::string name_;
+    std::string labelStringId_;
+    std::string desirabilityOverlayStringId_;
     RciColor color_;
     std::uint16_t zoningType_;
     int minDepth_;
@@ -140,6 +146,35 @@ private:
     int maxWidth_;
 };
 
+class RciType {
+public:
+    RciType();
+
+    const std::string& id() const;
+    const std::string& name() const;
+    const std::string& desirabilityOverlayStringId() const;
+    const std::string& demandParameterId() const;
+    const RciColor& color() const;
+    const std::vector<std::uint16_t>& allowedZoningTypes() const;
+    bool allowsZoningType(std::uint16_t zoningType) const;
+
+    void setDefinition(
+        const std::string& id,
+        const std::string& name,
+        const std::string& desirabilityOverlayStringId,
+        const std::string& demandParameterId,
+        const RciColor& color,
+        const std::vector<std::uint16_t>& allowedZoningTypes);
+
+private:
+    std::string id_;
+    std::string name_;
+    std::string desirabilityOverlayStringId_;
+    std::string demandParameterId_;
+    RciColor color_;
+    std::vector<std::uint16_t> allowedZoningTypes_;
+};
+
 class RciToolCatalog {
 public:
     RciToolCatalog();
@@ -148,7 +183,10 @@ public:
     void setFallbackDefinition();
     const std::vector<RciTool>& tools() const;
     const RciTool* findTool(const std::string& id) const;
+    const std::vector<RciType>& rciTypes() const;
+    const RciType* findRciType(const std::string& id) const;
 
 private:
     std::vector<RciTool> tools_;
+    std::vector<RciType> rciTypes_;
 };

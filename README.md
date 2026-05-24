@@ -19,7 +19,7 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
   - alpha-tinted ghost road preview while a road stroke is being dragged
   - alpha-tinted ghost lot preview while a lot placement tool is active
   - red bulldoze area overlay and selected-building tint while dragging
-  - persistent residential/industrial zoning tint overlays plus matching drag previews
+  - persistent low-density residential, high-density residential, and industrial zoning tint overlays plus matching drag previews
   - separate lot prism instancing
   - top-left simulation date display and top-right city population counter sourced from published simulation snapshots
   - top-left date widget speed controls for paused, play, fast, and fast-forward simulation pacing
@@ -58,8 +58,10 @@ Default keyboard bindings, startup fullscreen mode, preferred windowed resolutio
 - `B`: drag a rectangular bulldoze area; selected tiles overlay red and selected buildings tint red before release. Bulldozing removes buildings and roads, but zoning and empty parcels remain for the unzone tool.
 - `A`: query hovered tile; queried lots show an in-game detail window plus accepted morning commute routes as green car arrows and pink pedestrian arrows, road tiles summarize morning commuters passing through their lanes, and empty RCI lots show their zoning name
 - Bottom-left `Tools` button: show or hide the left-side tool menu
-- Left-side menu: select bulldoze, street, road, one-way, avenue, highway, query, residential zoning, industrial zoning, or unzone
-- Residential / Industrial zoning buttons: drag a rectangle to zone vacant tiles or existing RCI lots. By default the RCI tool previews and commits lots plus surrounding local roads; hold `Shift` for lots only, or hold `Ctrl` for a plain area fill. New parcel lots require an unoccupied footprint, and plain area zoning still tries to fit empty parcels onto any unparcelled RCI tiles, preferring road-facing parcels when roads are already available.
+- Left-side menu: select bulldoze, street, road, one-way, avenue, highway, query, or open the nested RCI zoning menu
+- RCI zoning menu: select low-density residential zoning, high-density residential zoning, industrial zoning, or unzone
+- RCI zoning buttons: drag a rectangle to zone vacant tiles or existing RCI lots. By default the RCI tool previews and commits lots plus surrounding local roads; hold `Shift` for lots only, or hold `Ctrl` for a plain area fill. New parcel lots require an unoccupied footprint, and plain area zoning still tries to fit empty parcels onto any unparcelled RCI tiles, preferring road-facing parcels when roads are already available.
+- Bottom-right `Overlays` button: show or hide traffic, land value, RCI zoning, and RCI desirability overlay controls. The nested RCI desirability menu is generated from XML-defined RCI types.
 - Unzone button: drag a rectangle to clear only the selected tile zoning and rebuild affected empty RCI parcel boundaries without bulldozing buildings, roads, adjacent parcel tiles, or zoning beneath live lots.
 - Region mode starts first; the top-left `Exit` button opens the same save-before-exit dialog as `Esc` -> `Exit`.
 - Double-click a city preview to enter that city. If a dirty active city is cached from a previous city visit, the region view asks whether to save it before replacing it; choosing `No` discards that cached state, invalidates its dirty preview, and reloads from the city save. Double-clicking that same cached city returns to it directly from memory.
@@ -86,28 +88,28 @@ Transport topology has a standalone non-graphics test target:
 
 ```powershell
 msbuild 'City Builder/TransportNetworkTests.vcxproj' /p:Configuration=Release /p:Platform=x64 /m
-& 'City Builder/x64/Release/TransportNetworkTests.exe'
+& 'Distributable/x64/Release/TransportNetworkTests.exe'
 ```
 
 Renderer CPU packing and UI quad generation also have a standalone non-graphics test target:
 
 ```powershell
 msbuild 'City Builder/RendererTests.vcxproj' /p:Configuration=Release /p:Platform=x64 /m
-& 'City Builder/x64/Release/RendererTests.exe'
+& 'Distributable/x64/Release/RendererTests.exe'
 ```
 
 Save/load round-trip coverage has a standalone integration target. It boots a temporary 32x32 sandbox city, mutates runtime state, saves to a temp autoslot, reloads through a fresh session, compares the exported state, and cleans up the temp files:
 
 ```powershell
 msbuild 'City Builder/SaveLoadIntegrationTests.vcxproj' /p:Configuration=Release /p:Platform=x64 /m
-& 'City Builder/x64/Release/SaveLoadIntegrationTests.exe'
+& 'Distributable/x64/Release/SaveLoadIntegrationTests.exe'
 ```
 
 RCI lot construction has a standalone integration target covering XML lot templates, density ordering, front-only residential access, land-value density caps, and sandbox growth:
 
 ```powershell
 msbuild 'City Builder/RciLotConstructionTests.vcxproj' /p:Configuration=Release /p:Platform=x64 /m
-& 'City Builder/x64/Release/RciLotConstructionTests.exe'
+& 'Distributable/x64/Release/RciLotConstructionTests.exe'
 ```
 
 ## Architecture notes
@@ -121,18 +123,18 @@ msbuild 'City Builder/RciLotConstructionTests.vcxproj' /p:Configuration=Release 
 - Committed road edits rebuild pathing costs and traffic overlay pixels for affected dirty tiles only; full transport cost/overlay rebuilds are reserved for full city imports and whole-network resets.
 - Ground-road and elevated-road uploads are dirty visible-chunk only, and stale hidden chunks stay deferred until visible.
 - Traffic overlays use the same visible-dirty chunk upload pattern and draw above roads and lots as a presentation tint.
-- Land value overlays reuse the same tile overlay draw path and tint land values from red through yellow to green against the fixed displayed land-value cap in `Tile.h`.
+- Land value overlays reuse the same tile overlay draw path and tint the published city's current low-to-high land-value range from red through yellow to green.
 - Road debug graphics start disabled and can be toggled with `F11`; disabling them hides ordinary direction arrows and car-lane connection markers while preserving turn-lane arrows, lane dividers, crosswalks, and road surfaces.
 - Road drag previews are renderer-only transient instances tinted with alpha; committed road topology still arrives through template-authored transport tile lanes and published snapshots.
 - Lot placement previews are renderer-only transient instances built from the same XML-backed lot candidate geometry used by committed placement.
 - Bulldoze previews are renderer-only transient area overlays; committed destruction still arrives through queued simulation commands and may remove buildings or roads, but does not clear zoning or empty parcels.
 - Unzone previews are renderer-only transient area overlays; committed unzoning clears tile zoning and empty parcel records through a queued simulation command.
-- Residential and industrial zoning are XML-backed RCI tools. They queue simulation commands that mark zoneable tiles, optionally create empty zoning-lot parcels with boundary overlays, and can lay planned two-tile local streets before zoning. Runtime area zoning and save import also fit empty zoning-lot parcel records onto unparcelled RCI tiles using the same RCI tool sizing rules, with a road-facing pass before the fallback block partitioner. The RCI constructor runs after city parameters and commutes are recalculated, tries up to the XML-configured attempts for each RCI type, evaluates one connected same-RCI, same-front source block capped to 8x8 per attempt, and may merge empty parcels or completed RCI buildings into a higher-capacity lot.
+- Low-density residential, high-density residential, and industrial zones are XML-backed RCI zoning tools. They queue simulation commands that mark zoneable tiles, optionally create empty zoning-lot parcels with boundary overlays, and can lay planned two-tile local streets before zoning. Runtime area zoning and save import also fit empty zoning-lot parcel records onto unparcelled RCI tiles using the same zone sizing rules, with a road-facing pass before the fallback block partitioner. The RCI constructor runs after city parameters and commutes are recalculated, tries up to the XML-configured attempts for each allowed `(zone, RCI type)` pair, evaluates one connected same-zone, same-RCI-type, same-front source block capped to 8x8 per attempt, and may merge empty parcels or completed RCI buildings into a higher-capacity lot.
 - In-game windows load from XML under `City Builder/Data/UI`; the current query window uses optional text fields, margins, and content hugging.
-- Tool menus and buttons also load from XML under `City Builder/Data/UI`; the current city tool menu lives in `city_tools.xml`.
+- Tool menus, overlay menus, child menus, and buttons also load from XML under `City Builder/Data/UI`; the current city UI menu layout lives in `city_tools.xml`.
 - The renderer timing print breaks out tile-state packing/upload bytes, lift uploads, ground-road uploads, elevated-road uploads, and draw costs.
 - Lots are not chunk-owned yet; they still use a separate renderer path for now.
-- Lot/module archetypes load from XML under `City Builder/Data`; lot XML can declare a front, a constructor-facing `zoningType`, a required RCI `name`/`densityBand`, explicit mode-specific access tiles, or compact perimeter access for non-residential shortcuts. Primary modules self-tag as `low`, `medium`, or `high` density through `density`. RCI tool definitions, the tile land-value baseline, and constructor growth rules load from `City Builder/Data/RCI/rci_tools.xml`. Growth rules set per-RCI desirability thresholds and population-interpolated max density per tile, which is then multiplied by the local land-value density factor before any RCI lot grows.
+- Lot/module archetypes load from XML under `City Builder/Data`; lot XML can declare a front, a constructor-facing zone `zoningType`, an RCI type id `rciType`, a required RCI `name`/`densityBand`, explicit mode-specific access tiles, or compact perimeter access for non-residential shortcuts. Primary modules self-tag as `low`, `medium`, or `high` density through `density`. Zone definitions, RCI type definitions, the tile land-value baseline, and constructor density curves load from `City Builder/Data/RCI/rci_tools.xml`. Zone curves set desirability thresholds and population-interpolated max density per tile, which is then limited by local land value with a small starter-density floor before any RCI lot grows.
 - Transport congestion speed curves load from `City Builder/Data/TransportNetwork/congestion.xml`; road lane capacities load from `City Builder/Data/TransportNetwork/lane_capacities.xml`.
 - App defaults load from `City Builder/Data/config.ini`; the checked-in defaults start fullscreen, use a 2048x2048 preferred windowed size, keep query-value console spam disabled, and expose gameplay hotkeys as editable names.
 - Factory/house XML assets are the first driver-backed lots: low-wealth residents satisfy low-wealth residential demand, low-wealth jobs drive that demand, low-wealth workers drive dirty-industry demand at a 1.05 multiplier, and dirty-industry capacity satisfies dirty-industry demand. Commute assignment writes low-wealth commute and dirty-industry staffing satisfaction from accepted round-trip routes, preserves valid existing routes while forcing invalid source/destination routes, and rebalances a deterministic rolling 1 percent source-lot queue per tick. Morning commutes route workers to jobs, evening commutes route jobs back to workers, and a destination is valid only when both directions are reachable. Commute paths can run up to 600 seconds and include mode start costs, currently 60 seconds for car starts and 0 for walking starts.

@@ -1,5 +1,5 @@
 <module id="service_yard_module">
   <size width="1" height="1" />
-  <effects airPollution="30" landValue="-30" />
+  <effects airPollution="30" landValue="0" />
   <render height="0.06" colorR="0.38" colorG="0.35" colorB="0.30" />
 </module>
