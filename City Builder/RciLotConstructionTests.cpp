@@ -115,6 +115,24 @@ void AddSandboxCity(GameSession& session, const CitySaveState& initialState) {
     session.region().addCity(std::move(city));
 }
 
+RciToolCatalog LoadRciToolCatalogFixture(TestRunner& runner) {
+    const std::string root = MakeTempAssetDirectory("CityBuilderRciToolCatalog");
+    const std::string rciToolsPath = root + "\\RCI\\rci_tools.xml";
+    WriteTextAssetFile(
+        rciToolsPath,
+        "<rci>"
+        "<zone id=\"residential_low\" name=\"Low Density Residence\" zoningType=\"residential_low\" labelStringId=\"zone.tool.residential_low\" minDepth=\"2\" preferredDepth=\"4\" maxDepth=\"8\" minWidth=\"2\" preferredWidth=\"16\" maxWidth=\"24\" colorR=\"0.44\" colorG=\"0.92\" colorB=\"0.46\" colorA=\"0.50\" />"
+        "<zone id=\"residential_high\" name=\"High Density Residence\" zoningType=\"residential_high\" labelStringId=\"zone.tool.residential_high\" minDepth=\"2\" preferredDepth=\"4\" maxDepth=\"8\" minWidth=\"2\" preferredWidth=\"16\" maxWidth=\"24\" colorR=\"0.10\" colorG=\"0.48\" colorB=\"0.20\" colorA=\"0.50\" />"
+        "<zone id=\"industrial\" name=\"Industry\" zoningType=\"industrial\" labelStringId=\"zone.tool.industrial\" minDepth=\"2\" preferredDepth=\"8\" maxDepth=\"8\" minWidth=\"2\" preferredWidth=\"16\" maxWidth=\"24\" colorR=\"0.92\" colorG=\"0.76\" colorB=\"0.15\" colorA=\"0.50\" />"
+        "<rciType id=\"low_wealth_residential\" name=\"Low Wealth Residential\" desirabilityOverlayStringId=\"overlay.desirability.low_wealth_residential\" demandParameterId=\"residents.low_wealth\" zoneTypes=\"low_density_residential,high_density_residential\" colorR=\"0.18\" colorG=\"0.72\" colorB=\"0.28\" colorA=\"0.50\" />"
+        "<rciType id=\"dirty_industry\" name=\"Dirty Industry\" desirabilityOverlayStringId=\"overlay.desirability.dirty_industry\" demandParameterId=\"jobs.dirty_industry\" zoneTypes=\"industrial\" colorR=\"0.92\" colorG=\"0.76\" colorB=\"0.15\" colorA=\"0.50\" />"
+        "</rci>");
+
+    RciToolCatalog catalog;
+    runner.expect(catalog.loadFromXmlFile(rciToolsPath), "RCI tool catalog fixture loads");
+    return catalog;
+}
+
 CitySaveState ExportActiveSessionState(GameSession& session) {
     CitySaveState state = session.runtime().exportCitySaveState();
     const City* city = session.activeCity();
@@ -872,7 +890,7 @@ void RunRoadAwareRciPlanCommitTest(TestRunner& runner) {
             "road-aware RCI test creates existing frontage road");
         const std::size_t frontageRoadTileCount = roadState.transport.tiles.size();
 
-        RciToolCatalog catalog;
+        RciToolCatalog catalog = LoadRciToolCatalogFixture(runner);
         const RciTool* residential = catalog.findTool("residential_high");
         runner.expect(residential != 0, "road-aware RCI test finds residential tool");
         if (residential == 0) {
@@ -912,7 +930,7 @@ void RunLargeLowDensityRciPlanCommitTest(TestRunner& runner) {
         AddSandboxCity(session, BuildCleanSandboxState(64, 64));
         runner.expect(session.enterCity(0, 0), "large low-density RCI sandbox city enters");
 
-        RciToolCatalog catalog;
+        RciToolCatalog catalog = LoadRciToolCatalogFixture(runner);
         const RciTool* residential = catalog.findTool("residential_low");
         runner.expect(residential != 0, "large low-density RCI test finds residential tool");
         if (residential == 0) {

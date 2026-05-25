@@ -54,7 +54,12 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
+      <AdditionalIncludeDirectories>$(VULKAN_SDK)\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
+    <Link>
+      <AdditionalDependencies>dxgi.lib;vulkan-1.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(VULKAN_SDK)\Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -64,17 +69,22 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
+      <AdditionalIncludeDirectories>$(VULKAN_SDK)\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalDependencies>dxgi.lib;vulkan-1.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(VULKAN_SDK)\Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="InGameWindow.cpp" />
     <ClCompile Include="RciTool.cpp" />
     <ClCompile Include="RendererAlgorithms.cpp" />
+    <ClCompile Include="RendererColor.cpp" />
     <ClCompile Include="RendererTests.cpp" />
+    <ClCompile Include="VulkanRendererSupport.cpp" />
     <ClCompile Include="SimulationDate.cpp" />
     <ClCompile Include="TransportTypes.cpp" />
     <ClCompile Include="UiWidgets.cpp" />
@@ -84,6 +94,9 @@
     <ClInclude Include="InGameWindow.h" />
     <ClInclude Include="RciTool.h" />
     <ClInclude Include="RendererAlgorithms.h" />
+    <ClInclude Include="RendererColor.h" />
+    <ClInclude Include="RendererPayload.h" />
+    <ClInclude Include="VulkanRendererSupport.h" />
     <ClInclude Include="SimulationDate.h" />
     <ClInclude Include="SimulationTime.h" />
     <ClInclude Include="Tile.h" />

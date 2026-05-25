@@ -1,5 +1,7 @@
 #include "CrashLogger.h"
 
+#include "RuntimePaths.h"
+
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
@@ -18,18 +20,6 @@ std::mutex gCrashLogMutex;
 std::string gApplicationName = "City Builder";
 int gCrashLogSuppressionDepth = 0;
 thread_local std::string gCurrentCrashScope = "unknown";
-
-std::string GetExecutableDirectory() {
-    char modulePath[MAX_PATH];
-    const DWORD pathLength = GetModuleFileNameA(0, modulePath, MAX_PATH);
-    std::string fullPath(modulePath, modulePath + pathLength);
-    const std::string::size_type lastSeparatorIndex = fullPath.find_last_of("\\/");
-    if (lastSeparatorIndex == std::string::npos) {
-        return ".";
-    }
-
-    return fullPath.substr(0, lastSeparatorIndex);
-}
 
 std::string Timestamp() {
     SYSTEMTIME localTime;
@@ -59,7 +49,7 @@ void EnsureLogDirectory(const std::string& directory) {
 }
 
 std::string LogDirectory() {
-    const std::string dataDirectory = GetExecutableDirectory() + "\\Data";
+    const std::string dataDirectory = RuntimeDataDirectory();
     EnsureLogDirectory(dataDirectory);
 
     const std::string logsDirectory = dataDirectory + "\\Logs";

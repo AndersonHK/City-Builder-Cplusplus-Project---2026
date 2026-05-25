@@ -19,6 +19,7 @@
 #include "CommuteTypes.h"
 #include "Lot.h"
 #include "LotModule.h"
+#include "RendererPayload.h"
 #include "Tile.h"
 #include "TransportNetwork.h"
 
@@ -198,7 +199,8 @@ struct PublishedWorldSnapshot {
     const std::vector<int>* lotOccupancy;
     const std::vector<ResolvedRoadCell>* roads;
     const std::vector<std::uint8_t>* groundRoadRenderState;
-    const std::vector<std::uint8_t>* tileOverlayState;
+    // One typed scalar/semantic payload per tile. It is never CPU-colored RGBA.
+    const std::vector<RendererScalarPayload>* tileOverlayState;
     const std::vector<std::uint64_t>* groundRoadChunkRevisions;
     const std::vector<std::uint64_t>* elevatedRoadChunkRevisions;
     const std::vector<std::uint64_t>* tileOverlayChunkRevisions;
@@ -295,7 +297,10 @@ public:
 
     PublishedWorldSnapshot acquirePublishedSnapshot();
     void releasePublishedSnapshot(const PublishedWorldSnapshot& snapshot);
-    bool fillRciDesirabilityOverlayChunkPixels(const std::string& rciTypeId, const PublishedWorldSnapshot& snapshot, const ChunkRect& chunkRect, std::vector<std::uint8_t>& texturePixels) const;
+
+    // Builds visible-chunk RCI desirability payloads for the selected RCI type.
+    // The renderer shader owns the ramp and alpha; this returns capped scalars.
+    bool fillRciDesirabilityOverlayChunkValues(const std::string& rciTypeId, const PublishedWorldSnapshot& snapshot, const ChunkRect& chunkRect, std::vector<RendererScalarPayload>& textureValues) const;
 
     int mapWidth() const;
     int mapHeight() const;
@@ -315,7 +320,7 @@ private:
         std::vector<int> publishedLotOccupancy;
         std::vector<ResolvedRoadCell> publishedRoads;
         std::vector<std::uint8_t> publishedGroundRoadRenderState;
-        std::vector<std::uint8_t> publishedTileOverlayState;
+        std::vector<RendererScalarPayload> publishedTileOverlayState;
         std::vector<std::uint64_t> publishedGroundRoadChunkRevisions;
         std::vector<std::uint64_t> publishedElevatedRoadChunkRevisions;
         std::vector<std::uint64_t> publishedTileOverlayChunkRevisions;
@@ -521,7 +526,7 @@ private:
     float lotParameterAmount(const Lot& lot, int parameterId) const;
     float lotDerivedParameterAmount(const Lot& lot, int parameterId) const;
     void collectLotAccessNodes(const Lot& lot, const LotAsset& lotAsset, std::uint8_t allowedModeMask, std::vector<std::uint32_t>& accessNodes) const;
-    std::vector<CommuteRouteSegment> buildCommuteRouteSegments(const TransportPathResult& pathResult, std::uint16_t demand) const;
+    std::vector<CommuteRouteSegment> buildCommuteRouteSegments(const TransportPathResult& pathResult, std::uint16_t demand, CommuteTimeOfDay timeOfDay) const;
     bool commuteRouteIsStillValid(const CommuteRouteRecord& route) const;
     bool commuteRouteTouchesTiles(const CommuteRouteRecord& route, const std::vector<int>& sortedTileIndices) const;
     bool commutePathTouchesTiles(const TransportPathResult& pathResult, const std::vector<int>& sortedTileIndices) const;

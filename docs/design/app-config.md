@@ -9,6 +9,7 @@ Use this guide when changing `AppConfig`, `Data/config.ini`, startup window beha
 
 ## Current Shape
 - `Source.cpp` creates one `AppConfig` during startup, loads `Data/config.ini` from the executable directory, then passes that read-only object to `AppController` and `Renderer`.
+- `RuntimePaths.h` owns executable-relative path construction. Config and runtime data loading should use `RuntimeDataPath(...)` / `RuntimeDataDirectory()` instead of source-tree assumptions or absolute machine-local paths.
 - `Data/config.ini` is copied beside the executable by the project post-build data copy. It is intentionally not loaded from the source tree at runtime.
 - `[window]` controls startup mode. `fullscreen=true` opens directly on the primary monitor; `windowed_width` and `windowed_height` are the preferred size used for windowed startup and for restoring from fullscreen.
 - `Alt+Enter` remains handled by `RendererCallbacks`, before `AppController` sees keyboard input, because it mutates GLFW window/monitor state rather than game tool state.

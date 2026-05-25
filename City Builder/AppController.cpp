@@ -287,21 +287,6 @@ const char* LotAssetIdForTool(ActiveTool activeTool) {
     }
 }
 
-RoadStrokeCommand BuildRciRoadStrokeCommand(const RciRoadPlan& roadPlan) {
-    RoadStrokeCommand roadStrokeCommand;
-    roadStrokeCommand.startTile = Int2(roadPlan.startTileX, roadPlan.startTileY);
-    roadStrokeCommand.cornerTile = Int2(roadPlan.endTileX, roadPlan.endTileY);
-    roadStrokeCommand.endTile = Int2(roadPlan.endTileX, roadPlan.endTileY);
-    roadStrokeCommand.family = RoadFamily::LocalStreet;
-    roadStrokeCommand.layer = TransportLayerId::Ground;
-    roadStrokeCommand.templateKind = RoadTemplateKind::Street;
-    roadStrokeCommand.roadTemplate = TransportNetwork::makeRoadTemplate(
-        roadStrokeCommand.templateKind,
-        RoadTrafficSide::RightHand,
-        RoadDirectionMode::TwoWay);
-    return roadStrokeCommand;
-}
-
 void ClearQuerySelection(ViewState& viewState) {
     viewState.querySelectionKind = QuerySelectionKind::None;
     viewState.queriedLotId = -1;
@@ -338,6 +323,19 @@ const char* CommuteCategoryName(CommuteCategory category) {
 
         default:
             return "none";
+    }
+}
+
+const char* CommuteTimeOfDayName(CommuteTimeOfDay timeOfDay) {
+    switch (timeOfDay) {
+        case CommuteTimeOfDay::Morning:
+            return "Morning";
+
+        case CommuteTimeOfDay::Evening:
+            return "Evening";
+
+        default:
+            return "Unknown";
     }
 }
 
@@ -541,12 +539,14 @@ std::vector<std::string> BuildRciQueryWindowLines(const TileQueryResult& queryRe
 struct RoadCommuterSummary {
     TransportLayerId layer;
     TransportMode mode;
+    CommuteTimeOfDay timeOfDay;
     std::uint8_t direction;
     int demand;
 
     RoadCommuterSummary()
         : layer(TransportLayerId::Ground),
           mode(TransportMode::Car),
+          timeOfDay(CommuteTimeOfDay::Morning),
           direction(0u),
           demand(0) {
     }
@@ -558,6 +558,7 @@ void AddRoadCommuterSummary(std::vector<RoadCommuterSummary>& summaries, const C
         RoadCommuterSummary& summary = summaries[summaryIndex];
         if (summary.layer == segment.layer &&
             summary.mode == segment.mode &&
+            summary.timeOfDay == segment.timeOfDay &&
             summary.direction == segment.direction) {
             summary.demand += static_cast<int>(segment.demand);
             return;
@@ -567,6 +568,7 @@ void AddRoadCommuterSummary(std::vector<RoadCommuterSummary>& summaries, const C
     RoadCommuterSummary summary;
     summary.layer = segment.layer;
     summary.mode = segment.mode;
+    summary.timeOfDay = segment.timeOfDay;
     summary.direction = segment.direction;
     summary.demand = static_cast<int>(segment.demand);
     summaries.push_back(summary);
@@ -595,6 +597,7 @@ std::vector<std::string> BuildRoadQueryWindowLines(const TileQueryResult& queryR
 
     if (commuterSummaries.empty()) {
         lines.push_back("Morning commuters: none");
+        lines.push_back("Evening commuters: none");
         return lines;
     }
 
@@ -608,29 +611,50 @@ std::vector<std::string> BuildRoadQueryWindowLines(const TileQueryResult& queryR
             if (left.mode != right.mode) {
                 return static_cast<int>(left.mode) < static_cast<int>(right.mode);
             }
+            if (left.timeOfDay != right.timeOfDay) {
+                return static_cast<int>(left.timeOfDay) < static_cast<int>(right.timeOfDay);
+            }
             return left.direction < right.direction;
         });
 
-    int totalDemand = 0;
-    std::size_t summaryIndex = 0;
-    for (; summaryIndex < commuterSummaries.size(); ++summaryIndex) {
-        totalDemand += commuterSummaries[summaryIndex].demand;
-    }
+    const CommuteTimeOfDay commuteTimes[] = {
+        CommuteTimeOfDay::Morning,
+        CommuteTimeOfDay::Evening
+    };
+    std::size_t commuteTimeIndex = 0;
+    for (; commuteTimeIndex < sizeof(commuteTimes) / sizeof(commuteTimes[0]); ++commuteTimeIndex) {
+        const CommuteTimeOfDay timeOfDay = commuteTimes[commuteTimeIndex];
+        int totalDemand = 0;
+        std::size_t summaryIndex = 0;
+        for (; summaryIndex < commuterSummaries.size(); ++summaryIndex) {
+            if (commuterSummaries[summaryIndex].timeOfDay == timeOfDay) {
+                totalDemand += commuterSummaries[summaryIndex].demand;
+            }
+        }
 
-    {
         std::ostringstream totalLine;
-        totalLine << "Morning commuters: " << totalDemand;
+        totalLine << CommuteTimeOfDayName(timeOfDay) << " commuters: ";
+        if (totalDemand == 0) {
+            totalLine << "none";
+        } else {
+            totalLine << totalDemand;
+        }
         lines.push_back(totalLine.str());
-    }
 
-    for (summaryIndex = 0; summaryIndex < commuterSummaries.size(); ++summaryIndex) {
-        const RoadCommuterSummary& summary = commuterSummaries[summaryIndex];
-        std::ostringstream summaryLine;
-        summaryLine << TransportModeName(summary.mode)
-            << " " << TransportLayerName(summary.layer)
-            << " " << DirectionMaskToString(summary.direction)
-            << ": " << summary.demand;
-        lines.push_back(summaryLine.str());
+        for (summaryIndex = 0; summaryIndex < commuterSummaries.size(); ++summaryIndex) {
+            const RoadCommuterSummary& summary = commuterSummaries[summaryIndex];
+            if (summary.timeOfDay != timeOfDay) {
+                continue;
+            }
+
+            std::ostringstream summaryLine;
+            summaryLine << CommuteTimeOfDayName(summary.timeOfDay)
+                << " " << TransportModeName(summary.mode)
+                << " " << TransportLayerName(summary.layer)
+                << " " << DirectionMaskToString(summary.direction)
+                << ": " << summary.demand;
+            lines.push_back(summaryLine.str());
+        }
     }
 
     return lines;
@@ -683,7 +707,7 @@ void AppController::onLeftMouseButtonPressed() {
 
     switch (viewState_.activeTool) {
         case ActiveTool::PollutionBrush:
-            gameSession_.runtime().queuePaintPollution(tileX, tileY, 16000000);
+            gameSession_.runtime().queuePaintPollution(tileX, tileY, kSimulationStatDisplayCap);
             break;
 
         case ActiveTool::SmokestackLot:
@@ -1116,11 +1140,13 @@ bool AppController::rciPreviewPlan(RciPlan& plan) const {
 }
 
 bool AppController::loadUiLayoutFromXmlFile(const std::string& filePath) {
-    const bool loaded = uiLayout_.loadFromXmlFile(filePath);
+    if (!uiLayout_.loadFromXmlFile(filePath)) {
+        throw std::runtime_error("AppController::loadUiLayoutFromXmlFile: failed to load " + filePath);
+    }
     if (!rciTools_.tools().empty()) {
         instantiateRciUiFromCatalog();
     }
-    return loaded;
+    return true;
 }
 
 bool AppController::loadLocaleFromJsonFile(const std::string& filePath) {

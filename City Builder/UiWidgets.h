@@ -192,7 +192,6 @@ public:
     UiLayout();
 
     bool loadFromXmlFile(const std::string& filePath);
-    void setFallbackDefinition();
     const std::vector<UiMenu>& menus() const;
     void setMenuVisible(const std::string& menuId, bool visible);
     void toggleMenu(const std::string& menuId);

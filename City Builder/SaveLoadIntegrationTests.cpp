@@ -60,7 +60,10 @@ std::string MakeTemporarySaveDirectory() {
 
     pathBuilder << "CityBuilder_SaveLoad_" << GetCurrentProcessId() << "_" << GetTickCount64();
     const std::string path = pathBuilder.str();
-    _mkdir(path.c_str());
+    const int mkdirResult = _mkdir(path.c_str());
+    if (mkdirResult != 0) {
+        std::cerr << "Warning: could not create temporary save directory: " << path << std::endl;
+    }
     return path;
 }
 

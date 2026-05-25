@@ -6,12 +6,12 @@
 #include <limits>
 #include <vector>
 
+#include "RendererPayload.h"
 #include "TransportTypes.h"
 
 constexpr std::uint16_t kTransportNoCost = 0u;
 constexpr std::uint16_t kTransportMaxCost = std::numeric_limits<std::uint16_t>::max();
 constexpr std::uint16_t kTransportMaxLoad = std::numeric_limits<std::uint16_t>::max();
-constexpr std::uint8_t kTrafficOverlayAlphaByte = 89u;
 
 enum class TransportPathStepKind : std::uint8_t {
     Movement = 0,
@@ -185,8 +185,8 @@ public:
     void applyPathLoad(CommuteTimeOfDay commuteTimeOfDay, const TransportPathResult& pathResult, std::uint16_t demand, bool addLoad);
 
     bool findPath(const TransportPathRequest& request, TransportPathScratch& scratch, TransportPathResult& result) const;
-    void buildTrafficOverlay(std::vector<std::uint8_t>& overlayPixels) const;
-    void buildTrafficOverlayForTiles(const std::vector<int>& tileIndices, std::vector<std::uint8_t>& overlayPixels) const;
+    void buildTrafficOverlay(std::vector<RendererScalarPayload>& overlayPayloads) const;
+    void buildTrafficOverlayForTiles(const std::vector<int>& tileIndices, std::vector<RendererScalarPayload>& overlayPayloads) const;
 
 private:
     bool isTileInsideMap(int tileX, int tileY) const;

@@ -265,6 +265,15 @@ constexpr std::uint8_t kRoadDirectionSouthWest = 1u << 6;
 constexpr std::uint8_t kRoadDirectionNorthWest = 1u << 7;
 constexpr std::size_t kRoadDirectionCount = 8u;
 
+// Counts only cardinal travel directions. Diagonal road-direction flags are
+// visual/adjacency hints and should not turn a road cell into an intersection.
+inline int CountRoadCardinalDirections(std::uint8_t directionMask) {
+    return ((directionMask & kRoadDirectionNorth) != 0 ? 1 : 0) +
+        ((directionMask & kRoadDirectionEast) != 0 ? 1 : 0) +
+        ((directionMask & kRoadDirectionSouth) != 0 ? 1 : 0) +
+        ((directionMask & kRoadDirectionWest) != 0 ? 1 : 0);
+}
+
 constexpr std::uint8_t kLaneIntentEast = 1u << 0;
 constexpr std::uint8_t kLaneIntentWest = 1u << 1;
 constexpr std::uint8_t kLaneIntentNorth = 1u << 2;

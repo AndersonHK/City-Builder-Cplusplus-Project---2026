@@ -1,12 +1,10 @@
 #include "RciTool.h"
 
+#include "SimpleXml.h"
 #include "Tile.h"
 #include "TransportTypes.h"
 
 #include <algorithm>
-#include <cstdlib>
-#include <fstream>
-#include <sstream>
 
 namespace {
 struct Segment {
@@ -31,33 +29,6 @@ const int kRoadFacingSouth = 1;
 const int kRoadFacingWest = 2;
 const int kRoadFacingEast = 3;
 
-std::string ReadFileToString(const std::string& filePath) {
-    std::ifstream file(filePath.c_str(), std::ios::in | std::ios::binary);
-    if (!file) {
-        return std::string();
-    }
-
-    std::ostringstream stream;
-    stream << file.rdbuf();
-    return stream.str();
-}
-
-std::string AttributeValue(const std::string& tag, const std::string& attributeName, const std::string& fallback) {
-    const std::string needle = attributeName + "=\"";
-    const std::string::size_type attributeStart = tag.find(needle);
-    if (attributeStart == std::string::npos) {
-        return fallback;
-    }
-
-    const std::string::size_type valueStart = attributeStart + needle.size();
-    const std::string::size_type valueEnd = tag.find('"', valueStart);
-    if (valueEnd == std::string::npos) {
-        return fallback;
-    }
-
-    return tag.substr(valueStart, valueEnd - valueStart);
-}
-
 std::string TrimAscii(const std::string& value) {
     std::string::size_type first = 0u;
     while (first < value.size() && (value[first] == ' ' || value[first] == '\t' || value[first] == '\r' || value[first] == '\n')) {
@@ -72,39 +43,12 @@ std::string TrimAscii(const std::string& value) {
     return value.substr(first, last - first);
 }
 
-int AttributeIntValue(const std::string& tag, const std::string& attributeName, int fallback) {
-    const std::string value = AttributeValue(tag, attributeName, std::string());
-    if (value.empty()) {
-        return fallback;
-    }
-
-    return std::atoi(value.c_str());
-}
-
-int AttributeIntValueAny(const std::string& tag, const std::string& primaryName, const std::string& alternateName, int fallback) {
-    const std::string primaryValue = AttributeValue(tag, primaryName, std::string());
-    if (!primaryValue.empty()) {
-        return std::atoi(primaryValue.c_str());
-    }
-
-    return AttributeIntValue(tag, alternateName, fallback);
-}
-
-float AttributeFloatValue(const std::string& tag, const std::string& attributeName, float fallback) {
-    const std::string value = AttributeValue(tag, attributeName, std::string());
-    if (value.empty()) {
-        return fallback;
-    }
-
-    return static_cast<float>(std::atof(value.c_str()));
-}
-
 RciColor AttributeColorValue(const std::string& tag, const RciColor& fallback) {
     return RciColor(
-        AttributeFloatValue(tag, "colorR", fallback.r),
-        AttributeFloatValue(tag, "colorG", fallback.g),
-        AttributeFloatValue(tag, "colorB", fallback.b),
-        AttributeFloatValue(tag, "colorA", fallback.a));
+        XmlAttributeFloatValue(tag, "colorR", fallback.r),
+        XmlAttributeFloatValue(tag, "colorG", fallback.g),
+        XmlAttributeFloatValue(tag, "colorB", fallback.b),
+        XmlAttributeFloatValue(tag, "colorA", fallback.a));
 }
 
 std::uint16_t ZoningTypeFromText(const std::string& value) {
@@ -125,7 +69,7 @@ std::uint16_t ZoningTypeFromText(const std::string& value) {
 }
 
 std::uint16_t ZoningTypeFromToolTag(const std::string& tag, const std::string& id) {
-    const std::uint16_t explicitType = ZoningTypeFromText(AttributeValue(tag, "zoningType", std::string()));
+    const std::uint16_t explicitType = ZoningTypeFromText(XmlAttributeValue(tag, "zoningType", std::string()));
     if (explicitType != TileZoningNone) {
         return explicitType;
     }
@@ -158,17 +102,17 @@ std::vector<std::uint16_t> ZoningTypesFromListText(const std::string& value) {
 }
 
 std::vector<std::uint16_t> ZoningTypesFromRciTypeTag(const std::string& tag) {
-    std::vector<std::uint16_t> zoningTypes = ZoningTypesFromListText(AttributeValue(tag, "zoneTypes", std::string()));
+    std::vector<std::uint16_t> zoningTypes = ZoningTypesFromListText(XmlAttributeValue(tag, "zoneTypes", std::string()));
     if (!zoningTypes.empty()) {
         return zoningTypes;
     }
 
-    zoningTypes = ZoningTypesFromListText(AttributeValue(tag, "zones", std::string()));
+    zoningTypes = ZoningTypesFromListText(XmlAttributeValue(tag, "zones", std::string()));
     if (!zoningTypes.empty()) {
         return zoningTypes;
     }
 
-    const std::uint16_t zoningType = ZoningTypeFromText(AttributeValue(tag, "zoningType", std::string()));
+    const std::uint16_t zoningType = ZoningTypeFromText(XmlAttributeValue(tag, "zoningType", std::string()));
     if (zoningType != TileZoningNone) {
         zoningTypes.push_back(zoningType);
     }
@@ -1723,13 +1667,13 @@ void RciType::setDefinition(
 }
 
 RciToolCatalog::RciToolCatalog() {
-    setFallbackDefinition();
 }
 
 bool RciToolCatalog::loadFromXmlFile(const std::string& filePath) {
-    const std::string xml = ReadFileToString(filePath);
+    const std::string xml = XmlReadFileToString(filePath);
     if (xml.empty()) {
-        setFallbackDefinition();
+        tools_.clear();
+        rciTypes_.clear();
         return false;
     }
 
@@ -1749,23 +1693,23 @@ bool RciToolCatalog::loadFromXmlFile(const std::string& filePath) {
         }
 
         const std::string zoneTag = xml.substr(zoneStart, zoneEnd - zoneStart + 1u);
-        const std::string id = AttributeValue(zoneTag, "id", std::string());
+        const std::string id = XmlAttributeValue(zoneTag, "id", std::string());
         const std::uint16_t zoningType = ZoningTypeFromToolTag(zoneTag, id);
         if (!id.empty() && zoningType != TileZoningNone) {
             RciTool tool;
             const RciColor fallbackColor = DefaultZoneColor(zoningType);
             tool.setDefinition(
                 id,
-                AttributeValue(zoneTag, "name", id),
+                XmlAttributeValue(zoneTag, "name", id),
                 AttributeColorValue(zoneTag, fallbackColor),
                 zoningType,
-                AttributeIntValue(zoneTag, "minDepth", 2),
-                AttributeIntValueAny(zoneTag, "preferredDepth", "preferedDepth", IsResidentialZoningType(zoningType) ? 4 : 8),
-                AttributeIntValue(zoneTag, "maxDepth", 8),
-                AttributeIntValue(zoneTag, "minWidth", 2),
-                AttributeIntValueAny(zoneTag, "preferredWidth", "preferedWidth", 16),
-                AttributeIntValue(zoneTag, "maxWidth", 24),
-                AttributeValue(zoneTag, "labelStringId", std::string()),
+                XmlAttributeIntValue(zoneTag, "minDepth", 2),
+                XmlAttributeIntValueAny(zoneTag, "preferredDepth", "preferedDepth", IsResidentialZoningType(zoningType) ? 4 : 8),
+                XmlAttributeIntValue(zoneTag, "maxDepth", 8),
+                XmlAttributeIntValue(zoneTag, "minWidth", 2),
+                XmlAttributeIntValueAny(zoneTag, "preferredWidth", "preferedWidth", 16),
+                XmlAttributeIntValue(zoneTag, "maxWidth", 24),
+                XmlAttributeValue(zoneTag, "labelStringId", std::string()),
                 std::string());
             loadedTools.push_back(tool);
         }
@@ -1786,24 +1730,24 @@ bool RciToolCatalog::loadFromXmlFile(const std::string& filePath) {
         }
 
         const std::string toolTag = xml.substr(toolStart, toolEnd - toolStart + 1u);
-        const std::string id = AttributeValue(toolTag, "id", std::string());
+        const std::string id = XmlAttributeValue(toolTag, "id", std::string());
         const std::uint16_t zoningType = ZoningTypeFromToolTag(toolTag, id);
         if (!id.empty() && zoningType != TileZoningNone) {
             RciTool tool;
             const RciColor fallbackColor = DefaultZoneColor(zoningType);
             tool.setDefinition(
                 id,
-                AttributeValue(toolTag, "name", id),
+                XmlAttributeValue(toolTag, "name", id),
                 AttributeColorValue(toolTag, fallbackColor),
                 zoningType,
-                AttributeIntValue(toolTag, "minDepth", 2),
-                AttributeIntValueAny(toolTag, "preferredDepth", "preferedDepth", IsResidentialZoningType(zoningType) ? 4 : 8),
-                AttributeIntValue(toolTag, "maxDepth", 8),
-                AttributeIntValue(toolTag, "minWidth", 2),
-                AttributeIntValueAny(toolTag, "preferredWidth", "preferedWidth", 16),
-                AttributeIntValue(toolTag, "maxWidth", 24),
-                AttributeValue(toolTag, "labelStringId", std::string()),
-                AttributeValue(toolTag, "desirabilityOverlayStringId", std::string()));
+                XmlAttributeIntValue(toolTag, "minDepth", 2),
+                XmlAttributeIntValueAny(toolTag, "preferredDepth", "preferedDepth", IsResidentialZoningType(zoningType) ? 4 : 8),
+                XmlAttributeIntValue(toolTag, "maxDepth", 8),
+                XmlAttributeIntValue(toolTag, "minWidth", 2),
+                XmlAttributeIntValueAny(toolTag, "preferredWidth", "preferedWidth", 16),
+                XmlAttributeIntValue(toolTag, "maxWidth", 24),
+                XmlAttributeValue(toolTag, "labelStringId", std::string()),
+                XmlAttributeValue(toolTag, "desirabilityOverlayStringId", std::string()));
             loadedTools.push_back(tool);
         }
 
@@ -1823,7 +1767,7 @@ bool RciToolCatalog::loadFromXmlFile(const std::string& filePath) {
         }
 
         const std::string rciTypeTag = xml.substr(rciTypeStart, rciTypeEnd - rciTypeStart + 1u);
-        const std::string id = AttributeValue(rciTypeTag, "id", std::string());
+        const std::string id = XmlAttributeValue(rciTypeTag, "id", std::string());
         const std::vector<std::uint16_t> allowedZoningTypes = ZoningTypesFromRciTypeTag(rciTypeTag);
         if (!id.empty() && !allowedZoningTypes.empty()) {
             RciType rciType;
@@ -1832,9 +1776,9 @@ bool RciToolCatalog::loadFromXmlFile(const std::string& filePath) {
                 RciColor(0.92f, 0.76f, 0.15f, 0.50f);
             rciType.setDefinition(
                 id,
-                AttributeValue(rciTypeTag, "name", id),
-                AttributeValue(rciTypeTag, "desirabilityOverlayStringId", std::string()),
-                AttributeValue(rciTypeTag, "demandParameterId", std::string()),
+                XmlAttributeValue(rciTypeTag, "name", id),
+                XmlAttributeValue(rciTypeTag, "desirabilityOverlayStringId", std::string()),
+                XmlAttributeValue(rciTypeTag, "demandParameterId", std::string()),
                 AttributeColorValue(rciTypeTag, fallbackColor),
                 allowedZoningTypes);
             loadedRciTypes.push_back(rciType);
@@ -1844,119 +1788,19 @@ bool RciToolCatalog::loadFromXmlFile(const std::string& filePath) {
     }
 
     if (loadedTools.empty()) {
-        setFallbackDefinition();
+        tools_.clear();
+        rciTypes_.clear();
+        return false;
+    }
+    if (loadedRciTypes.empty()) {
+        tools_.clear();
+        rciTypes_.clear();
         return false;
     }
 
     tools_ = loadedTools;
-    if (loadedRciTypes.empty()) {
-        rciTypes_.clear();
-        RciType residentialType;
-        std::vector<std::uint16_t> residentialZones;
-        residentialZones.push_back(TileZoningResidentialLow);
-        residentialZones.push_back(TileZoningResidentialHigh);
-        residentialType.setDefinition(
-            "low_wealth_residential",
-            "Low wealth residential",
-            "overlay.desirability.low_wealth_residential",
-            "residents.low_wealth",
-            RciColor(0.18f, 0.72f, 0.28f, 0.50f),
-            residentialZones);
-        rciTypes_.push_back(residentialType);
-
-        RciType industrialType;
-        std::vector<std::uint16_t> industrialZones;
-        industrialZones.push_back(TileZoningIndustrial);
-        industrialType.setDefinition(
-            "dirty_industry",
-            "Dirty industry",
-            "overlay.desirability.dirty_industry",
-            "jobs.dirty_industry",
-            RciColor(0.92f, 0.76f, 0.15f, 0.50f),
-            industrialZones);
-        rciTypes_.push_back(industrialType);
-    } else {
-        rciTypes_ = loadedRciTypes;
-    }
+    rciTypes_ = loadedRciTypes;
     return true;
-}
-
-void RciToolCatalog::setFallbackDefinition() {
-    tools_.clear();
-    rciTypes_.clear();
-
-    RciTool residentialLow;
-    residentialLow.setDefinition(
-        "residential_low",
-        "Low Density Residence",
-        RciColor(0.44f, 0.92f, 0.46f, 0.50f),
-        TileZoningResidentialLow,
-        2,
-        4,
-        8,
-        2,
-        16,
-        24,
-        "zone.tool.residential_low",
-        std::string());
-    tools_.push_back(residentialLow);
-
-    RciTool residentialHigh;
-    residentialHigh.setDefinition(
-        "residential_high",
-        "High Density Residence",
-        RciColor(0.10f, 0.48f, 0.20f, 0.50f),
-        TileZoningResidentialHigh,
-        2,
-        4,
-        8,
-        2,
-        16,
-        24,
-        "zone.tool.residential_high",
-        std::string());
-    tools_.push_back(residentialHigh);
-
-    RciTool industrial;
-    industrial.setDefinition(
-        "industrial",
-        "Industry",
-        RciColor(0.92f, 0.76f, 0.15f, 0.50f),
-        TileZoningIndustrial,
-        2,
-        8,
-        8,
-        2,
-        16,
-        24,
-        "zone.tool.industrial",
-        std::string());
-    tools_.push_back(industrial);
-
-    std::vector<std::uint16_t> residentialZones;
-    residentialZones.push_back(TileZoningResidentialLow);
-    residentialZones.push_back(TileZoningResidentialHigh);
-    RciType lowWealthResidential;
-    lowWealthResidential.setDefinition(
-        "low_wealth_residential",
-        "Low wealth residential",
-        "overlay.desirability.low_wealth_residential",
-        "residents.low_wealth",
-        RciColor(0.18f, 0.72f, 0.28f, 0.50f),
-        residentialZones);
-    rciTypes_.push_back(lowWealthResidential);
-
-    std::vector<std::uint16_t> industrialZones;
-    industrialZones.push_back(TileZoningIndustrial);
-    RciType dirtyIndustry;
-    dirtyIndustry.setDefinition(
-        "dirty_industry",
-        "Dirty industry",
-        "overlay.desirability.dirty_industry",
-        "jobs.dirty_industry",
-        RciColor(0.92f, 0.76f, 0.15f, 0.50f),
-        industrialZones);
-    rciTypes_.push_back(dirtyIndustry);
 }
 
 const std::vector<RciTool>& RciToolCatalog::tools() const {

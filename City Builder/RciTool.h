@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "RoadTemplate.h"
+
 struct RciColor {
     float r;
     float g;
@@ -38,6 +40,8 @@ struct RciRoadPlan {
     RciRoadPlan();
     RciRoadPlan(int startX, int startY, int endX, int endY);
 };
+
+RoadStrokeCommand BuildRciRoadStrokeCommand(const RciRoadPlan& roadPlan);
 
 enum class RciPlanMode {
     LotsAndRoads,
@@ -180,7 +184,6 @@ public:
     RciToolCatalog();
 
     bool loadFromXmlFile(const std::string& filePath);
-    void setFallbackDefinition();
     const std::vector<RciTool>& tools() const;
     const RciTool* findTool(const std::string& id) const;
     const std::vector<RciType>& rciTypes() const;

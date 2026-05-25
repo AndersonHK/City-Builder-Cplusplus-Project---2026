@@ -45,3 +45,14 @@ struct RoadTilePlacement {
 
     RoadTilePlacement();
 };
+
+// Road template ids pack direction mode into bits 6..7. Keep all decode call
+// sites here so renderer, transport, and save/load stay aligned.
+inline RoadDirectionMode RoadTemplateDirectionModeFromId(std::uint16_t templateId) {
+    return static_cast<RoadDirectionMode>((templateId >> 6) & 0x3u);
+}
+
+// Road template ids pack their semantic kind into bits 14..15.
+inline RoadTemplateKind RoadTemplateKindFromId(std::uint16_t templateId) {
+    return static_cast<RoadTemplateKind>((templateId >> 14) & 0x3u);
+}

@@ -83,16 +83,8 @@ int DistanceToVerticalSide(int localY, int footprint, std::uint8_t outsideDirect
     return outsideDirection == kRoadDirectionSouth ? footprint - 1 - localY : localY;
 }
 
-RoadDirectionMode DirectionModeFromTemplateId(std::uint16_t templateId) {
-    return static_cast<RoadDirectionMode>((templateId >> 6) & 0x3u);
-}
-
-RoadTemplateKind TemplateKindFromTemplateId(std::uint16_t templateId) {
-    return static_cast<RoadTemplateKind>((templateId >> 14) & 0x3u);
-}
-
 bool PathLaneAllowsCapReturn(const RoadLanePlacement& lanePlacement) {
-    return !lanePlacement.isCar() || DirectionModeFromTemplateId(lanePlacement.templateId) == RoadDirectionMode::TwoWay;
+    return !lanePlacement.isCar() || RoadTemplateDirectionModeFromId(lanePlacement.templateId) == RoadDirectionMode::TwoWay;
 }
 
 bool LaneTypeCollapsesToOneTile(const RoadLanePlacement& lanePlacement) {
@@ -482,7 +474,7 @@ RoadLaneCell Road::makeLaneCell(const RoadLanePlacement& lanePlacement, std::uin
 }
 
 RoadLaneCell Road::makeLaneCell(const RoadLanePlacement& lanePlacement, const RoadLaneCellContext& context) {
-    const RoadTemplateKind templateKind = TemplateKindFromTemplateId(lanePlacement.templateId);
+    const RoadTemplateKind templateKind = RoadTemplateKindFromId(lanePlacement.templateId);
     return RoadTemplateDefinition::forKind(templateKind).makeLaneCell(lanePlacement, context);
 }
 

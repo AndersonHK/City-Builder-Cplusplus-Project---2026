@@ -13,6 +13,7 @@ struct CommuteRouteSegment {
     int endTileY;
     TransportLayerId layer;
     TransportMode mode;
+    CommuteTimeOfDay timeOfDay;
     std::uint8_t direction;
     std::uint16_t demand;
 
@@ -23,6 +24,7 @@ struct CommuteRouteSegment {
           endTileY(0),
           layer(TransportLayerId::Ground),
           mode(TransportMode::Car),
+          timeOfDay(CommuteTimeOfDay::Morning),
           direction(0),
           demand(0) {
     }

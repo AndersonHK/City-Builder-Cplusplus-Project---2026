@@ -939,8 +939,14 @@ void ValidateRciGrowthRule(const RciGrowthRule& rule, const std::string& filePat
     if (rule.zoningType == TileZoningNone) {
         throw std::runtime_error("RCI growth rule has no zoning type in " + filePath);
     }
-    if (rule.desirabilityThreshold < 0 || rule.desirabilityThreshold > 100) {
-        throw std::runtime_error("RCI growth desirabilityThreshold must be between 0 and 100 in " + filePath);
+    if (rule.desirabilityThreshold < kRciDesirabilityDisplayMinimum ||
+        rule.desirabilityThreshold > kRciDesirabilityDisplayCap) {
+        throw std::runtime_error(
+            "RCI growth desirabilityThreshold must be between " +
+            std::to_string(kRciDesirabilityDisplayMinimum) +
+            " and " +
+            std::to_string(kRciDesirabilityDisplayCap) +
+            " in " + filePath);
     }
     if (rule.densityPoints.empty()) {
         throw std::runtime_error("RCI growth rule is missing maxDensityPerTile entries in " + filePath);
@@ -967,8 +973,14 @@ void ValidateRciDesirabilityRule(const RciDesirabilityRule& rule, const std::str
     if (rule.rciTypeId.empty()) {
         throw std::runtime_error("RCI desirability rule has no RCI type in " + filePath);
     }
-    if (rule.baseline < 0 || rule.baseline > 100) {
-        throw std::runtime_error("RCI desirability baseline must be between 0 and 100 in " + filePath);
+    if (rule.baseline < kRciDesirabilityDisplayMinimum ||
+        rule.baseline > kRciDesirabilityDisplayCap) {
+        throw std::runtime_error(
+            "RCI desirability baseline must be between " +
+            std::to_string(kRciDesirabilityDisplayMinimum) +
+            " and " +
+            std::to_string(kRciDesirabilityDisplayCap) +
+            " in " + filePath);
     }
     if (rule.sensitivities.empty()) {
         throw std::runtime_error("RCI desirability rule is missing sensitivity entries in " + filePath);

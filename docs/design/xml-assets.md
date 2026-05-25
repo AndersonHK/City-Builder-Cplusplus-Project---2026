@@ -10,6 +10,7 @@ Use this guide when changing `AssetLoader`, data XML files, lot/module archetype
 ## Current Shape
 - `AssetLoader` reads module XML from `Data/Modules`, lot XML from `Data/Lots`, initial RCI demand XML from `Data/RCI/initial_demands.xml` when present, the congestion curve from `Data/TransportNetwork/congestion.xml` when present, and road lane capacities from `Data/TransportNetwork/lane_capacities.xml` when present.
 - UI window/menu XML lives under `Data/UI` and is parsed by `InGameWindow` and `UiLayout`, not `AssetLoader`.
+- `SimpleXml.h` owns the tolerant one-tag file/attribute helpers used by UI and RCI tool layout parsing. Use it for small layout-style XML where missing or malformed values should fall back to caller defaults.
 - RCI XML lives under `Data/RCI` and is parsed by both `RciToolCatalog` and `AssetLoader`. Zone entries define zoning-tool id/name/localized label/color plus min/preferred/max lot depth and width. RCI type entries define demand/desirability identity and the zone types they can grow inside. This is intentionally not one-to-one: multiple zones can grow the same RCI type, and one zone can later allow multiple RCI types.
 - `AssetLoader` also reads constructor knobs, the tile land-value baseline, and zone-owned density curves from the same root: `constructorAttemptsPerTick`, `constructorOverbuildPercent`, `baselineLandValue`, and `<zone desirabilityThreshold="...">` entries with `maxDensityPerTile` rows. Legacy `<tool>` and `<rciGrowth>` entries remain compatibility inputs.
 - App preferences are intentionally not XML-backed. Startup window options, hotkeys, date display format, and query debug output live in `Data/config.ini` and are parsed by `AppConfig`.
@@ -45,6 +46,7 @@ Use this guide when changing `AssetLoader`, data XML files, lot/module archetype
 - Prefer simple explicit schema additions over implicit behavior.
 - Keep XML-backed archetypes separate from live runtime placement state.
 - Keep UI layout XML separate from gameplay archetype XML. UI parser fallbacks are acceptable for tools/debug windows, tool buttons, and the first RCI tool catalog; gameplay lot/module asset XML should continue to fail early.
+- Do not promote `SimpleXml.h` into the strict gameplay asset path unless the validation contract is still owned by `AssetLoader`.
 - Keep app preferences out of XML asset loaders. `AppConfig` is tolerant and startup-focused; gameplay XML should remain strict and validated.
 
 ## Checks

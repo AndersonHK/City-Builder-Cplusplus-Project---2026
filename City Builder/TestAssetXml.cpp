@@ -19,7 +19,7 @@ std::string MakeTempAssetDirectory(const std::string& name) {
         root += "\\";
     }
 
-    root += name + "_" + std::to_string(GetCurrentProcessId()) + "_" + std::to_string(GetTickCount());
+    root += name + "_" + std::to_string(GetCurrentProcessId()) + "_" + std::to_string(GetTickCount64());
     CreateDirectoryA(root.c_str(), 0);
     CreateDirectoryA((root + "\\Modules").c_str(), 0);
     CreateDirectoryA((root + "\\Lots").c_str(), 0);

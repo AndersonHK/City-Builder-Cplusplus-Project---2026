@@ -116,7 +116,7 @@ Supported `<button>` attributes:
 ## Checks
 - Build `x64 Release` so `Data/UI` is copied beside the executable.
 - Query an unzoned empty tile and a lot with `A`; the window should hide for unzoned empty selections and hug only populated fields.
-- Query a road tile with active commute routes and confirm the window summarizes morning commuters by mode/layer/direction.
+- Query a road tile with active commute routes and confirm the window summarizes morning and evening commuters by mode/layer/direction.
 - Query an empty RCI parcel or constructed no-module RCI lot and confirm the window names the RCI type.
 - Query houses and factories to confirm optional residents, jobs, complaints, parameters, and module lines appear only when present.
 - Temporarily rename `Data/UI/lot_query.xml` in the output folder and confirm the fallback query window still renders.

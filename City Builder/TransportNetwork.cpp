@@ -47,18 +47,6 @@ const std::uint8_t kCardinalDirections[] = {
 };
 const int kRoadImmediateDirtyRadius = 1;
 
-int CountCardinalDirections(std::uint8_t directionMask) {
-    int directionCount = 0;
-    for (std::size_t directionIndex = 0; directionIndex < sizeof(kCardinalDirections) / sizeof(kCardinalDirections[0]); ++directionIndex) {
-        if ((directionMask & kCardinalDirections[directionIndex]) == 0) {
-            continue;
-        }
-
-        ++directionCount;
-    }
-    return directionCount;
-}
-
 std::uint8_t LaneIntentFromCardinalRoadMask(std::uint8_t directionMask) {
     std::uint8_t laneIntentMask = 0;
     for (std::size_t directionIndex = 0; directionIndex < sizeof(kCardinalDirections) / sizeof(kCardinalDirections[0]); ++directionIndex) {
@@ -94,14 +82,6 @@ std::uint16_t TraversalCostForLane(const RoadLanePlacement& lanePlacement) {
     return TraversalCostForLaneType(lanePlacement.laneType, lanePlacement.family, lanePlacement.laneIndex);
 }
 
-RoadDirectionMode DirectionModeFromTemplateId(std::uint16_t templateId) {
-    return static_cast<RoadDirectionMode>((templateId >> 6) & 0x3u);
-}
-
-RoadTemplateKind TemplateKindFromTemplateId(std::uint16_t templateId) {
-    return static_cast<RoadTemplateKind>((templateId >> 14) & 0x3u);
-}
-
 std::uint8_t LeftDirectionForTravelDirection(std::uint8_t roadDirection) {
     if (roadDirection == kRoadDirectionNorth) {
         return kRoadDirectionWest;
@@ -119,7 +99,7 @@ std::uint8_t LeftDirectionForTravelDirection(std::uint8_t roadDirection) {
 }
 
 bool CarLaneAllowsCapReturn(const RoadLanePlacement& lanePlacement) {
-    return !lanePlacement.isCar() || DirectionModeFromTemplateId(lanePlacement.templateId) == RoadDirectionMode::TwoWay;
+    return !lanePlacement.isCar() || RoadTemplateDirectionModeFromId(lanePlacement.templateId) == RoadDirectionMode::TwoWay;
 }
 }
 
@@ -147,7 +127,7 @@ void TransportNetwork::initialize(int width, int height, const std::vector<Chunk
     resolvedCells_.assign(totalTileCount_ * layerCount(), ResolvedRoadCell());
     costMap_.initialize(width_, height_);
     groundRoadRenderState_.assign(totalTileCount_ * kGroundRoadRenderChannelsPerTile, 0);
-    trafficOverlayState_.assign(totalTileCount_ * 4u, 0);
+    trafficOverlayState_.assign(totalTileCount_, 0u);
     groundChunkRevisions_.assign(chunkLayout_.size(), 1);
     elevatedChunkRevisions_.assign(chunkLayout_.size(), 1);
     trafficOverlayChunkRevisions_.assign(chunkLayout_.size(), 1);
@@ -160,7 +140,7 @@ void TransportNetwork::clear() {
     resolvedCells_.assign(totalTileCount_ * layerCount(), ResolvedRoadCell());
     costMap_.initialize(width_, height_);
     groundRoadRenderState_.assign(totalTileCount_ * kGroundRoadRenderChannelsPerTile, 0);
-    trafficOverlayState_.assign(totalTileCount_ * 4u, 0);
+    trafficOverlayState_.assign(totalTileCount_, 0u);
     groundChunkRevisions_.assign(chunkLayout_.size(), 1);
     elevatedChunkRevisions_.assign(chunkLayout_.size(), 1);
     trafficOverlayChunkRevisions_.assign(chunkLayout_.size(), 1);
@@ -428,7 +408,7 @@ const std::vector<std::uint8_t>& TransportNetwork::groundRoadRenderState() const
     return groundRoadRenderState_;
 }
 
-const std::vector<std::uint8_t>& TransportNetwork::trafficOverlayState() const {
+const std::vector<RendererScalarPayload>& TransportNetwork::trafficOverlayState() const {
     return trafficOverlayState_;
 }
 
@@ -1396,7 +1376,7 @@ std::uint8_t TransportNetwork::laneGraphicDirectionMask(TransportLayerId layer, 
         }
     }
 
-    if (CountCardinalDirections(movementMask) > 2 || CountCardinalDirections(incomingMask) > 2) {
+    if (CountRoadCardinalDirections(movementMask) > 2 || CountRoadCardinalDirections(incomingMask) > 2) {
         return 0;
     }
 
@@ -1422,12 +1402,12 @@ std::uint8_t TransportNetwork::laneCenterTravelDirectionMask(TransportLayerId la
         }
     }
 
-    if (CountCardinalDirections(travelMask) > 2) {
+    if (CountRoadCardinalDirections(travelMask) > 2) {
         return 0;
     }
 
     const std::uint8_t fallbackTravelMask = RoadDirectionMaskForLane(lanePlacement);
-    if (CountCardinalDirections(fallbackTravelMask) > 2) {
+    if (CountRoadCardinalDirections(fallbackTravelMask) > 2) {
         return 0;
     }
 
@@ -1436,11 +1416,11 @@ std::uint8_t TransportNetwork::laneCenterTravelDirectionMask(TransportLayerId la
 
 RoadLaneCellContext TransportNetwork::roadLaneCellContext(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) const {
     RoadLaneCellContext context;
-    if (TemplateKindFromTemplateId(lanePlacement.templateId) == RoadTemplateKind::Avenue) {
+    if (RoadTemplateKindFromId(lanePlacement.templateId) == RoadTemplateKind::Avenue) {
         context.hasAvenueTileRole = true;
         context.avenueOuterTile = avenueTileIsOuter(layer, tileX, tileY);
     }
-    if (DirectionModeFromTemplateId(lanePlacement.templateId) != RoadDirectionMode::TwoWay) {
+    if (RoadTemplateDirectionModeFromId(lanePlacement.templateId) != RoadDirectionMode::TwoWay) {
         context.hasOneWayLeftNeighbor = true;
         context.oneWayLeftNeighbor = oneWayRoadHasLeftNeighbor(layer, tileX, tileY, lanePlacement);
     }
@@ -1467,7 +1447,7 @@ bool TransportNetwork::tileHasAvenueCarBody(TransportLayerId layer, int tileX, i
     const std::vector<RoadLanePlacement>& lanes = tile->lanes();
     for (std::size_t laneIndex = 0; laneIndex < lanes.size(); ++laneIndex) {
         const RoadLanePlacement& lane = lanes[laneIndex];
-        if (lane.active && lane.isCar() && TemplateKindFromTemplateId(lane.templateId) == RoadTemplateKind::Avenue) {
+        if (lane.active && lane.isCar() && RoadTemplateKindFromId(lane.templateId) == RoadTemplateKind::Avenue) {
             return true;
         }
     }
@@ -1476,7 +1456,7 @@ bool TransportNetwork::tileHasAvenueCarBody(TransportLayerId layer, int tileX, i
 
 bool TransportNetwork::oneWayRoadHasLeftNeighbor(TransportLayerId layer, int tileX, int tileY, const RoadLanePlacement& lanePlacement) const {
     const std::uint8_t travelMask = RoadDirectionMaskForLane(lanePlacement);
-    if (CountCardinalDirections(travelMask) != 1) {
+    if (CountRoadCardinalDirections(travelMask) != 1) {
         return false;
     }
 
@@ -1497,7 +1477,7 @@ bool TransportNetwork::oneWayRoadHasLeftNeighbor(TransportLayerId layer, int til
     const std::vector<RoadLanePlacement>& lanes = leftTile->lanes();
     for (std::size_t laneIndex = 0; laneIndex < lanes.size(); ++laneIndex) {
         const RoadLanePlacement& leftLane = lanes[laneIndex];
-        if (!leftLane.active || !leftLane.isCar() || DirectionModeFromTemplateId(leftLane.templateId) == RoadDirectionMode::TwoWay) {
+        if (!leftLane.active || !leftLane.isCar() || RoadTemplateDirectionModeFromId(leftLane.templateId) == RoadDirectionMode::TwoWay) {
             continue;
         }
 
@@ -1527,7 +1507,7 @@ bool TransportNetwork::isCarIntersectionCollectionTile(TransportLayerId layer, i
         }
     }
 
-    return CountCardinalDirections(graphicMask) >= 3;
+    return CountRoadCardinalDirections(graphicMask) >= 3;
 }
 
 std::uint8_t TransportNetwork::buildCarExitMask(TransportLayerId layer, int tileX, int tileY, const TransportTile& tile) const {

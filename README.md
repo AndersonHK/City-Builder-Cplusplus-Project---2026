@@ -6,7 +6,7 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
 - `SimulationRuntime` owns authoritative world state, chunked simulation passes, triple buffering, published render snapshots, timing instrumentation, and a multi-layer transport network for roads.
 - `GameSession` owns the boot mode, the default 3x3 `Region`, the reusable active `SimulationRuntime`, and alpha autoslot save/load.
 - `Region` owns coordinate-addressed `City` records and 4096x4096 top-down preview pixels rendered from saved city state through the normal city draw passes.
-- `Renderer` owns the OpenGL presentation path:
+- `Renderer` owns the presentation path. The render contract is now Vulkan-native HDR oriented, with the remaining OpenGL path treated as legacy compatibility code until the Vulkan backend is buildable on the machine:
   - startup and blocking foreground save/load screens with a shared loading bar
   - region preview grid rendering and double-click city entry
   - constrained pitched perspective camera
@@ -14,12 +14,12 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
   - per-chunk persistent tile instance buffers
   - visible-chunk tile-state debug shading texture updates
   - visible-chunk lot-lift mask texture updates
-  - packed ground-road overlay texture updates in the tile pass
+  - packed ground-road state uploads in the tile pass
   - lazy visible-chunk elevated-road rendering for stacked highways
   - alpha-tinted ghost road preview while a road stroke is being dragged
   - alpha-tinted ghost lot preview while a lot placement tool is active
   - red bulldoze area overlay and selected-building tint while dragging
-  - persistent low-density residential, high-density residential, and industrial zoning tint overlays plus matching drag previews
+  - persistent low-density residential, high-density residential, and industrial zoning semantic overlays plus matching drag previews
   - separate lot prism instancing
   - top-left simulation date display and top-right city population counter sourced from published simulation snapshots
   - top-left date widget speed controls for paused, play, fast, and fast-forward simulation pacing
@@ -56,7 +56,7 @@ Default keyboard bindings, startup fullscreen mode, preferred windowed resolutio
 - `M`: add park module to an adjacent lot footprint
 - `Y`: remove the module under the hovered tile
 - `B`: drag a rectangular bulldoze area; selected tiles overlay red and selected buildings tint red before release. Bulldozing removes buildings and roads, but zoning and empty parcels remain for the unzone tool.
-- `A`: query hovered tile; queried lots show an in-game detail window plus accepted morning commute routes as green car arrows and pink pedestrian arrows, road tiles summarize morning commuters passing through their lanes, and empty RCI lots show their zoning name
+- `A`: query hovered tile; queried lots show an in-game detail window plus accepted morning commute routes as green car arrows and pink pedestrian arrows, road tiles summarize morning and evening commuters passing through their lanes, and empty RCI lots show their zoning name
 - Bottom-left `Tools` button: show or hide the left-side tool menu
 - Left-side menu: select bulldoze, street, road, one-way, avenue, highway, query, or open the nested RCI zoning menu
 - RCI zoning menu: select low-density residential zoning, high-density residential zoning, industrial zoning, or unzone
@@ -76,6 +76,8 @@ Default keyboard bindings, startup fullscreen mode, preferred windowed resolutio
 ## Build
 Primary target: `x64 Release`
 
+The app project expects the Vulkan SDK environment to provide `VULKAN_SDK`. The remaining legacy OpenGL/GLFW compatibility artifacts are repo-local under `Dependencies/`, `Linker/`, and `DLLs/` and are referenced through project-relative paths until the Vulkan-only renderer removes them.
+
 With MSBuild on `PATH`, build from the repository root with:
 
 ```powershell
@@ -91,7 +93,7 @@ msbuild 'City Builder/TransportNetworkTests.vcxproj' /p:Configuration=Release /p
 & 'Distributable/x64/Release/TransportNetworkTests.exe'
 ```
 
-Renderer CPU packing and UI quad generation also have a standalone non-graphics test target:
+Renderer payload contracts, HDR color/output helpers, and UI quad generation also have a standalone non-graphics test target:
 
 ```powershell
 msbuild 'City Builder/RendererTests.vcxproj' /p:Configuration=Release /p:Platform=x64 /m
@@ -118,12 +120,15 @@ msbuild 'City Builder/RciLotConstructionTests.vcxproj' /p:Configuration=Release 
 - Tile chunk geometry is static after renderer setup for the current flat-tile presentation.
 - Dynamic scalar tile debug color uploads only visible stale chunks through a compact texture.
 - Lot occupancy lift uploads only visible stale chunks through a small mask texture.
-- Roads live in a separate transport layer with their own published cell snapshot, template-emitted lane cells, directional pathfinding cost map, stable base costs/capacities, parallel morning/evening traffic load states, packed ground-road render state, traffic overlay state, and split ground/elevated chunk revisions so `Tile` stays compact for the scalar simulation passes.
+- Roads live in a separate transport layer with their own published cell snapshot, template-emitted lane cells, directional pathfinding cost map, stable base costs/capacities, parallel morning/evening traffic load states, packed ground-road render state, compact traffic overlay payloads, and split ground/elevated chunk revisions so `Tile` stays compact for the scalar simulation passes.
 - Road tools paint templates. Templates emit `RoadLaneCell`s with one primary car-like lane and an optional secondary lane such as a sidewalk or median; costs, building access, sidewalks, crosswalks, medians, and packed road render masks all derive from those cells.
-- Committed road edits rebuild pathing costs and traffic overlay pixels for affected dirty tiles only; full transport cost/overlay rebuilds are reserved for full city imports and whole-network resets.
+- Committed road edits rebuild pathing costs and traffic overlay payloads for affected dirty tiles only; full transport cost/overlay rebuilds are reserved for full city imports and whole-network resets.
 - Ground-road and elevated-road uploads are dirty visible-chunk only, and stale hidden chunks stay deferred until visible.
-- Traffic overlays use the same visible-dirty chunk upload pattern and draw above roads and lots as a presentation tint.
-- Land value overlays reuse the same tile overlay draw path and tint the published city's current low-to-high land-value range from red through yellow to green.
+- Traffic overlays use the same visible-dirty chunk upload pattern and publish one typed renderer scalar payload per tile: one relevance bit plus the remaining configured scalar payload bits for utilization. Color ramps are shader-owned, with traffic utilization declared as a good-to-bad semantic direction.
+- Land value and RCI desirability overlays reuse the same tile overlay draw path and upload one configured renderer scalar payload per tile. The current scalar payload depth is 16 bits; land value packs against `kSimulationStatDisplayCap`, RCI desirability packs against `kRciDesirabilityDisplayCap`, and shader gradients derive from those semantic caps rather than hardcoded channel values. Their overlay direction is bad-to-good so higher values render greener.
+- The renderer direction is GPU-resident by default: road atlases, road/lane graphics, lot meshes/materials, terrain mesh data, region preview textures, and stable object instances should remain in VRAM after creation. Per-tick updates should be limited to compact typed deltas such as dirty chunk IDs, tile scalar payloads, road topology changes, object transforms, or construction progress.
+- Construction rendering should upload only progress/state scalars for active construction lots; mesh/material data and all static lot graphics should already be resident.
+- Fallbacks that move colorization or composition back to CPU are not acceptable as silent behavior. If Vulkan/HDR/device requirements are missing, startup should log the failed requirement and fail that renderer path loudly.
 - Road debug graphics start disabled and can be toggled with `F11`; disabling them hides ordinary direction arrows and car-lane connection markers while preserving turn-lane arrows, lane dividers, crosswalks, and road surfaces.
 - Road drag previews are renderer-only transient instances tinted with alpha; committed road topology still arrives through template-authored transport tile lanes and published snapshots.
 - Lot placement previews are renderer-only transient instances built from the same XML-backed lot candidate geometry used by committed placement.
@@ -155,7 +160,7 @@ msbuild 'City Builder/RciLotConstructionTests.vcxproj' /p:Configuration=Release 
 - `docs/design/lot-density-progression.md` - RCI density progression, SC4-inspired stage lessons, half-scale tile balancing, local density-cap scoring, rowhouse/apartment density bands, and redevelopment mix targets. Main code anchors: `rci_tools.xml`, `SimulationRuntime::rciMaxDensityPerTile`, `SimulationRuntime::rciDesirabilityForCandidate`, and `findRciConstructorLotAsset`.
 - `docs/design/land-value-equilibrium-plan.md` - planned land-value equilibrium model, research notes, diffusion audit, service/pollution/commute balancing targets, and test scenarios for making the displayed cap a true Manhattan-like condition.
 - `docs/design/visual-asset-pipeline.md` - glTF-first model intake, low-poly stylized-realism targets, asset sourcing, licensing posture, and future procedural asset generation.
-- `docs/design/renderer.md` - renderer upload, culling, generated road atlases, texture, shader decisions, packed lane graphic masks, shared ground/elevated road render data, placement ghost previews, zoning overlays, and UI draw ordering. Main code anchors: `BuildLotInstance`, `BuildRoadPreviewInstances`, `BuildRoadChunkInstances`, `BuildWindowQuads`, `RendererBuildUiMenuQuads`, `UpdateGroundRoadChunkTexture`, `BuildRoadBaseAtlas`, and `applyRoadEdgeOverlays`.
+- `docs/design/renderer.md` - renderer upload, culling, generated road atlases, texture, shader decisions, fixed-point renderer payloads, packed lane graphic masks, shared ground/elevated road render data, placement ghost previews, zoning overlays, and UI draw ordering. Main code anchors: `RendererPayload.h`, `BuildLotInstance`, `BuildRoadPreviewInstances`, `BuildRoadChunkInstances`, `BuildWindowQuads`, `RendererBuildUiMenuQuads`, `UpdateGroundRoadChunkTexture`, `BuildRoadBaseAtlas`, and `applyRoadEdgeOverlays`.
 - `docs/design/simulation-threading.md` - tile passes, triple buffering, chunk worker rules, and published snapshot ownership.
 - `docs/design/lots.md` - lot/module placement, occupancy, effects, and render snapshots.
 - `docs/design/xml-assets.md` - strict XML archetype loading and validation.

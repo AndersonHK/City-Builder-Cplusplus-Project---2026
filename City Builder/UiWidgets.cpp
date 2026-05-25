@@ -1,72 +1,12 @@
 #include "UiWidgets.h"
 
+#include "SimpleXml.h"
+
 #include <algorithm>
-#include <cstdlib>
-#include <fstream>
-#include <sstream>
 
 namespace {
-std::string ReadFileToString(const std::string& filePath) {
-    std::ifstream file(filePath.c_str(), std::ios::in | std::ios::binary);
-    if (!file) {
-        return std::string();
-    }
-
-    std::ostringstream stream;
-    stream << file.rdbuf();
-    return stream.str();
-}
-
-std::string AttributeValue(const std::string& tag, const std::string& attributeName, const std::string& fallback) {
-    const std::string needle = attributeName + "=\"";
-    const std::string::size_type attributeStart = tag.find(needle);
-    if (attributeStart == std::string::npos) {
-        return fallback;
-    }
-
-    const std::string::size_type valueStart = attributeStart + needle.size();
-    const std::string::size_type valueEnd = tag.find('"', valueStart);
-    if (valueEnd == std::string::npos) {
-        return fallback;
-    }
-
-    return tag.substr(valueStart, valueEnd - valueStart);
-}
-
-bool AttributeExists(const std::string& tag, const std::string& attributeName) {
-    const std::string needle = attributeName + "=\"";
-    return tag.find(needle) != std::string::npos;
-}
-
-int AttributeIntValue(const std::string& tag, const std::string& attributeName, int fallback) {
-    const std::string value = AttributeValue(tag, attributeName, std::string());
-    if (value.empty()) {
-        return fallback;
-    }
-
-    return std::atoi(value.c_str());
-}
-
-float AttributeFloatValue(const std::string& tag, const std::string& attributeName, float fallback) {
-    const std::string value = AttributeValue(tag, attributeName, std::string());
-    if (value.empty()) {
-        return fallback;
-    }
-
-    return static_cast<float>(std::atof(value.c_str()));
-}
-
-bool AttributeBoolValue(const std::string& tag, const std::string& attributeName, bool fallback) {
-    const std::string value = AttributeValue(tag, attributeName, std::string());
-    if (value.empty()) {
-        return fallback;
-    }
-
-    return value == "true" || value == "1" || value == "yes";
-}
-
 UiAnchor AttributeAnchorValue(const std::string& tag, const std::string& attributeName, UiAnchor fallback) {
-    const std::string value = AttributeValue(tag, attributeName, std::string());
+    const std::string value = XmlAttributeValue(tag, attributeName, std::string());
     if (value == "bottomLeft") {
         return UiAnchor::BottomLeft;
     }
@@ -87,7 +27,7 @@ UiAnchor AttributeAnchorValue(const std::string& tag, const std::string& attribu
 }
 
 UiFlow AttributeFlowValue(const std::string& tag, const std::string& attributeName, UiFlow fallback) {
-    const std::string value = AttributeValue(tag, attributeName, std::string());
+    const std::string value = XmlAttributeValue(tag, attributeName, std::string());
     if (value == "up") {
         return UiFlow::Up;
     }
@@ -100,7 +40,7 @@ UiFlow AttributeFlowValue(const std::string& tag, const std::string& attributeNa
 }
 
 UiMenuStackMode AttributeStackModeValue(const std::string& tag, UiMenuStackMode fallback) {
-    const std::string value = AttributeValue(tag, "stack", AttributeValue(tag, "stackMode", std::string()));
+    const std::string value = XmlAttributeValue(tag, "stack", XmlAttributeValue(tag, "stackMode", std::string()));
     if (value == "away" || value == "stacked") {
         return UiMenuStackMode::Away;
     }
@@ -113,7 +53,7 @@ UiMenuStackMode AttributeStackModeValue(const std::string& tag, UiMenuStackMode 
 }
 
 UiMenuStackDirection AttributeStackDirectionValue(const std::string& tag, UiMenuStackDirection fallback) {
-    const std::string value = AttributeValue(tag, "direction", AttributeValue(tag, "stackDirection", std::string()));
+    const std::string value = XmlAttributeValue(tag, "direction", XmlAttributeValue(tag, "stackDirection", std::string()));
     if (value == "up") {
         return UiMenuStackDirection::Up;
     }
@@ -135,10 +75,10 @@ UiMenuStackDirection AttributeStackDirectionValue(const std::string& tag, UiMenu
 
 UiColor AttributeColorValue(const std::string& tag, const std::string& prefix, const UiColor& fallback) {
     return UiColor(
-        AttributeFloatValue(tag, prefix + "R", fallback.r),
-        AttributeFloatValue(tag, prefix + "G", fallback.g),
-        AttributeFloatValue(tag, prefix + "B", fallback.b),
-        AttributeFloatValue(tag, prefix + "A", fallback.a));
+        XmlAttributeFloatValue(tag, prefix + "R", fallback.r),
+        XmlAttributeFloatValue(tag, prefix + "G", fallback.g),
+        XmlAttributeFloatValue(tag, prefix + "B", fallback.b),
+        XmlAttributeFloatValue(tag, prefix + "A", fallback.a));
 }
 
 bool ActionIsActive(const std::vector<std::string>& activeActions, const std::string& action) {
@@ -519,13 +459,12 @@ int UiMenu::automaticHeight() const {
 }
 
 UiLayout::UiLayout() {
-    setFallbackDefinition();
 }
 
 bool UiLayout::loadFromXmlFile(const std::string& filePath) {
-    const std::string xml = ReadFileToString(filePath);
+    const std::string xml = XmlReadFileToString(filePath);
     if (xml.empty()) {
-        setFallbackDefinition();
+        menus_.clear();
         return false;
     }
 
@@ -548,29 +487,29 @@ bool UiLayout::loadFromXmlFile(const std::string& filePath) {
             break;
         }
 
-        const int defaultWidth = AttributeIntValue(menuTag, "width", 128);
-        const int defaultButtonWidth = AttributeIntValue(menuTag, "buttonWidth", defaultWidth);
-        const int defaultButtonHeight = AttributeIntValue(menuTag, "buttonHeight", 36);
+        const int defaultWidth = XmlAttributeIntValue(menuTag, "width", 128);
+        const int defaultButtonWidth = XmlAttributeIntValue(menuTag, "buttonWidth", defaultWidth);
+        const int defaultButtonHeight = XmlAttributeIntValue(menuTag, "buttonHeight", 36);
         const UiFlow flow = AttributeFlowValue(menuTag, "flow", UiFlow::Down);
         const UiMenuStackDirection defaultStackDirection = flow == UiFlow::Up ? UiMenuStackDirection::Up : UiMenuStackDirection::Down;
         UiMenu menu;
         menu.setDefinition(
-            AttributeValue(menuTag, "id", "menu"),
-            AttributeIntValue(menuTag, "x", 16),
-            AttributeIntValue(menuTag, "y", 16),
-            AttributeIntValue(menuTag, "bottom", 16),
+            XmlAttributeValue(menuTag, "id", "menu"),
+            XmlAttributeIntValue(menuTag, "x", 16),
+            XmlAttributeIntValue(menuTag, "y", 16),
+            XmlAttributeIntValue(menuTag, "bottom", 16),
             defaultWidth,
-            AttributeIntValue(menuTag, "height", 0),
+            XmlAttributeIntValue(menuTag, "height", 0),
             defaultButtonWidth,
             defaultButtonHeight,
-            AttributeIntValue(menuTag, "spacing", 8),
+            XmlAttributeIntValue(menuTag, "spacing", 8),
             AttributeAnchorValue(menuTag, "anchor", UiAnchor::TopLeft),
             flow,
             AttributeStackModeValue(menuTag, UiMenuStackMode::Away),
             AttributeStackDirectionValue(menuTag, defaultStackDirection),
-            AttributeValue(menuTag, "parentMenu", AttributeValue(menuTag, "parent", std::string())),
-            AttributeValue(menuTag, "parentButton", std::string()),
-            AttributeBoolValue(menuTag, "visible", true),
+            XmlAttributeValue(menuTag, "parentMenu", XmlAttributeValue(menuTag, "parent", std::string())),
+            XmlAttributeValue(menuTag, "parentButton", std::string()),
+            XmlAttributeBoolValue(menuTag, "visible", true),
             AttributeColorValue(menuTag, "background", UiColor(0.0f, 0.0f, 0.0f, 0.0f)));
 
         std::string::size_type buttonSearchStart = menuTagEnd + 1u;
@@ -589,20 +528,20 @@ bool UiLayout::loadFromXmlFile(const std::string& filePath) {
             UiButton button;
             const UiColor buttonColor = AttributeColorValue(buttonTag, "color", UiColor(0.15f, 0.20f, 0.22f, 0.88f));
             button.setDefinition(
-                AttributeValue(buttonTag, "id", "button"),
-                AttributeValue(buttonTag, "text", AttributeValue(buttonTag, "id", "button")),
-                AttributeValue(buttonTag, "action", std::string()),
-                AttributeIntValue(buttonTag, "x", 0),
-                AttributeIntValue(buttonTag, "y", 0),
-                AttributeIntValue(buttonTag, "width", defaultButtonWidth),
-                AttributeIntValue(buttonTag, "height", defaultButtonHeight),
-                AttributeExists(buttonTag, "x"),
-                AttributeExists(buttonTag, "y"),
-                AttributeExists(buttonTag, "width"),
-                AttributeExists(buttonTag, "height"),
+                XmlAttributeValue(buttonTag, "id", "button"),
+                XmlAttributeValue(buttonTag, "text", XmlAttributeValue(buttonTag, "id", "button")),
+                XmlAttributeValue(buttonTag, "action", std::string()),
+                XmlAttributeIntValue(buttonTag, "x", 0),
+                XmlAttributeIntValue(buttonTag, "y", 0),
+                XmlAttributeIntValue(buttonTag, "width", defaultButtonWidth),
+                XmlAttributeIntValue(buttonTag, "height", defaultButtonHeight),
+                XmlAttributeExists(buttonTag, "x"),
+                XmlAttributeExists(buttonTag, "y"),
+                XmlAttributeExists(buttonTag, "width"),
+                XmlAttributeExists(buttonTag, "height"),
                 buttonColor,
                 AttributeColorValue(buttonTag, "active", UiColor(0.25f, 0.42f, 0.33f, 0.96f)),
-                AttributeValue(buttonTag, "icon", std::string()));
+                XmlAttributeValue(buttonTag, "icon", std::string()));
             menu.addButton(button);
             buttonSearchStart = buttonEnd + 1u;
         }
@@ -612,153 +551,12 @@ bool UiLayout::loadFromXmlFile(const std::string& filePath) {
     }
 
     if (loadedMenus.empty()) {
-        setFallbackDefinition();
+        menus_.clear();
         return false;
     }
 
     menus_ = loadedMenus;
     return true;
-}
-
-void UiLayout::setFallbackDefinition() {
-    menus_.clear();
-
-    UiMenu speedMenu;
-    speedMenu.setDefinition("date_speed", 16, 48, 16, 140, 28, 32, 28, 4, UiAnchor::TopLeft, UiFlow::Down, true, UiColor(0.0f, 0.0f, 0.0f, 0.0f));
-    const char* speedButtonIds[] = {"speed_pause", "speed_play", "speed_fast", "speed_fast_forward"};
-    const char* speedButtonIcons[] = {"pause", "play", "fast", "fastForward"};
-    const char* speedButtonActions[] = {"set_speed_paused", "set_speed_play", "set_speed_fast", "set_speed_fast_forward"};
-    for (std::size_t index = 0; index < 4u; ++index) {
-        UiButton button;
-        button.setDefinition(speedButtonIds[index], std::string(), speedButtonActions[index], static_cast<int>(index) * 36, 0, 32, 28, true, true, false, false, UiColor(0.08f, 0.12f, 0.13f, 0.94f), UiColor(0.22f, 0.43f, 0.35f, 0.96f), speedButtonIcons[index]);
-        speedMenu.addButton(button);
-    }
-    menus_.push_back(speedMenu);
-
-    UiMenu sideMenu;
-    sideMenu.setDefinition("side_tools", 0, 16, 72, 132, 0, 132, 38, 8, UiAnchor::BottomLeft, UiFlow::Down, UiMenuStackMode::Away, UiMenuStackDirection::Up, "menu_toggle", "toggle_tools", true, UiColor(0.0f, 0.0f, 0.0f, 0.0f));
-
-    const char* buttonIds[] = {"bulldozer", "street", "road", "one_way", "avenue", "query", "rci_menu"};
-    const char* buttonTexts[] = {"Bulldoze", "Street", "Road", "One-Way", "Avenue", "Query", "RCI"};
-    const char* buttonActions[] = {"select_bulldozer", "select_road_street", "select_road_road", "select_road_one_way", "select_road_avenue", "select_query", "toggle_rci_tool_menu"};
-    const UiColor colors[] = {
-        UiColor(0.34f, 0.12f, 0.11f, 0.90f),
-        UiColor(0.20f, 0.24f, 0.25f, 0.90f),
-        UiColor(0.14f, 0.22f, 0.30f, 0.90f),
-        UiColor(0.18f, 0.20f, 0.28f, 0.90f),
-        UiColor(0.18f, 0.26f, 0.31f, 0.90f),
-        UiColor(0.16f, 0.24f, 0.22f, 0.90f),
-        UiColor(0.24f, 0.24f, 0.27f, 0.90f)
-    };
-
-    for (std::size_t index = 0; index < 7u; ++index) {
-        UiButton button;
-        button.setDefinition(buttonIds[index], buttonTexts[index], buttonActions[index], 0, 0, 132, 38, false, false, false, false, colors[index], UiColor(0.52f, 0.66f, 0.47f, 0.96f));
-        sideMenu.addButton(button);
-    }
-    menus_.push_back(sideMenu);
-
-    UiMenu rciToolsMenu;
-    rciToolsMenu.setDefinition("rci_tools", 16, 0, 16, 132, 0, 132, 38, 8, UiAnchor::BottomLeft, UiFlow::Down, UiMenuStackMode::Centered, UiMenuStackDirection::Right, "side_tools", "rci_menu", false, UiColor(0.0f, 0.0f, 0.0f, 0.0f));
-    const char* rciButtonIds[] = {"rci_residential_low", "rci_residential_high", "rci_industrial", "rci_unzone"};
-    const char* rciButtonTexts[] = {"Low Res", "High Res", "Industry", "Unzone"};
-    const char* rciButtonActions[] = {"select_rci_residential_low", "select_rci_residential_high", "select_rci_industrial", "select_rci_unzone"};
-    const UiColor rciColors[] = {
-        UiColor(0.32f, 0.66f, 0.34f, 0.90f),
-        UiColor(0.10f, 0.36f, 0.18f, 0.90f),
-        UiColor(0.42f, 0.35f, 0.10f, 0.90f),
-        UiColor(0.24f, 0.24f, 0.27f, 0.90f)
-    };
-    for (std::size_t index = 0; index < 4u; ++index) {
-        UiButton button;
-        button.setDefinition(rciButtonIds[index], rciButtonTexts[index], rciButtonActions[index], 0, 0, 132, 38, false, false, false, false, rciColors[index], UiColor(0.52f, 0.66f, 0.47f, 0.96f));
-        rciToolsMenu.addButton(button);
-    }
-    menus_.push_back(rciToolsMenu);
-
-    UiMenu overlayMenu;
-    overlayMenu.setDefinition("side_overlays", 0, 16, 72, 132, 0, 132, 38, 8, UiAnchor::BottomRight, UiFlow::Down, UiMenuStackMode::Away, UiMenuStackDirection::Up, "overlay_toggle", "toggle_overlays", true, UiColor(0.0f, 0.0f, 0.0f, 0.0f));
-    const char* overlayButtonIds[] = {"overlay_traffic", "overlay_land_value", "overlay_rci", "overlay_rci_desirability_menu"};
-    const char* overlayButtonTexts[] = {"Traffic", "Land Value", "RCI", "RCI Desire"};
-    const char* overlayButtonActions[] = {"toggle_overlay_traffic", "toggle_overlay_land_value", "toggle_overlay_rci", "toggle_rci_overlay_menu"};
-    const UiColor overlayColors[] = {
-        UiColor(0.14f, 0.24f, 0.28f, 0.90f),
-        UiColor(0.18f, 0.30f, 0.16f, 0.90f),
-        UiColor(0.24f, 0.22f, 0.12f, 0.90f),
-        UiColor(0.20f, 0.22f, 0.20f, 0.90f)
-    };
-    for (std::size_t index = 0; index < 4u; ++index) {
-        UiButton button;
-        button.setDefinition(overlayButtonIds[index], overlayButtonTexts[index], overlayButtonActions[index], 0, 0, 132, 38, false, false, false, false, overlayColors[index], UiColor(0.52f, 0.66f, 0.47f, 0.96f));
-        overlayMenu.addButton(button);
-    }
-    menus_.push_back(overlayMenu);
-
-    UiMenu rciOverlayMenu;
-    rciOverlayMenu.setDefinition("rci_desirability_overlays", 16, 0, 16, 132, 0, 132, 38, 8, UiAnchor::BottomRight, UiFlow::Down, UiMenuStackMode::Centered, UiMenuStackDirection::Left, "side_overlays", "overlay_rci_desirability_menu", false, UiColor(0.0f, 0.0f, 0.0f, 0.0f));
-    const char* rciOverlayButtonIds[] = {"overlay_desirability_low_wealth_residential", "overlay_desirability_dirty_industry"};
-    const char* rciOverlayButtonTexts[] = {"Low Wealth Res", "Dirty Industry"};
-    const char* rciOverlayButtonActions[] = {"toggle_overlay_desirability_low_wealth_residential", "toggle_overlay_desirability_dirty_industry"};
-    for (std::size_t index = 0; index < 2u; ++index) {
-        UiButton button;
-        button.setDefinition(rciOverlayButtonIds[index], rciOverlayButtonTexts[index], rciOverlayButtonActions[index], 0, 0, 132, 38, false, false, false, false, UiColor(0.20f, 0.22f, 0.20f, 0.90f), UiColor(0.52f, 0.66f, 0.47f, 0.96f));
-        rciOverlayMenu.addButton(button);
-    }
-    menus_.push_back(rciOverlayMenu);
-
-    UiMenu regionExitMenu;
-    regionExitMenu.setDefinition("region_exit", 16, 16, 16, 92, 40, 92, 40, 0, UiAnchor::TopLeft, UiFlow::Down, true, UiColor(0.0f, 0.0f, 0.0f, 0.0f));
-    UiButton regionExitButton;
-    regionExitButton.setDefinition("region_exit_game", "Exit", "open_exit_confirm", 0, 0, 92, 40, true, true, true, true, UiColor(0.08f, 0.12f, 0.13f, 0.94f), UiColor(0.08f, 0.12f, 0.13f, 0.94f));
-    regionExitMenu.addButton(regionExitButton);
-    menus_.push_back(regionExitMenu);
-
-    UiMenu escapeMenu;
-    escapeMenu.setDefinition("escape_menu", 0, 0, 16, 220, 56, 180, 40, 0, UiAnchor::Center, UiFlow::Down, false, UiColor(0.035f, 0.047f, 0.058f, 0.94f));
-    UiButton exitButton;
-    exitButton.setDefinition("exit_game", "Exit", "open_exit_confirm", 20, 8, 180, 40, true, true, true, true, UiColor(0.22f, 0.10f, 0.10f, 0.94f), UiColor(0.46f, 0.17f, 0.14f, 0.96f));
-    escapeMenu.addButton(exitButton);
-    menus_.push_back(escapeMenu);
-
-    UiMenu exitDialog;
-    exitDialog.setDefinition("exit_confirm_dialog", 0, 0, 16, 340, 116, 132, 36, 8, UiAnchor::Center, UiFlow::Down, false, UiColor(0.035f, 0.047f, 0.058f, 0.96f));
-    UiButton promptButton;
-    promptButton.setDefinition("exit_prompt", "Save before exiting?", std::string(), 18, 14, 304, 34, true, true, true, true, UiColor(0.035f, 0.047f, 0.058f, 0.0f), UiColor(0.035f, 0.047f, 0.058f, 0.0f));
-    exitDialog.addButton(promptButton);
-    UiButton yesButton;
-    yesButton.setDefinition("exit_save_yes", "Yes", "exit_save_yes", 34, 66, 122, 36, true, true, true, true, UiColor(0.14f, 0.30f, 0.20f, 0.94f), UiColor(0.22f, 0.48f, 0.32f, 0.96f));
-    exitDialog.addButton(yesButton);
-    UiButton noButton;
-    noButton.setDefinition("exit_save_no", "No", "exit_save_no", 184, 66, 122, 36, true, true, true, true, UiColor(0.30f, 0.12f, 0.11f, 0.94f), UiColor(0.52f, 0.20f, 0.18f, 0.96f));
-    exitDialog.addButton(noButton);
-    menus_.push_back(exitDialog);
-
-    UiMenu citySwitchDialog;
-    citySwitchDialog.setDefinition("city_switch_confirm_dialog", 0, 0, 16, 340, 116, 132, 36, 8, UiAnchor::Center, UiFlow::Down, false, UiColor(0.035f, 0.047f, 0.058f, 0.96f));
-    UiButton citySwitchPromptButton;
-    citySwitchPromptButton.setDefinition("city_switch_prompt", "Save city before leaving?", std::string(), 18, 14, 304, 34, true, true, true, true, UiColor(0.035f, 0.047f, 0.058f, 0.0f), UiColor(0.035f, 0.047f, 0.058f, 0.0f));
-    citySwitchDialog.addButton(citySwitchPromptButton);
-    UiButton citySwitchYesButton;
-    citySwitchYesButton.setDefinition("city_switch_save_yes", "Yes", "city_switch_save_yes", 34, 66, 122, 36, true, true, true, true, UiColor(0.14f, 0.30f, 0.20f, 0.94f), UiColor(0.22f, 0.48f, 0.32f, 0.96f));
-    citySwitchDialog.addButton(citySwitchYesButton);
-    UiButton citySwitchNoButton;
-    citySwitchNoButton.setDefinition("city_switch_save_no", "No", "city_switch_save_no", 184, 66, 122, 36, true, true, true, true, UiColor(0.30f, 0.12f, 0.11f, 0.94f), UiColor(0.52f, 0.20f, 0.18f, 0.96f));
-    citySwitchDialog.addButton(citySwitchNoButton);
-    menus_.push_back(citySwitchDialog);
-
-    UiMenu toggleMenu;
-    toggleMenu.setDefinition("menu_toggle", 16, 16, 16, 92, 0, 92, 40, 0, UiAnchor::BottomLeft, UiFlow::Down, true, UiColor(0.0f, 0.0f, 0.0f, 0.0f));
-    UiButton toggleButton;
-    toggleButton.setDefinition("toggle_tools", "Tools", "toggle_side_menu", 0, 0, 92, 40, false, false, false, false, UiColor(0.08f, 0.12f, 0.13f, 0.94f), UiColor(0.08f, 0.12f, 0.13f, 0.94f));
-    toggleMenu.addButton(toggleButton);
-    menus_.push_back(toggleMenu);
-
-    UiMenu overlayToggleMenu;
-    overlayToggleMenu.setDefinition("overlay_toggle", 16, 16, 16, 132, 0, 132, 40, 0, UiAnchor::BottomRight, UiFlow::Down, true, UiColor(0.0f, 0.0f, 0.0f, 0.0f));
-    UiButton overlayToggleButton;
-    overlayToggleButton.setDefinition("toggle_overlays", "Overlays", "toggle_overlay_menu", 0, 0, 132, 40, false, false, false, false, UiColor(0.08f, 0.12f, 0.13f, 0.94f), UiColor(0.08f, 0.12f, 0.13f, 0.94f));
-    overlayToggleMenu.addButton(overlayToggleButton);
-    menus_.push_back(overlayToggleMenu);
 }
 
 const std::vector<UiMenu>& UiLayout::menus() const {

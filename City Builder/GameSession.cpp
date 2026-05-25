@@ -1,6 +1,9 @@
 #include "GameSession.h"
 
+#include "RuntimePaths.h"
+
 #include <algorithm>
+#include <cerrno>
 #include <cstdint>
 #include <direct.h>
 #include <fstream>
@@ -40,16 +43,28 @@ struct SaveFileStamp {
     }
 };
 
-std::string GetExecutableDirectory() {
-    char modulePath[MAX_PATH];
-    const DWORD pathLength = GetModuleFileNameA(0, modulePath, MAX_PATH);
-    std::string fullPath(modulePath, modulePath + pathLength);
-    const std::string::size_type separatorIndex = fullPath.find_last_of("\\/");
-    if (separatorIndex == std::string::npos) {
-        return ".";
+void EnsureDirectoryExists(const std::string& directoryPath) {
+    if (directoryPath.empty()) {
+        return;
     }
 
-    return fullPath.substr(0, separatorIndex);
+    errno = 0;
+    const int result = _mkdir(directoryPath.c_str());
+    if (result == 0) {
+        return;
+    }
+
+    if (errno == EEXIST) {
+        const DWORD attributes = GetFileAttributesA(directoryPath.c_str());
+        if (attributes != INVALID_FILE_ATTRIBUTES &&
+            (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0u) {
+            return;
+        }
+    }
+
+    std::ostringstream message;
+    message << "Unable to create directory '" << directoryPath << "' (errno " << errno << ").";
+    LogWarning("GameSession::ensureSaveDirectory", message.str());
 }
 
 SaveFileStamp GetSaveFileStamp(const std::string& path) {
@@ -1200,7 +1215,7 @@ std::string GameSession::saveDirectory() const {
         return saveDirectoryOverride_;
     }
 
-    return GetExecutableDirectory() + "\\Data\\Saves";
+    return RuntimeDataPath("Saves");
 }
 
 std::string GameSession::saveFilePath() const {
@@ -1221,11 +1236,11 @@ std::string GameSession::cityPreviewFilePath(const City& city) const {
 
 void GameSession::ensureSaveDirectory() const {
     if (!saveDirectoryOverride_.empty()) {
-        _mkdir(saveDirectoryOverride_.c_str());
+        EnsureDirectoryExists(saveDirectoryOverride_);
         return;
     }
 
-    const std::string dataDirectory = GetExecutableDirectory() + "\\Data";
-    _mkdir(dataDirectory.c_str());
-    _mkdir(saveDirectory().c_str());
+    const std::string dataDirectory = RuntimeDataDirectory();
+    EnsureDirectoryExists(dataDirectory);
+    EnsureDirectoryExists(saveDirectory());
 }

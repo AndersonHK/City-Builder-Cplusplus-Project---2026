@@ -1,5 +1,6 @@
 #include "AssetLoader.h"
 #include "CrashLogger.h"
+#include "RendererPayload.h"
 #include "RoadToolSandbox.h"
 #include "SimulationTime.h"
 #include "TestAssetXml.h"
@@ -1197,16 +1198,16 @@ void TestPathLoadAssignmentAndOverlay(TestRunner& runner) {
     runner.expect(costMap.trafficLoadState(CommuteTimeOfDay::Evening).cells[costMap.nodeId(TransportLayerId::Ground, TransportMode::Car, 0)].oldLoads[RoadDirectionIndex(kRoadDirectionEast)] == 0u, "evening path load remains independent");
     runner.expect(touchedTiles.size() == 1u && touchedTiles[0] == 0, "path load commit reports touched movement tile");
 
-    std::vector<std::uint8_t> overlayPixels;
-    costMap.buildTrafficOverlay(overlayPixels);
-    runner.expect(overlayPixels[3] == kTrafficOverlayAlphaByte, "traffic overlay marks relevant tile alpha");
-    runner.expect(overlayPixels[0] > overlayPixels[1], "traffic overlay shifts toward red under load");
+    std::vector<RendererScalarPayload> overlayPayloads;
+    costMap.buildTrafficOverlay(overlayPayloads);
+    runner.expect(RendererTrafficOverlayPayloadIsRelevant(overlayPayloads[0]), "traffic overlay marks relevant road tile");
+    runner.expect(RendererTrafficOverlayPayloadUtilizationValue(overlayPayloads[0]) > RendererPackRatioToTrafficUtilizationPayload(1u, 2u), "traffic overlay stores utilization under load");
 
     costMap.beginNextLoadFromOldLoad(CommuteTimeOfDay::Evening);
     costMap.applyPathLoad(CommuteTimeOfDay::Evening, result, 10u, true);
     costMap.commitNextLoad(CommuteTimeOfDay::Evening);
-    costMap.buildTrafficOverlay(overlayPixels);
-    runner.expect(overlayPixels[0] == 255u, "traffic overlay uses worst morning/evening utilization");
+    costMap.buildTrafficOverlay(overlayPayloads);
+    runner.expect(RendererTrafficOverlayPayloadUtilizationValue(overlayPayloads[0]) == kRendererTrafficOverlayUtilizationMask, "traffic overlay uses worst morning/evening utilization");
 
     costMap.beginNextLoadFromOldLoad(CommuteTimeOfDay::Morning);
     costMap.applyPathLoad(CommuteTimeOfDay::Morning, result, 3u, false);
@@ -1267,10 +1268,9 @@ void TestTrafficOverlayStartsGreenOnRoadCapacity(TestRunner& runner) {
 
     runner.expect(Place(network, MakeStroke(Int2(2, 5), Int2(8, 5), RoadFamily::LocalStreet, TransportLayerId::Ground), lotOccupancy), "traffic overlay road placement succeeds");
     const int tileIndex = 5 * network.width() + 4;
-    const std::size_t pixelOffset = static_cast<std::size_t>(tileIndex) * 4u;
-    runner.expect(network.trafficOverlayState()[pixelOffset + 0u] == 0u, "traffic overlay starts with no red load");
-    runner.expect(network.trafficOverlayState()[pixelOffset + 1u] == 255u, "traffic overlay starts green where capacity exists");
-    runner.expect(network.trafficOverlayState()[pixelOffset + 3u] == kTrafficOverlayAlphaByte, "traffic overlay starts visible where capacity exists");
+    const std::uint16_t payload = network.trafficOverlayState()[static_cast<std::size_t>(tileIndex)];
+    runner.expect(RendererTrafficOverlayPayloadIsRelevant(payload), "traffic overlay starts visible where capacity exists");
+    runner.expect(RendererTrafficOverlayPayloadUtilizationValue(payload) == 0u, "traffic overlay starts with zero utilization");
 }
 
 void TestRoadRemovalTouchesOnlyAffectedTrafficOverlayChunks(TestRunner& runner) {
@@ -1284,15 +1284,13 @@ void TestRoadRemovalTouchesOnlyAffectedTrafficOverlayChunks(TestRunner& runner) 
     const std::vector<std::uint64_t> revisionsBeforeRemove = network.trafficOverlayChunkRevisions();
     const int removedTileIndex = (5 * network.width()) + 3;
     const int retainedTileIndex = (5 * network.width()) + 12;
-    const std::size_t removedPixelOffset = static_cast<std::size_t>(removedTileIndex) * 4u;
-    const std::size_t retainedPixelOffset = static_cast<std::size_t>(retainedTileIndex) * 4u;
 
-    runner.expect(network.trafficOverlayState()[removedPixelOffset + 3u] == kTrafficOverlayAlphaByte, "traffic overlay marks road before removal");
-    runner.expect(network.trafficOverlayState()[retainedPixelOffset + 3u] == kTrafficOverlayAlphaByte, "traffic overlay marks unrelated road before removal");
+    runner.expect(RendererTrafficOverlayPayloadIsRelevant(network.trafficOverlayState()[static_cast<std::size_t>(removedTileIndex)]), "traffic overlay marks road before removal");
+    runner.expect(RendererTrafficOverlayPayloadIsRelevant(network.trafficOverlayState()[static_cast<std::size_t>(retainedTileIndex)]), "traffic overlay marks unrelated road before removal");
     runner.expect(network.removeRoadAtTile(3, 5), "traffic overlay road removal succeeds");
 
-    runner.expect(network.trafficOverlayState()[removedPixelOffset + 3u] == 0u, "traffic overlay clears removed road tile");
-    runner.expect(network.trafficOverlayState()[retainedPixelOffset + 3u] == kTrafficOverlayAlphaByte, "traffic overlay keeps unrelated road tile");
+    runner.expect(!RendererTrafficOverlayPayloadIsRelevant(network.trafficOverlayState()[static_cast<std::size_t>(removedTileIndex)]), "traffic overlay clears removed road tile");
+    runner.expect(RendererTrafficOverlayPayloadIsRelevant(network.trafficOverlayState()[static_cast<std::size_t>(retainedTileIndex)]), "traffic overlay keeps unrelated road tile");
     runner.expect(network.trafficOverlayChunkRevisions()[0] > revisionsBeforeRemove[0], "traffic overlay bumps affected chunk after road removal");
     runner.expect(network.trafficOverlayChunkRevisions()[1] == revisionsBeforeRemove[1], "traffic overlay leaves unaffected chunk revision unchanged");
 }

@@ -1,8 +1,10 @@
 #include "RendererAlgorithms.h"
+#include "RendererColor.h"
 #include "RciTool.h"
 #include "SimulationDate.h"
 #include "SimulationTime.h"
 #include "TransportTypes.h"
+#include "VulkanRendererSupport.h"
 
 #include <algorithm>
 #include <cmath>
@@ -189,23 +191,23 @@ bool AnyLotIntersectsRect(const RciPlan& plan, const RciRect& rect) {
 
 void TestTileStatePacking(TestRunner& runner) {
     runner.expect(RendererPackTileStateScalar(0) == 0, "zero scalar packs to zero");
-    runner.expect(RendererPackTileStateScalar(640000) == 32767, "positive full-scale scalar packs to max snorm");
-    runner.expect(RendererPackTileStateScalar(1280000) == 32767, "positive over-scale scalar clamps to max snorm");
-    runner.expect(RendererPackTileStateScalar(-640000) == -32768, "negative full-scale scalar packs to min snorm");
-    runner.expect(RendererPackTileStateScalar(-1280000) == -32768, "negative over-scale scalar clamps to min snorm");
-    runner.expect(RendererPackTileStateScalar(320000) == 16384, "half-scale scalar rounds consistently");
+    runner.expect(RendererPackTileStateScalar(kSimulationStatDisplayCap) == kRendererSignedScalarPayloadMaxValue, "positive full-scale scalar packs to max snorm");
+    runner.expect(RendererPackTileStateScalar(kSimulationStatDisplayCap * 2) == kRendererSignedScalarPayloadMaxValue, "positive over-scale scalar clamps to max snorm");
+    runner.expect(RendererPackTileStateScalar(-kSimulationStatDisplayCap) == kRendererSignedScalarPayloadMinValue, "negative full-scale scalar packs to min snorm");
+    runner.expect(RendererPackTileStateScalar(-kSimulationStatDisplayCap * 2) == kRendererSignedScalarPayloadMinValue, "negative over-scale scalar clamps to min snorm");
+    runner.expect(RendererPackTileStateScalar(kSimulationStatDisplayCap / 2) == ((kRendererSignedScalarPayloadMaxValue + 1) / 2), "half-scale scalar rounds consistently");
 }
 
 void TestTileStateChunkPacking(TestRunner& runner) {
     std::vector<Tile> tiles(16);
-    tiles[5].airPollution = 640000;
-    tiles[5].landValue = -640000;
-    tiles[6].airPollution = 320000;
+    tiles[5].airPollution = kSimulationStatDisplayCap;
+    tiles[5].landValue = -kSimulationStatDisplayCap;
+    tiles[6].airPollution = kSimulationStatDisplayCap / 2;
     tiles[6].landValue = 0;
-    tiles[9].airPollution = -320000;
-    tiles[9].landValue = 640000;
+    tiles[9].airPollution = -kSimulationStatDisplayCap / 2;
+    tiles[9].landValue = kSimulationStatDisplayCap;
     tiles[10].airPollution = 0;
-    tiles[10].landValue = 320000;
+    tiles[10].landValue = kSimulationStatDisplayCap / 2;
 
     ChunkRect chunk;
     chunk.startX = 1;
@@ -213,14 +215,14 @@ void TestTileStateChunkPacking(TestRunner& runner) {
     chunk.width = 2;
     chunk.height = 2;
 
-    std::vector<std::int16_t> pixels;
+    std::vector<RendererSignedScalarPayload> pixels;
     RendererFillTileStateChunkPixels(tiles, 4, chunk, pixels);
 
     runner.expect(pixels.size() == 8u, "tile-state chunk writes two channels per tile");
-    runner.expect(pixels[0] == 32767 && pixels[1] == -32768, "first chunk tile packs pollution and land value");
-    runner.expect(pixels[2] == 16384 && pixels[3] == 0, "second chunk tile preserves row-major order");
-    runner.expect(pixels[4] == -16384 && pixels[5] == 32767, "third chunk tile packs negative half-scale values");
-    runner.expect(pixels[6] == 0 && pixels[7] == 16384, "fourth chunk tile completes row-major packing");
+    runner.expect(pixels[0] == kRendererSignedScalarPayloadMaxValue && pixels[1] == kRendererSignedScalarPayloadMinValue, "first chunk tile packs pollution and land value");
+    runner.expect(pixels[2] == ((kRendererSignedScalarPayloadMaxValue + 1) / 2) && pixels[3] == 0, "second chunk tile preserves row-major order");
+    runner.expect(pixels[4] == -((kRendererSignedScalarPayloadMaxValue + 1) / 2) && pixels[5] == kRendererSignedScalarPayloadMaxValue, "third chunk tile packs negative half-scale values");
+    runner.expect(pixels[6] == 0 && pixels[7] == ((kRendererSignedScalarPayloadMaxValue + 1) / 2), "fourth chunk tile completes row-major packing");
 }
 
 void TestTileLiftChunkPacking(TestRunner& runner) {
@@ -244,6 +246,34 @@ void TestTileLiftChunkPacking(TestRunner& runner) {
     runner.expect(pixels[3] == 32u, "occupied row-major tile uses shallow lift mask");
 }
 
+void TestRendererPayloadPacking(TestRunner& runner) {
+    runner.expect(RendererPackCappedStatToScalarPayload(0, kSimulationStatDisplayCap) == 0u, "scalar stat payload maps display minimum to zero");
+    runner.expect(RendererPackCappedStatToScalarPayload(kSimulationStatDisplayCap, kSimulationStatDisplayCap) == kRendererScalarPayloadMaxValue, "scalar stat payload maps the display cap to full scale");
+    runner.expect(RendererPackCappedStatToScalarPayload(-1, kSimulationStatDisplayCap) == 0u, "scalar stat payload clamps negative values");
+    runner.expect(RendererPackCappedStatToScalarPayload(kSimulationStatDisplayCap * 2, kSimulationStatDisplayCap) == kRendererScalarPayloadMaxValue, "scalar stat payload clamps above the stat cap");
+    runner.expect(RendererPackCappedStatToScalarPayload(kSimulationStatDisplayCap / 2, kSimulationStatDisplayCap) == ((kRendererScalarPayloadMaxValue + 1u) / 2u), "scalar stat payload preserves capped-stat midpoints");
+    runner.expect(RendererPackRatioToScalarPayload(1u, 2u) == ((kRendererScalarPayloadMaxValue + 1u) / 2u), "scalar ratio payload rounds with integer arithmetic");
+    runner.expect(RendererPackCappedStatToScalarPayload(kRciDesirabilityDisplayMinimum, kRciDesirabilityDisplayCap) == 0u, "desirability payload maps minimum desirability to zero");
+    runner.expect(RendererPackCappedStatToScalarPayload(kRciDesirabilityDisplayCap, kRciDesirabilityDisplayCap) == kRendererScalarPayloadMaxValue, "desirability payload maps cap desirability to full scale");
+
+    const RendererScalarPayload emptyTraffic = RendererPackTrafficOverlayPayload(false, 10u, 10u);
+    runner.expect(!RendererTrafficOverlayPayloadIsRelevant(emptyTraffic), "traffic payload keeps empty tiles irrelevant");
+
+    const RendererScalarPayload loadedTraffic = RendererPackTrafficOverlayPayload(true, 3u, 4u);
+    runner.expect(RendererTrafficOverlayPayloadIsRelevant(loadedTraffic), "traffic payload records road relevance");
+    runner.expect(RendererTrafficOverlayPayloadUtilizationValue(loadedTraffic) == RendererPackRatioToTrafficUtilizationPayload(3u, 4u), "traffic payload stores fixed-ratio utilization without RGBA color");
+    runner.expect(RendererPackRatioToTrafficUtilizationPayload(1u, 1u) == kRendererTrafficOverlayUtilizationMask, "traffic utilization maps capacity to full 15-bit scale");
+}
+
+void TestOverlayGradientDirections(TestRunner& runner) {
+    runner.expect(RendererOverlayGradientDirectionForSemantic(RendererOverlaySemantic::TrafficCapacity) == RendererOverlayGradientDirection::GoodToBad, "traffic utilization rises from good to bad");
+    runner.expect(RendererOverlayGradientDirectionForSemantic(RendererOverlaySemantic::AirPollution) == RendererOverlayGradientDirection::GoodToBad, "air pollution rises from good to bad");
+    runner.expect(RendererOverlayGradientDirectionForSemantic(RendererOverlaySemantic::LandValue) == RendererOverlayGradientDirection::BadToGood, "land value rises from bad to good");
+    runner.expect(RendererOverlayGradientDirectionForSemantic(RendererOverlaySemantic::RciDesirability) == RendererOverlayGradientDirection::BadToGood, "RCI desirability rises from bad to good");
+    runner.expect(RendererOverlaySemanticIndex(RendererOverlaySemantic::TrafficCapacity) == 0, "traffic semantic index remains shader-compatible");
+    runner.expect(RendererOverlayGradientDirectionIndex(RendererOverlayGradientDirection::BadToGood) == 1, "bad-to-good direction index remains shader-compatible");
+}
+
 void TestZoningOverlayChunkPacking(TestRunner& runner) {
     std::vector<Tile> tiles(16);
     tiles[5].zoningType = TileZoningResidentialHigh;
@@ -256,27 +286,22 @@ void TestZoningOverlayChunkPacking(TestRunner& runner) {
     chunk.width = 2;
     chunk.height = 2;
 
-    std::vector<std::uint8_t> pixels;
-    RendererFillZoningOverlayChunkPixels(tiles, 4, chunk, pixels);
+    std::vector<RendererScalarPayload> values;
+    RendererFillZoningOverlayChunkValues(tiles, 4, chunk, values);
 
-    runner.expect(pixels.size() == 16u, "zoning overlay writes RGBA bytes per tile");
-    runner.expect(pixels[0] == 26u && pixels[1] == 122u && pixels[3] > 0u, "high density residential zoning packs dark green tint");
-    runner.expect(pixels[4] == 238u && pixels[5] == 211u && pixels[7] > 0u, "industrial zoning packs yellow tint");
-    runner.expect(pixels[8] == 112u && pixels[9] == 235u && pixels[11] > 0u, "low density residential zoning packs light green tint");
-    runner.expect(pixels[15] == 0u, "un-zoned tiles pack transparent overlay");
+    runner.expect(values.size() == 4u, "zoning overlay writes one semantic value per tile");
+    runner.expect(values[0] == TileZoningResidentialHigh, "high density residential zoning keeps its semantic id");
+    runner.expect(values[1] == TileZoningIndustrial, "industrial zoning keeps its semantic id");
+    runner.expect(values[2] == TileZoningResidentialLow, "low density residential zoning keeps its semantic id");
+    runner.expect(values[3] == TileZoningNone, "un-zoned tiles keep zero payload");
 }
 
 void TestLandValueOverlayChunkPacking(TestRunner& runner) {
     std::vector<Tile> tiles(16);
-    tiles[5].landValue = 10;
-    tiles[6].landValue = 20;
-    tiles[9].landValue = 30;
-    tiles[10].landValue = 20;
-
-    int minimumLandValue = 0;
-    int maximumLandValue = 0;
-    runner.expect(RendererFindLandValueRange(tiles, minimumLandValue, maximumLandValue), "land value overlay range finds populated tile values");
-    runner.expect(minimumLandValue == 10 && maximumLandValue == 160000, "land value range includes default tile values");
+    tiles[5].landValue = kLandValueDisplayMinimum;
+    tiles[6].landValue = kLandValueDisplayCap / 2;
+    tiles[9].landValue = kLandValueDisplayCap;
+    tiles[10].landValue = kLandValueDisplayCap * 2;
 
     ChunkRect chunk;
     chunk.startX = 1;
@@ -284,17 +309,70 @@ void TestLandValueOverlayChunkPacking(TestRunner& runner) {
     chunk.width = 2;
     chunk.height = 2;
 
-    std::vector<std::uint8_t> pixels;
-    RendererFillLandValueOverlayChunkPixels(tiles, 4, chunk, 10, 30, 89u, pixels);
+    std::vector<RendererScalarPayload> values;
+    RendererFillLandValueOverlayChunkValues(tiles, 4, chunk, values);
 
-    runner.expect(pixels.size() == 16u, "land value overlay writes RGBA bytes per tile");
-    runner.expect(pixels[0] == 255u && pixels[1] == 0u && pixels[3] == 89u, "lowest land value packs red with overlay alpha");
-    runner.expect(pixels[4] == 255u && pixels[5] == 255u && pixels[7] == 89u, "middle land value packs yellow with overlay alpha");
-    runner.expect(pixels[8] == 0u && pixels[9] == 255u && pixels[11] == 89u, "highest land value packs green with overlay alpha");
-    runner.expect(pixels[12] == 255u && pixels[13] == 255u && pixels[15] == 89u, "matching middle land value repeats yellow");
+    runner.expect(values.size() == 4u, "land value overlay writes one scalar value per tile");
+    runner.expect(values[0] == 0u, "land value minimum renders at the bottom of the gradient");
+    runner.expect(values[1] == RendererPackCappedStatToScalarPayload(kLandValueDisplayCap / 2, kSimulationStatDisplayCap), "half-cap land value renders at the gradient midpoint");
+    runner.expect(values[2] == kRendererScalarPayloadMaxValue, "land value cap renders at the top of the gradient");
+    runner.expect(values[3] == kRendererScalarPayloadMaxValue, "land value above the cap remains at the top of the gradient");
+}
 
-    RendererFillLandValueOverlayChunkPixels(tiles, 4, chunk, 20, 20, 89u, pixels);
-    runner.expect(pixels[0] == 255u && pixels[1] == 255u && pixels[3] == 89u, "flat land value range packs neutral yellow");
+void TestRendererColorContract(TestRunner& runner) {
+    runner.expect(AlmostEqual(RendererSrgbToLinear(0.0f), 0.0f), "sRGB zero converts to linear zero");
+    runner.expect(RendererSrgbToLinear(0.5f) > 0.21f && RendererSrgbToLinear(0.5f) < 0.22f, "sRGB midpoint converts to scene-linear value");
+    runner.expect(AlmostEqual(RendererLinearToSrgb(1.0f), 1.0f), "linear one converts to sRGB one");
+
+    const LinearColor authored = RendererColorFromSrgb(0.5f, 1.0f, 0.0f, 0.25f);
+    runner.expect(authored.r > 0.21f && authored.r < 0.22f && AlmostEqual(authored.g, 1.0f), "authored presentation colors convert into scene-linear HDR color");
+    runner.expect(RendererToneMapSdr(LinearColor(3.0f, 1.0f, 0.0f, 1.5f)).r < 1.0f, "SDR tone map compresses HDR channel before presentation");
+    runner.expect(RendererEncodePqFromNits(1000.0f) > RendererEncodePqFromNits(100.0f), "HDR10 PQ encode is monotonic over display nits");
+    runner.expect(RendererChooseOutputMode(true, true) == RendererOutputMode::HdrScRgbFp16, "output preference chooses FP16 scRGB first");
+    runner.expect(RendererChooseOutputMode(false, true) == RendererOutputMode::Hdr10Rgb10A2, "output preference chooses HDR10 second");
+    runner.expect(RendererChooseOutputMode(false, false) == RendererOutputMode::SdrSrgb8, "output preference chooses SDR only when HDR modes are unavailable");
+}
+
+void TestVulkanSwapchainFormatPreference(TestRunner& runner) {
+    std::vector<VkSurfaceFormatKHR> allFormats;
+    allFormats.push_back({VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR});
+    allFormats.push_back({VK_FORMAT_A2B10G10R10_UNORM_PACK32, VK_COLOR_SPACE_HDR10_ST2084_EXT});
+    allFormats.push_back({VK_FORMAT_R16G16B16A16_SFLOAT, VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT});
+
+    VulkanSwapchainFormatSelection selection = VulkanChooseSwapchainFormat(allFormats, true);
+    runner.expect(selection.supported && selection.outputMode == RendererOutputMode::HdrScRgbFp16, "Vulkan output prefers FP16 scRGB when available");
+    runner.expect(selection.format == kVulkanSceneColorFormat, "Vulkan scRGB output uses the HDR scene format at the swapchain boundary");
+
+    std::vector<VkSurfaceFormatKHR> hdr10AndSdr;
+    hdr10AndSdr.push_back({VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR});
+    hdr10AndSdr.push_back({VK_FORMAT_A2B10G10R10_UNORM_PACK32, VK_COLOR_SPACE_HDR10_ST2084_EXT});
+
+    selection = VulkanChooseSwapchainFormat(hdr10AndSdr, true);
+    runner.expect(selection.supported && selection.outputMode == RendererOutputMode::Hdr10Rgb10A2, "Vulkan output falls back to HDR10 before SDR");
+
+    std::vector<VkSurfaceFormatKHR> sdrOnly;
+    sdrOnly.push_back({VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR});
+
+    selection = VulkanChooseSwapchainFormat(sdrOnly, true);
+    runner.expect(selection.supported && selection.outputMode == RendererOutputMode::SdrSrgb8, "Vulkan output can select SDR only when explicitly allowed");
+
+    selection = VulkanChooseSwapchainFormat(sdrOnly, false);
+    runner.expect(!selection.supported, "Vulkan output rejects silent SDR fallback when HDR is required");
+
+    std::vector<VkSurfaceFormatKHR> undefinedSdr;
+    undefinedSdr.push_back({VK_FORMAT_UNDEFINED, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR});
+
+    selection = VulkanChooseSwapchainFormat(undefinedSdr, false);
+    runner.expect(!selection.supported, "Vulkan output does not infer HDR from undefined SDR color space");
+
+    selection = VulkanChooseSwapchainFormat(undefinedSdr, true);
+    runner.expect(selection.supported && selection.outputMode == RendererOutputMode::SdrSrgb8, "Vulkan output treats undefined SDR format as SDR only when allowed");
+
+    std::vector<VkSurfaceFormatKHR> undefinedScRgb;
+    undefinedScRgb.push_back({VK_FORMAT_UNDEFINED, VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT});
+
+    selection = VulkanChooseSwapchainFormat(undefinedScRgb, false);
+    runner.expect(selection.supported && selection.outputMode == RendererOutputMode::HdrScRgbFp16, "Vulkan output accepts undefined format only with explicit scRGB color space");
 }
 
 void TestUtf8Decoder(TestRunner& runner) {
@@ -343,7 +421,17 @@ void TestSimulationDateCalculation(TestRunner& runner) {
 }
 
 void TestWindowQuads(TestRunner& runner) {
+    const char* filePath = "window_layout_test.xml";
+    {
+        std::ofstream file(filePath, std::ios::out | std::ios::trunc);
+        file << "<window id=\"lot_query\" x=\"24\" y=\"96\" width=\"440\" height=\"220\" margin=\"16\" spacing=\"4\" hugElements=\"true\">"
+            << "<textField id=\"title\" height=\"18\" />"
+            << "<textField id=\"line0\" height=\"18\" />"
+            << "</window>";
+    }
+
     InGameWindow window;
+    runner.expect(window.loadFromXmlFile(filePath), "query window XML fixture loads");
     window.setVisible(false);
     window.setText("title", "House");
     window.updateLayout();
@@ -369,6 +457,8 @@ void TestWindowQuads(TestRunner& runner) {
         }
     }
     runner.expect(allTextQuadsInsideWindow, "text quads stay inside the query window frame");
+
+    std::remove(filePath);
 }
 
 void TestHudTextQuads(TestRunner& runner) {
@@ -392,16 +482,72 @@ void TestLoadingScreenQuads(TestRunner& runner) {
 }
 
 void TestUiMenuQuadsAndHitTesting(TestRunner& runner) {
+    const char* filePath = "ui_layout_test.xml";
+    {
+        std::ofstream file(filePath, std::ios::out | std::ios::trunc);
+        file << "<ui>"
+            << "<menu id=\"date_speed\" anchor=\"topLeft\" x=\"16\" y=\"48\" width=\"140\" height=\"28\" buttonWidth=\"32\" buttonHeight=\"28\" spacing=\"4\">"
+            << "<button id=\"speed_pause\" icon=\"pause\" action=\"set_speed_paused\" x=\"0\" y=\"0\" />"
+            << "<button id=\"speed_play\" icon=\"play\" action=\"set_speed_play\" x=\"36\" y=\"0\" />"
+            << "<button id=\"speed_fast\" icon=\"fast\" action=\"set_speed_fast\" x=\"72\" y=\"0\" />"
+            << "<button id=\"speed_fast_forward\" icon=\"fastForward\" action=\"set_speed_fast_forward\" x=\"108\" y=\"0\" />"
+            << "</menu>"
+            << "<menu id=\"side_tools\" parentMenu=\"menu_toggle\" parentButton=\"toggle_tools\" stack=\"away\" direction=\"up\" anchor=\"bottomLeft\" x=\"0\" bottom=\"72\" width=\"132\" buttonWidth=\"132\" buttonHeight=\"38\" spacing=\"8\" visible=\"true\">"
+            << "<button id=\"bulldozer\" text=\"Bulldoze\" action=\"select_bulldozer\" />"
+            << "<button id=\"street\" text=\"Street\" action=\"select_road_street\" />"
+            << "<button id=\"road\" text=\"Road\" action=\"select_road_road\" />"
+            << "<button id=\"one_way\" text=\"One-Way\" action=\"select_road_one_way\" />"
+            << "<button id=\"avenue\" text=\"Avenue\" action=\"select_road_avenue\" />"
+            << "<button id=\"query\" text=\"Query\" action=\"select_query\" />"
+            << "<button id=\"rci_menu\" text=\"RCI\" action=\"toggle_rci_tool_menu\" />"
+            << "</menu>"
+            << "<menu id=\"rci_tools\" parentMenu=\"side_tools\" parentButton=\"rci_menu\" stack=\"centered\" direction=\"right\" anchor=\"bottomLeft\" x=\"16\" y=\"0\" bottom=\"16\" width=\"132\" buttonWidth=\"132\" buttonHeight=\"38\" spacing=\"8\" visible=\"false\">"
+            << "<button id=\"rci_residential_low\" text=\"Low Res\" action=\"select_rci_residential_low\" />"
+            << "<button id=\"rci_residential_high\" text=\"High Res\" action=\"select_rci_residential_high\" />"
+            << "<button id=\"rci_industrial\" text=\"Industry\" action=\"select_rci_industrial\" />"
+            << "<button id=\"rci_unzone\" text=\"Unzone\" action=\"select_rci_unzone\" />"
+            << "</menu>"
+            << "<menu id=\"side_overlays\" parentMenu=\"overlay_toggle\" parentButton=\"toggle_overlays\" stack=\"away\" direction=\"up\" anchor=\"bottomRight\" x=\"0\" bottom=\"72\" width=\"132\" buttonWidth=\"132\" buttonHeight=\"38\" spacing=\"8\" visible=\"true\">"
+            << "<button id=\"overlay_traffic\" text=\"Traffic\" action=\"toggle_overlay_traffic\" />"
+            << "<button id=\"overlay_land_value\" text=\"Land Value\" action=\"toggle_overlay_land_value\" />"
+            << "<button id=\"overlay_rci\" text=\"RCI\" action=\"toggle_overlay_rci\" />"
+            << "<button id=\"overlay_rci_desirability_menu\" text=\"RCI Desire\" action=\"toggle_rci_overlay_menu\" />"
+            << "</menu>"
+            << "<menu id=\"rci_desirability_overlays\" parentMenu=\"side_overlays\" parentButton=\"overlay_rci_desirability_menu\" stack=\"centered\" direction=\"left\" anchor=\"bottomRight\" x=\"16\" y=\"0\" bottom=\"16\" width=\"132\" buttonWidth=\"132\" buttonHeight=\"38\" spacing=\"8\" visible=\"false\">"
+            << "<button id=\"overlay_desirability_low_wealth_residential\" text=\"Low Wealth Res\" action=\"toggle_overlay_desirability_low_wealth_residential\" />"
+            << "<button id=\"overlay_desirability_dirty_industry\" text=\"Dirty Industry\" action=\"toggle_overlay_desirability_dirty_industry\" />"
+            << "</menu>"
+            << "<menu id=\"region_exit\" anchor=\"topLeft\" x=\"16\" y=\"16\" width=\"92\" height=\"40\" buttonWidth=\"92\" buttonHeight=\"40\" spacing=\"0\" visible=\"true\">"
+            << "<button id=\"region_exit_game\" text=\"Exit\" action=\"open_exit_confirm\" x=\"0\" y=\"0\" width=\"92\" height=\"40\" />"
+            << "</menu>"
+            << "<menu id=\"escape_menu\" anchor=\"center\" x=\"0\" y=\"0\" width=\"220\" height=\"56\" buttonWidth=\"180\" buttonHeight=\"40\" spacing=\"0\" visible=\"false\" backgroundR=\"0.035\" backgroundG=\"0.047\" backgroundB=\"0.058\" backgroundA=\"0.94\">"
+            << "<button id=\"exit_game\" text=\"Exit\" action=\"open_exit_confirm\" x=\"20\" y=\"8\" width=\"180\" height=\"40\" />"
+            << "</menu>"
+            << "<menu id=\"city_switch_confirm_dialog\" anchor=\"center\" x=\"0\" y=\"0\" width=\"340\" height=\"116\" buttonWidth=\"132\" buttonHeight=\"36\" spacing=\"8\" visible=\"false\" backgroundR=\"0.035\" backgroundG=\"0.047\" backgroundB=\"0.058\" backgroundA=\"0.96\">"
+            << "<button id=\"city_switch_prompt\" text=\"Save city before leaving?\" x=\"18\" y=\"14\" width=\"304\" height=\"34\" />"
+            << "<button id=\"city_switch_save_yes\" text=\"Yes\" action=\"city_switch_save_yes\" x=\"34\" y=\"66\" width=\"122\" height=\"36\" />"
+            << "<button id=\"city_switch_save_no\" text=\"No\" action=\"city_switch_save_no\" x=\"184\" y=\"66\" width=\"122\" height=\"36\" />"
+            << "</menu>"
+            << "<menu id=\"menu_toggle\" anchor=\"bottomLeft\" x=\"16\" bottom=\"16\" width=\"92\" buttonWidth=\"92\" buttonHeight=\"40\" spacing=\"0\" visible=\"true\">"
+            << "<button id=\"toggle_tools\" text=\"Tools\" action=\"toggle_side_menu\" />"
+            << "</menu>"
+            << "<menu id=\"overlay_toggle\" anchor=\"bottomRight\" x=\"16\" bottom=\"16\" width=\"132\" buttonWidth=\"132\" buttonHeight=\"40\" spacing=\"0\" visible=\"true\">"
+            << "<button id=\"toggle_overlays\" text=\"Overlays\" action=\"toggle_overlay_menu\" />"
+            << "</menu>"
+            << "</ui>";
+    }
+
     UiLayout layout;
+    runner.expect(layout.loadFromXmlFile(filePath), "UI XML fixture loads menus");
     std::string action;
     std::vector<std::string> regionMenuIds;
     regionMenuIds.push_back("region_exit");
-    runner.expect(layout.hitTestAction(24.0, 24.0, 1024, 768, regionMenuIds, action) && action == "open_exit_confirm", "fallback region exit button hit tests in filtered region UI");
-    runner.expect(layout.hitTestAction(24.0, 390.0, 1024, 768, action) && action == "select_bulldozer", "fallback side-menu button hit tests by screen position");
-    runner.expect(layout.hitTestAction(24.0, 664.0, 1024, 768, action) && action == "toggle_rci_tool_menu", "fallback side-menu exposes RCI submenu button");
+    runner.expect(layout.hitTestAction(24.0, 24.0, 1024, 768, regionMenuIds, action) && action == "open_exit_confirm", "region exit button hit tests in filtered region UI");
+    runner.expect(layout.hitTestAction(24.0, 390.0, 1024, 768, action) && action == "select_bulldozer", "side-menu button hit tests by screen position");
+    runner.expect(layout.hitTestAction(24.0, 664.0, 1024, 768, action) && action == "toggle_rci_tool_menu", "side-menu exposes RCI submenu button");
     layout.setMenuVisible("rci_tools", true);
-    runner.expect(layout.hitTestAction(172.0, 733.0, 1024, 768, action) && action == "select_rci_unzone", "fallback RCI child menu exposes unzone button");
-    runner.expect(layout.hitTestAction(900.0, 530.0, 1024, 768, action) && action == "toggle_overlay_traffic", "fallback overlay menu hit tests from the bottom-right");
+    runner.expect(layout.hitTestAction(172.0, 733.0, 1024, 768, action) && action == "select_rci_unzone", "RCI child menu exposes unzone button");
+    runner.expect(layout.hitTestAction(900.0, 530.0, 1024, 768, action) && action == "toggle_overlay_traffic", "overlay menu hit tests from the bottom-right");
     runner.expect(layout.hitTestAction(900.0, 740.0, 1024, 768, action) && action == "toggle_overlay_menu", "bottom-right overlay menu toggle remains clickable");
 
     std::vector<UiQuadInstanceData> quads = RendererBuildUiMenuQuads(layout, 1024, 768, "select_road_street");
@@ -449,6 +595,8 @@ void TestUiMenuQuadsAndHitTesting(TestRunner& runner) {
     std::vector<UiQuadInstanceData> hiddenQuads = RendererBuildUiMenuQuads(layout, 1024, 768, std::string());
     runner.expect(hiddenQuads.size() < visibleQuadCount, "hidden side menu removes its button quads");
     runner.expect(layout.hitTestAction(24.0, 740.0, 1024, 768, action) && action == "toggle_side_menu", "bottom-left menu toggle remains clickable");
+
+    std::remove(filePath);
 }
 
 void TestUiButtonIconXmlAndRendering(TestRunner& runner) {
@@ -478,13 +626,27 @@ void TestUiButtonIconXmlAndRendering(TestRunner& runner) {
     std::remove(filePath);
 }
 
-void TestRciToolFallbacksAndPlanning(TestRunner& runner) {
+void TestRciToolXmlPlanning(TestRunner& runner) {
+    const char* filePath = "rci_tool_planning_test.xml";
+    {
+        std::ofstream file(filePath, std::ios::out | std::ios::trunc);
+        file << "<rci>"
+            << "<zone id=\"residential_low\" name=\"Low Density Residence\" zoningType=\"residential_low\" labelStringId=\"zone.tool.residential_low\" minDepth=\"2\" preferredDepth=\"4\" maxDepth=\"8\" minWidth=\"2\" preferredWidth=\"16\" maxWidth=\"24\" colorR=\"0.44\" colorG=\"0.92\" colorB=\"0.46\" colorA=\"0.50\" />"
+            << "<zone id=\"residential_high\" name=\"High Density Residence\" zoningType=\"residential_high\" labelStringId=\"zone.tool.residential_high\" minDepth=\"2\" preferredDepth=\"4\" maxDepth=\"8\" minWidth=\"2\" preferredWidth=\"16\" maxWidth=\"24\" colorR=\"0.10\" colorG=\"0.48\" colorB=\"0.20\" colorA=\"0.50\" />"
+            << "<zone id=\"industrial\" name=\"Industry\" zoningType=\"industrial\" labelStringId=\"zone.tool.industrial\" minDepth=\"2\" preferredDepth=\"8\" maxDepth=\"8\" minWidth=\"2\" preferredWidth=\"16\" maxWidth=\"24\" colorR=\"0.92\" colorG=\"0.76\" colorB=\"0.15\" colorA=\"0.50\" />"
+            << "<rciType id=\"low_wealth_residential\" name=\"Low Wealth Residential\" desirabilityOverlayStringId=\"overlay.desirability.low_wealth_residential\" demandParameterId=\"residents.low_wealth\" zoneTypes=\"low_density_residential,high_density_residential\" colorR=\"0.18\" colorG=\"0.72\" colorB=\"0.28\" colorA=\"0.50\" />"
+            << "<rciType id=\"dirty_industry\" name=\"Dirty Industry\" desirabilityOverlayStringId=\"overlay.desirability.dirty_industry\" demandParameterId=\"jobs.dirty_industry\" zoneTypes=\"industrial\" colorR=\"0.92\" colorG=\"0.76\" colorB=\"0.15\" colorA=\"0.50\" />"
+            << "</rci>";
+    }
+
     RciToolCatalog catalog;
+    runner.expect(catalog.loadFromXmlFile(filePath), "RCI planning catalog XML loads");
     const RciTool* residential = catalog.findTool("residential_high");
     const RciTool* residentialLow = catalog.findTool("residential_low");
     const RciTool* industrial = catalog.findTool("industrial");
-    runner.expect(residential != 0 && residentialLow != 0 && industrial != 0, "fallback RCI catalog exposes low residential, high residential, and industrial zone tools");
+    runner.expect(residential != 0 && residentialLow != 0 && industrial != 0, "RCI catalog exposes low residential, high residential, and industrial zone tools");
     if (residential == 0 || residentialLow == 0 || industrial == 0) {
+        std::remove(filePath);
         return;
     }
 
@@ -636,6 +798,8 @@ void TestRciToolFallbacksAndPlanning(TestRunner& runner) {
     }
     runner.expect(horizontalRoadCount > 0u && verticalRoadCount > 0u, "empty normal RCI grid has both road axes");
     runner.expect(everyHorizontalRoadOverlapsVerticalRoad, "planned horizontal streets overlap vertical streets at junctions");
+
+    std::remove(filePath);
 }
 
 void TestRciToolXmlLoading(TestRunner& runner) {
@@ -668,8 +832,12 @@ int main() {
     TestTileStatePacking(runner);
     TestTileStateChunkPacking(runner);
     TestTileLiftChunkPacking(runner);
+    TestRendererPayloadPacking(runner);
+    TestOverlayGradientDirections(runner);
     TestZoningOverlayChunkPacking(runner);
     TestLandValueOverlayChunkPacking(runner);
+    TestRendererColorContract(runner);
+    TestVulkanSwapchainFormatPreference(runner);
     TestUtf8Decoder(runner);
     TestSimulationDateCalculation(runner);
     TestWindowQuads(runner);
@@ -677,7 +845,7 @@ int main() {
     TestLoadingScreenQuads(runner);
     TestUiMenuQuadsAndHitTesting(runner);
     TestUiButtonIconXmlAndRendering(runner);
-    TestRciToolFallbacksAndPlanning(runner);
+    TestRciToolXmlPlanning(runner);
     TestRciToolXmlLoading(runner);
     return runner.finish();
 }

@@ -25,7 +25,7 @@ public:
     const std::vector<ResolvedRoadCell>& resolvedCells() const;
     const TransportCostMap& costMap() const;
     const std::vector<std::uint8_t>& groundRoadRenderState() const;
-    const std::vector<std::uint8_t>& trafficOverlayState() const;
+    const std::vector<RendererScalarPayload>& trafficOverlayState() const;
     const std::vector<std::uint64_t>& groundChunkRevisions() const;
     const std::vector<std::uint64_t>& elevatedChunkRevisions() const;
     const std::vector<std::uint64_t>& trafficOverlayChunkRevisions() const;
@@ -106,7 +106,7 @@ private:
     std::vector<ResolvedRoadCell> resolvedCells_;
     TransportCostMap costMap_;
     std::vector<std::uint8_t> groundRoadRenderState_;
-    std::vector<std::uint8_t> trafficOverlayState_;
+    std::vector<RendererScalarPayload> trafficOverlayState_;
     std::vector<std::uint64_t> groundChunkRevisions_;
     std::vector<std::uint64_t> elevatedChunkRevisions_;
     std::vector<std::uint64_t> trafficOverlayChunkRevisions_;

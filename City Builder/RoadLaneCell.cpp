@@ -5,8 +5,6 @@
 #include "RoadRenderState.h"
 
 namespace {
-int CountCardinalDirections(std::uint8_t directionMask);
-
 std::uint8_t OppositeMask(std::uint8_t directionMask) {
     std::uint8_t oppositeMask = 0;
     if ((directionMask & kRoadDirectionNorth) != 0) {
@@ -30,7 +28,7 @@ std::uint8_t CrosswalkMaskForCell(const Lane& primary, std::uint8_t secondaryEdg
     const std::uint8_t outgoingMask = static_cast<std::uint8_t>((primary.travelDirectionMask != 0 ? primary.travelDirectionMask : graphicMask) & graphicMask);
     const std::uint8_t incomingMask = static_cast<std::uint8_t>(graphicMask & ~outgoingMask);
     const std::uint8_t pathMask = static_cast<std::uint8_t>((primary.pathDirectionMask != 0 ? primary.pathDirectionMask : outgoingMask) & graphicMask);
-    if (CountCardinalDirections(outgoingMask) != 1) {
+    if (CountRoadCardinalDirections(outgoingMask) != 1) {
         return 0;
     }
 
@@ -54,23 +52,6 @@ std::uint8_t CenterSideForTravelDirection(std::uint8_t direction) {
     return 0;
 }
 
-int CountCardinalDirections(std::uint8_t directionMask) {
-    const std::uint8_t directions[] = {
-        kRoadDirectionNorth,
-        kRoadDirectionEast,
-        kRoadDirectionSouth,
-        kRoadDirectionWest
-    };
-    int directionCount = 0;
-    for (std::size_t directionIndex = 0; directionIndex < sizeof(directions) / sizeof(directions[0]); ++directionIndex) {
-        if ((directionMask & directions[directionIndex]) == 0) {
-            continue;
-        }
-
-        ++directionCount;
-    }
-    return directionCount;
-}
 }
 
 Lane::Lane()
@@ -90,7 +71,7 @@ std::uint8_t Lane::centerMask() const {
     const std::uint8_t graphicMask = directionMask & kRoadSurfaceSidewalkEdgeMask;
     const std::uint8_t outgoingMask = static_cast<std::uint8_t>((travelDirectionMask != 0 ? travelDirectionMask : graphicMask) & graphicMask);
     const std::uint8_t incomingMask = static_cast<std::uint8_t>(graphicMask & ~outgoingMask);
-    if (CountCardinalDirections(outgoingMask) > 2 || CountCardinalDirections(incomingMask) > 2) {
+    if (CountRoadCardinalDirections(outgoingMask) > 2 || CountRoadCardinalDirections(incomingMask) > 2) {
         return 0;
     }
 

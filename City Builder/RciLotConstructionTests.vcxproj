@@ -85,6 +85,7 @@
     <ClCompile Include="GameSession.cpp" />
     <ClCompile Include="Lot.cpp" />
     <ClCompile Include="RciLotConstructionTests.cpp" />
+    <ClCompile Include="RciRoadStroke.cpp" />
     <ClCompile Include="RciTool.cpp" />
     <ClCompile Include="Road.cpp" />
     <ClCompile Include="RoadGraphic.cpp" />

@@ -157,6 +157,8 @@ uniform float uRoadTintStrength;
 uniform float uLotAlphaScale;
 uniform vec3 uLotTintColor;
 uniform float uLotTintStrength;
+uniform int uTileOverlaySemanticMode;
+uniform int uTileOverlayGradientDirection;
 
 in vec2 vTileUv;
 in vec2 vLocalUv;
@@ -183,6 +185,73 @@ vec4 sampleRoadAtlas(sampler2D atlasTexture, float glyphIndex, vec2 localUv)
         (glyphCell.x * cellSize.x + localPixel.x) / atlasSize.x,
         (glyphCell.y * cellSize.y + localPixel.y) / atlasSize.y);
     return texture(atlasTexture, atlasUv);
+}
+
+const int kOverlayScalarPayloadBitDepth = 16;
+const int kTileOverlaySemanticTrafficCapacity = 0;
+const int kTileOverlaySemanticLandValue = 1;
+const int kTileOverlaySemanticRciDesirability = 2;
+const int kOverlayGradientGoodToBad = 0;
+const int kOverlayGradientBadToGood = 1;
+const uint kOverlayScalarPayloadMaxValue = (1u << kOverlayScalarPayloadBitDepth) - 1u;
+const uint kTrafficOverlayRelevantMask = 1u << (kOverlayScalarPayloadBitDepth - 1);
+const uint kTrafficOverlayUtilizationMask = kTrafficOverlayRelevantMask - 1u;
+const float kAuthoredColorByteMax = 255.0;
+
+uint overlayPayload(vec2 uv)
+{
+    return uint(floor(texture(uTileOverlayTexture, uv).r * float(kOverlayScalarPayloadMaxValue) + 0.5));
+}
+
+vec4 zoningOverlayColor(uint payload)
+{
+    if (payload == 1u) {
+        return vec4(26.0 / kAuthoredColorByteMax, 122.0 / kAuthoredColorByteMax, 51.0 / kAuthoredColorByteMax, 96.0 / kAuthoredColorByteMax);
+    }
+    if (payload == 2u) {
+        return vec4(238.0 / kAuthoredColorByteMax, 211.0 / kAuthoredColorByteMax, 58.0 / kAuthoredColorByteMax, 104.0 / kAuthoredColorByteMax);
+    }
+    if (payload == 3u) {
+        return vec4(112.0 / kAuthoredColorByteMax, 235.0 / kAuthoredColorByteMax, 117.0 / kAuthoredColorByteMax, 96.0 / kAuthoredColorByteMax);
+    }
+
+    return vec4(0.0);
+}
+
+vec4 goodToBadRampOverlayColor(float normalizedBadness, float alpha)
+{
+    float red = normalizedBadness <= 0.5 ? normalizedBadness * 2.0 : 1.0;
+    float green = normalizedBadness <= 0.5 ? 1.0 : (1.0 - normalizedBadness) * 2.0;
+    return vec4(red, green, 0.0, alpha);
+}
+
+vec4 rampOverlayColor(float normalized, float alpha)
+{
+    float normalizedBadness = uTileOverlayGradientDirection == kOverlayGradientBadToGood ? 1.0 - normalized : normalized;
+    return goodToBadRampOverlayColor(normalizedBadness, alpha);
+}
+
+vec4 tileOverlayColor(uint payload)
+{
+    if (uTileOverlaySemanticMode == kTileOverlaySemanticTrafficCapacity) {
+        if ((payload & kTrafficOverlayRelevantMask) == 0u) {
+            return vec4(0.0);
+        }
+
+        float utilization = float(payload & kTrafficOverlayUtilizationMask) / float(kTrafficOverlayUtilizationMask);
+        return rampOverlayColor(utilization, 89.0 / kAuthoredColorByteMax);
+    }
+
+    float normalized = clamp(float(payload) / float(kOverlayScalarPayloadMaxValue), 0.0, 1.0);
+    if (uTileOverlaySemanticMode == kTileOverlaySemanticLandValue) {
+        return rampOverlayColor(normalized, 89.0 / kAuthoredColorByteMax);
+    }
+
+    if (uTileOverlaySemanticMode == kTileOverlaySemanticRciDesirability) {
+        return rampOverlayColor(normalized, 128.0 / kAuthoredColorByteMax);
+    }
+
+    return vec4(0.0);
 }
 
 float visibleRoadArrowGlyph(float packedGlyph)
@@ -234,7 +303,7 @@ void main()
         vec2 tileState = clamp(vec2(0.5) + texture(uTileStateTexture, vTileUv).rg * 0.5, vec2(0.0), vec2(1.0));
         vec3 finalColor = vec3(tileState.r, tileState.g, 0.18 + vSurfaceLift * 4.0);
         if (uZoningOverlayVisible != 0) {
-            vec4 zoningColor = texture(uTileOverlayTexture, vTileUv);
+            vec4 zoningColor = zoningOverlayColor(overlayPayload(vTileUv));
             finalColor = mix(finalColor, zoningColor.rgb, zoningColor.a);
         }
 
@@ -286,7 +355,7 @@ void main()
     }
 
     if (vRenderMode == 3) {
-        vec4 overlayColor = texture(uTileOverlayTexture, vTileUv);
+        vec4 overlayColor = tileOverlayColor(overlayPayload(vTileUv));
         if (overlayColor.a <= 0.001) {
             discard;
         }

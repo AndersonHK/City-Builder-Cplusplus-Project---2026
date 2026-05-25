@@ -1,5 +1,7 @@
 #include "TransportCostMap.h"
 
+#include "RendererPayload.h"
+
 #include <algorithm>
 #include <cmath>
 #include <queue>
@@ -74,15 +76,10 @@ struct HeapCompare {
     }
 };
 
-void WriteTrafficOverlayPixel(const TransportCostMap& costMap, int tileIndex, std::vector<std::uint8_t>& overlayPixels) {
-    const std::size_t pixelOffset = static_cast<std::size_t>(tileIndex) * 4u;
-    overlayPixels[pixelOffset + 0u] = 0u;
-    overlayPixels[pixelOffset + 1u] = 0u;
-    overlayPixels[pixelOffset + 2u] = 0u;
-    overlayPixels[pixelOffset + 3u] = 0u;
-
+void WriteTrafficOverlayPayload(const TransportCostMap& costMap, int tileIndex, std::vector<RendererScalarPayload>& overlayPayloads) {
     bool relevant = false;
-    float maxUtilization = 0.0f;
+    std::uint64_t maximumLoad = 0u;
+    std::uint64_t maximumCapacity = 1u;
 
     std::size_t layerIndex = 0;
     for (; layerIndex < static_cast<std::size_t>(TransportLayerId::Count); ++layerIndex) {
@@ -104,21 +101,18 @@ void WriteTrafficOverlayPixel(const TransportCostMap& costMap, int tileIndex, st
                         continue;
                     }
 
-                    maxUtilization = std::max(maxUtilization, static_cast<float>(loadState.cells[nodeId].oldLoads[directionIndex]) / static_cast<float>(transportCell.capacities[directionIndex]));
+                    const std::uint64_t load = loadState.cells[nodeId].oldLoads[directionIndex];
+                    const std::uint64_t capacity = transportCell.capacities[directionIndex];
+                    if ((load * maximumCapacity) > (maximumLoad * capacity)) {
+                        maximumLoad = load;
+                        maximumCapacity = capacity;
+                    }
                 }
             }
         }
     }
 
-    if (!relevant) {
-        return;
-    }
-
-    const float clampedUtilization = std::max(0.0f, std::min(maxUtilization, 1.0f));
-    overlayPixels[pixelOffset + 0u] = static_cast<std::uint8_t>(clampedUtilization * 255.0f + 0.5f);
-    overlayPixels[pixelOffset + 1u] = static_cast<std::uint8_t>((1.0f - clampedUtilization) * 255.0f + 0.5f);
-    overlayPixels[pixelOffset + 2u] = 0u;
-    overlayPixels[pixelOffset + 3u] = kTrafficOverlayAlphaByte;
+    overlayPayloads[static_cast<std::size_t>(tileIndex)] = RendererPackTrafficOverlayPayload(relevant, maximumLoad, maximumCapacity);
 }
 }
 
@@ -781,18 +775,18 @@ bool TransportCostMap::findPath(const TransportPathRequest& request, TransportPa
     return false;
 }
 
-void TransportCostMap::buildTrafficOverlay(std::vector<std::uint8_t>& overlayPixels) const {
-    overlayPixels.assign(totalTileCount_ * 4u, 0u);
+void TransportCostMap::buildTrafficOverlay(std::vector<RendererScalarPayload>& overlayPayloads) const {
+    overlayPayloads.assign(totalTileCount_, 0u);
 
     int tileIndex = 0;
     for (; tileIndex < static_cast<int>(totalTileCount_); ++tileIndex) {
-        WriteTrafficOverlayPixel(*this, tileIndex, overlayPixels);
+        WriteTrafficOverlayPayload(*this, tileIndex, overlayPayloads);
     }
 }
 
-void TransportCostMap::buildTrafficOverlayForTiles(const std::vector<int>& tileIndices, std::vector<std::uint8_t>& overlayPixels) const {
-    if (overlayPixels.size() != totalTileCount_ * 4u) {
-        overlayPixels.assign(totalTileCount_ * 4u, 0u);
+void TransportCostMap::buildTrafficOverlayForTiles(const std::vector<int>& tileIndices, std::vector<RendererScalarPayload>& overlayPayloads) const {
+    if (overlayPayloads.size() != totalTileCount_) {
+        overlayPayloads.assign(totalTileCount_, 0u);
     }
 
     std::vector<int> validTileIndices;
@@ -809,7 +803,7 @@ void TransportCostMap::buildTrafficOverlayForTiles(const std::vector<int>& tileI
     validTileIndices.erase(std::unique(validTileIndices.begin(), validTileIndices.end()), validTileIndices.end());
 
     for (dirtyIndex = 0; dirtyIndex < validTileIndices.size(); ++dirtyIndex) {
-        WriteTrafficOverlayPixel(*this, validTileIndices[dirtyIndex], overlayPixels);
+        WriteTrafficOverlayPayload(*this, validTileIndices[dirtyIndex], overlayPayloads);
     }
 }
 

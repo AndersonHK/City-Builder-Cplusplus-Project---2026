@@ -5,10 +5,6 @@
 namespace {
 RoadLaneCapacityConfig gLaneCapacityConfig;
 
-RoadDirectionMode DirectionModeFromTemplateId(std::uint16_t templateId) {
-    return static_cast<RoadDirectionMode>((templateId >> 6) & 0x3u);
-}
-
 RoadTemplateElement PrimaryLane(RoadLaneTypeId laneType) {
     RoadTemplateElement element;
     element.laneType = laneType;
@@ -75,7 +71,7 @@ void AttachMedian(RoadLaneCell& cell, const RoadLaneCellContext& context) {
 }
 
 bool IsOneWayTemplate(const RoadLanePlacement& lanePlacement) {
-    return DirectionModeFromTemplateId(lanePlacement.templateId) != RoadDirectionMode::TwoWay;
+    return RoadTemplateDirectionModeFromId(lanePlacement.templateId) != RoadDirectionMode::TwoWay;
 }
 
 RoadLaneCell MakeCarAndSidewalkCell(const RoadLanePlacement& lanePlacement, RoadLaneTypeId laneType, const RoadLaneCellContext& context) {

@@ -37,7 +37,6 @@ public:
     InGameWindow();
 
     bool loadFromXmlFile(const std::string& filePath);
-    void setFallbackDefinition();
     void setVisible(bool visible);
     bool visible() const;
     const std::string& id() const;

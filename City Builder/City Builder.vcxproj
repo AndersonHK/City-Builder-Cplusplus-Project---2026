@@ -89,11 +89,12 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>$(SolutionDir)Dependencies;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <AdditionalIncludeDirectories>$(VULKAN_SDK)\Include;$(ProjectDir)..\Dependencies;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>opengl32.lib;glew32.lib;glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(SolutionDir)Linker;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>dxgi.lib;opengl32.lib;glew32.lib;glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\Linker;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -103,17 +104,18 @@
       <SDLCheck>true</SDLCheck>
       <AdditionalUsingDirectories>
       </AdditionalUsingDirectories>
-      <AdditionalIncludeDirectories>C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\Dependencies;$(SolutionDir)Dependencies;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(VULKAN_SDK)\Include;$(ProjectDir)..\Dependencies;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>opengl32.lib;glew32.lib;glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\Linker;$(SolutionDir)Linker;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>vulkan-1.lib;dxgi.lib;opengl32.lib;glew32.lib;glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(VULKAN_SDK)\Lib;$(ProjectDir)..\Linker;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <PostBuildEvent>
       <Command>copy /Y "$(ProjectDir)Basic.shader" "$(OutDir)Basic.shader"
 "$(SystemRoot)\System32\xcopy.exe" /Y /I /E "$(ProjectDir)Data" "$(OutDir)Data"
-copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\glew32.dll" "$(OutDir)glew32.dll"
-copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"</Command>
+copy /Y "$(ProjectDir)..\DLLs\glew32.dll" "$(OutDir)glew32.dll"
+copy /Y "$(ProjectDir)..\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -123,13 +125,13 @@ copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>$(SolutionDir)Dependencies;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(VULKAN_SDK)\Include;$(ProjectDir)..\Dependencies;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalLibraryDirectories>$(SolutionDir)Linker;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>opengl32.lib;glew32.lib;glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\Linker;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>dxgi.lib;opengl32.lib;glew32.lib;glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -140,19 +142,19 @@ copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\Dependencies;$(SolutionDir)Dependencies;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(VULKAN_SDK)\Include;$(ProjectDir)..\Dependencies;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalLibraryDirectories>C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\Linker;$(SolutionDir)Linker;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>opengl32.lib;glew32.lib;glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(VULKAN_SDK)\Lib;$(ProjectDir)..\Linker;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>vulkan-1.lib;dxgi.lib;opengl32.lib;glew32.lib;glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
       <Command>copy /Y "$(ProjectDir)Basic.shader" "$(OutDir)Basic.shader"
 "$(SystemRoot)\System32\xcopy.exe" /Y /I /E "$(ProjectDir)Data" "$(OutDir)Data"
-copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\glew32.dll" "$(OutDir)glew32.dll"
-copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"</Command>
+copy /Y "$(ProjectDir)..\DLLs\glew32.dll" "$(OutDir)glew32.dll"
+copy /Y "$(ProjectDir)..\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -174,8 +176,11 @@ copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\
     <ClCompile Include="RoadLaneCell.cpp" />
     <ClCompile Include="RoadTemplateDefinition.cpp" />
     <ClCompile Include="RoadRenderState.cpp" />
+    <ClCompile Include="RciRoadStroke.cpp" />
     <ClCompile Include="RciTool.cpp" />
     <ClCompile Include="RendererAlgorithms.cpp" />
+    <ClCompile Include="RendererColor.cpp" />
+    <ClCompile Include="VulkanRendererSupport.cpp" />
     <ClCompile Include="Renderer.cpp" />
     <ClCompile Include="ShaderProgram.cpp" />
     <ClCompile Include="SimulationDate.cpp" />
@@ -889,8 +894,13 @@ copy /Y "C:\Users\imper\Documents\Visual Studio 2015\Projects\City Builder\DLLs\
     <ClInclude Include="RoadRenderState.h" />
     <ClInclude Include="RciTool.h" />
     <ClInclude Include="RendererAlgorithms.h" />
+    <ClInclude Include="RendererColor.h" />
     <ClInclude Include="Renderer.h" />
+    <ClInclude Include="RendererPayload.h" />
+    <ClInclude Include="RuntimePaths.h" />
+    <ClInclude Include="VulkanRendererSupport.h" />
     <ClInclude Include="ShaderProgram.h" />
+    <ClInclude Include="SimpleXml.h" />
     <ClInclude Include="SimulationDate.h" />
     <ClInclude Include="SimulationTime.h" />
     <ClInclude Include="SimulationRuntime.h" />

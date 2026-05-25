@@ -1,14 +1,13 @@
 #include "AppConfig.h"
 
+#include "RuntimePaths.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
 #include <GLFW/glfw3.h>
 
 namespace {
@@ -254,17 +253,6 @@ void ApplyHotkey(HotkeyConfig& hotkeys, const std::string& key, const std::strin
     }
 }
 
-std::string GetExecutableDirectory() {
-    char modulePath[MAX_PATH];
-    const DWORD pathLength = GetModuleFileNameA(0, modulePath, MAX_PATH);
-    std::string fullPath(modulePath, modulePath + pathLength);
-    const std::string::size_type separatorIndex = fullPath.find_last_of("\\/");
-    if (separatorIndex == std::string::npos) {
-        return ".";
-    }
-
-    return fullPath.substr(0, separatorIndex);
-}
 }
 
 HotkeyConfig::HotkeyConfig()
@@ -374,5 +362,5 @@ bool AppConfig::loadFromFile(const std::string& filePath) {
 }
 
 std::string DefaultAppConfigPath() {
-    return GetExecutableDirectory() + "\\Data\\config.ini";
+    return RuntimeDataPath("config.ini");
 }

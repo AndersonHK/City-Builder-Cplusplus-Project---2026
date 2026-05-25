@@ -2,14 +2,20 @@
 
 #include <cstdint>
 
-const std::uint16_t TileZoningNone = 0;
-const std::uint16_t TileZoningResidential = 1;
-const std::uint16_t TileZoningIndustrial = 2;
-const std::uint16_t TileZoningResidentialLow = 3;
-const std::uint16_t TileZoningResidentialHigh = TileZoningResidential;
+constexpr std::uint16_t TileZoningNone = 0;
+constexpr std::uint16_t TileZoningResidential = 1;
+constexpr std::uint16_t TileZoningIndustrial = 2;
+constexpr std::uint16_t TileZoningResidentialLow = 3;
+constexpr std::uint16_t TileZoningResidentialHigh = TileZoningResidential;
 
-const int kLandValueDisplayMinimum = 0;
-const int kLandValueDisplayCap = 160000;
+// Display caps define how simulation stats map into renderer scalar payloads.
+// Change these constants instead of reintroducing byte-scale magic numbers.
+constexpr int kSimulationStatDisplayMinimum = 0;
+constexpr int kSimulationStatDisplayCap = 160000;
+constexpr int kLandValueDisplayMinimum = kSimulationStatDisplayMinimum;
+constexpr int kLandValueDisplayCap = kSimulationStatDisplayCap;
+constexpr int kRciDesirabilityDisplayMinimum = 0;
+constexpr int kRciDesirabilityDisplayCap = 100;
 
 struct Tile {
     int landValue;
@@ -20,7 +26,7 @@ struct Tile {
 
     // Seeds a vacant tile with neutral early-prototype statistics.
     Tile()
-        : landValue(160000),
+        : landValue(kLandValueDisplayCap),
           airPollution(0),
           parkEffect(0),
           isVacant(true),

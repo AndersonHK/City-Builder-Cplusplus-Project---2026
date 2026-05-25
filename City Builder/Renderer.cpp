@@ -1,8 +1,7 @@
 #include "Renderer.h"
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
+#include "RuntimePaths.h"
+
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 
@@ -13,7 +12,9 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -29,7 +30,6 @@
 
 namespace {
 const float kPi = 3.14159265358979323846f;
-const float kTileStateScalarScale = 640000.0f;
 const float kRoadGhostAlpha = 0.46f;
 const float kLotGhostAlpha = 0.42f;
 const float kRegionCellWorldSize = 1024.0f;
@@ -39,6 +39,26 @@ const float kCityCameraNearPlaneDistanceFactor = 0.025f;
 const float kCityCameraMinimumFarPlane = 256.0f;
 const float kCityCameraFarPlaneTilePadding = 2.25f;
 const float kCityCameraFarPlaneWorldPadding = 128.0f;
+const GLint kLegacyTileStateTextureInternalFormat = GL_RG16_SNORM;
+const GLint kLegacyScalarOverlayTextureInternalFormat = GL_R16;
+const GLenum kRendererScalarPayloadUploadFormat = GL_RED;
+const GLenum kRendererScalarPayloadUploadType = GL_UNSIGNED_SHORT;
+static_assert(kRendererScalarPayloadBitDepth == 16, "The legacy OpenGL scalar-overlay upload format must change with the renderer scalar payload bit depth.");
+static_assert(kRendererSignedScalarPayloadBitDepth == 16, "The legacy OpenGL tile-state texture format must change with the signed scalar payload bit depth.");
+
+RendererOverlaySemantic RendererOverlaySemanticForOverlayMode(OverlayMode overlayMode) noexcept {
+    switch (overlayMode) {
+    case OverlayMode::LandValue:
+        return RendererOverlaySemantic::LandValue;
+    case OverlayMode::RciDesirability:
+        return RendererOverlaySemantic::RciDesirability;
+    case OverlayMode::TrafficCapacity:
+    case OverlayMode::None:
+    case OverlayMode::Rci:
+    default:
+        return RendererOverlaySemantic::TrafficCapacity;
+    }
+}
 
 struct Vec3 {
     float x;
@@ -127,6 +147,20 @@ struct Plane {
     float b;
     float c;
     float d;
+
+    Plane()
+        : a(0.0f),
+          b(0.0f),
+          c(0.0f),
+          d(0.0f) {
+    }
+
+    Plane(float aValue, float bValue, float cValue, float dValue)
+        : a(aValue),
+          b(bValue),
+          c(cValue),
+          d(dValue) {
+    }
 };
 
 struct Aabb {
@@ -136,6 +170,10 @@ struct Aabb {
 
 struct Frustum {
     Plane planes[6];
+
+    Frustum()
+        : planes() {
+    }
 };
 
 enum CameraProjectionMode {
@@ -154,6 +192,19 @@ struct CameraSpec {
     float nearPlane;
     float farPlane;
     CameraProjectionMode projectionMode;
+
+    CameraSpec()
+        : target(),
+          up(0.0f, 1.0f, 0.0f),
+          yawRadians(0.0f),
+          pitchRadians(0.0f),
+          distance(0.0f),
+          verticalFieldOfViewRadians(0.0f),
+          orthographicHeight(0.0f),
+          nearPlane(0.0f),
+          farPlane(0.0f),
+          projectionMode(CameraProjectionPerspective) {
+    }
 };
 
 struct CameraState {
@@ -164,6 +215,16 @@ struct CameraState {
     Mat4 viewProjection;
     Mat4 inverseViewProjection;
     Frustum frustum;
+
+    CameraState()
+        : position(),
+          target(),
+          view(),
+          projection(),
+          viewProjection(),
+          inverseViewProjection(),
+          frustum() {
+    }
 };
 
 struct TileInstanceData {
@@ -406,12 +467,106 @@ struct RendererFrameMetrics {
     }
 };
 
+struct GlobalMemoryDeleter {
+    void operator()(HGLOBAL handle) const {
+        if (handle != 0) {
+            GlobalFree(handle);
+        }
+    }
+};
+
+bool CopyBackBufferToClipboard(int framebufferWidth, int framebufferHeight) {
+    if (framebufferWidth <= 0 || framebufferHeight <= 0) {
+        return false;
+    }
+
+    const std::size_t width = static_cast<std::size_t>(framebufferWidth);
+    const std::size_t height = static_cast<std::size_t>(framebufferHeight);
+    const std::size_t bytesPerPixel = 4u;
+    if (width > (std::numeric_limits<std::size_t>::max() / height) ||
+        (width * height) > (std::numeric_limits<std::size_t>::max() / bytesPerPixel)) {
+        return false;
+    }
+
+    const std::size_t pixelBytes = width * height * bytesPerPixel;
+    const std::size_t dibBytes = sizeof(BITMAPINFOHEADER) + pixelBytes;
+    if (pixelBytes > static_cast<std::size_t>(std::numeric_limits<DWORD>::max()) ||
+        dibBytes > static_cast<std::size_t>(std::numeric_limits<SIZE_T>::max())) {
+        return false;
+    }
+
+    std::vector<std::uint8_t> rgbaPixels(pixelBytes, 0u);
+    GLint previousReadFramebuffer = 0;
+    GLint previousReadBuffer = 0;
+    GLint previousPackAlignment = 0;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previousReadFramebuffer);
+    glGetIntegerv(GL_READ_BUFFER, &previousReadBuffer);
+    glGetIntegerv(GL_PACK_ALIGNMENT, &previousPackAlignment);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    glReadBuffer(GL_BACK);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, framebufferWidth, framebufferHeight, GL_RGBA, GL_UNSIGNED_BYTE, &rgbaPixels[0]);
+    glPixelStorei(GL_PACK_ALIGNMENT, previousPackAlignment);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, previousReadFramebuffer);
+    glReadBuffer(previousReadBuffer);
+
+    std::unique_ptr<void, GlobalMemoryDeleter> clipboardMemory(
+        GlobalAlloc(GMEM_MOVEABLE, static_cast<SIZE_T>(dibBytes)));
+    if (clipboardMemory.get() == 0) {
+        return false;
+    }
+
+    std::uint8_t* dib = static_cast<std::uint8_t*>(GlobalLock(clipboardMemory.get()));
+    if (dib == 0) {
+        return false;
+    }
+
+    BITMAPINFOHEADER* header = reinterpret_cast<BITMAPINFOHEADER*>(dib);
+    *header = BITMAPINFOHEADER();
+    header->biSize = sizeof(BITMAPINFOHEADER);
+    header->biWidth = framebufferWidth;
+    header->biHeight = framebufferHeight;
+    header->biPlanes = 1;
+    header->biBitCount = 32;
+    header->biCompression = BI_RGB;
+    header->biSizeImage = static_cast<DWORD>(pixelBytes);
+
+    std::uint8_t* bgraPixels = dib + sizeof(BITMAPINFOHEADER);
+    std::size_t pixelIndex = 0u;
+    for (; pixelIndex < width * height; ++pixelIndex) {
+        bgraPixels[(pixelIndex * 4u) + 0u] = rgbaPixels[(pixelIndex * 4u) + 2u];
+        bgraPixels[(pixelIndex * 4u) + 1u] = rgbaPixels[(pixelIndex * 4u) + 1u];
+        bgraPixels[(pixelIndex * 4u) + 2u] = rgbaPixels[(pixelIndex * 4u) + 0u];
+        bgraPixels[(pixelIndex * 4u) + 3u] = 0xffu;
+    }
+    GlobalUnlock(clipboardMemory.get());
+
+    if (OpenClipboard(0) == FALSE) {
+        return false;
+    }
+
+    if (EmptyClipboard() == FALSE) {
+        CloseClipboard();
+        return false;
+    }
+
+    if (SetClipboardData(CF_DIB, clipboardMemory.get()) == 0) {
+        CloseClipboard();
+        return false;
+    }
+
+    clipboardMemory.release();
+    CloseClipboard();
+    return true;
+}
+
 class RendererCallbacks {
 public:
     // Bridges GLFW callbacks back into the app controller.
     RendererCallbacks(AppController& appController, bool isFullscreen, int windowedWidth, int windowedHeight)
         : appController_(appController),
           isFullscreen_(isFullscreen),
+          screenshotRequested_(false),
           windowedX_(0),
           windowedY_(0),
           windowedWidth_(windowedWidth),
@@ -451,6 +606,11 @@ public:
         (void)scancode;
         RendererCallbacks* callbacks = reinterpret_cast<RendererCallbacks*>(glfwGetWindowUserPointer(window));
         if (callbacks != 0) {
+            if (key == GLFW_KEY_PRINT_SCREEN && action == GLFW_PRESS) {
+                callbacks->requestScreenshot();
+                return;
+            }
+
             if ((key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER) && action == GLFW_PRESS && (mods & GLFW_MOD_ALT) != 0) {
                 callbacks->toggleFullscreen(window);
                 return;
@@ -469,7 +629,20 @@ public:
         }
     }
 
+    bool consumeScreenshotRequest() {
+        if (!screenshotRequested_) {
+            return false;
+        }
+
+        screenshotRequested_ = false;
+        return true;
+    }
+
 private:
+    void requestScreenshot() {
+        screenshotRequested_ = true;
+    }
+
     // Switches between windowed mode and the primary monitor's current video mode.
     void toggleFullscreen(GLFWwindow* window) {
         if (!isFullscreen_) {
@@ -493,11 +666,22 @@ private:
 
     AppController& appController_;
     bool isFullscreen_;
+    bool screenshotRequested_;
     int windowedX_;
     int windowedY_;
     int windowedWidth_;
     int windowedHeight_;
 };
+
+void CopyRequestedScreenshotToClipboard(RendererCallbacks& callbacks, int framebufferWidth, int framebufferHeight) {
+    if (!callbacks.consumeScreenshotRequest()) {
+        return;
+    }
+
+    if (!CopyBackBufferToClipboard(framebufferWidth, framebufferHeight)) {
+        LogWarning("Renderer::run", "PrintScreen capture requested, but copying the current back buffer to the clipboard failed.");
+    }
+}
 
 // Converts degrees to radians for camera and projection setup.
 float DegreesToRadians(float degrees) {
@@ -864,26 +1048,13 @@ GLuint CreateRoadAtlasTexture(const RoadAtlasImage& image) {
     return textureId;
 }
 
-// Finds the executable directory so the runtime shader can be loaded beside it.
-std::string GetExecutableDirectory() {
-    char modulePath[MAX_PATH];
-    const DWORD pathLength = GetModuleFileNameA(0, modulePath, MAX_PATH);
-    std::string fullPath(modulePath, modulePath + pathLength);
-    const std::string::size_type lastSeparatorIndex = fullPath.find_last_of("\\/");
-    if (lastSeparatorIndex == std::string::npos) {
-        return ".";
-    }
-
-    return fullPath.substr(0, lastSeparatorIndex);
-}
-
 // Builds the path to the copied runtime shader file.
 std::string BuildShaderPath() {
-    return GetExecutableDirectory() + "\\Basic.shader";
+    return RuntimeExecutablePath("Basic.shader");
 }
 
 std::string BuildDataPath(const std::string& relativePath) {
-    return GetExecutableDirectory() + "\\Data\\" + relativePath;
+    return RuntimeDataPath(relativePath);
 }
 
 // Configures one instanced vertex attribute for OpenGL.
@@ -1415,21 +1586,6 @@ AreaOverlayInstanceData BuildAreaOverlayInstance(int minTileX, int minTileY, int
     return BuildAreaOverlayInstance(minTileX, minTileY, maxTileX, maxTileY, 1.0f, 0.05f, 0.03f, 0.28f);
 }
 
-RoadStrokeCommand BuildRciRoadStrokeCommand(const RciRoadPlan& roadPlan) {
-    RoadStrokeCommand roadStrokeCommand;
-    roadStrokeCommand.startTile = Int2(roadPlan.startTileX, roadPlan.startTileY);
-    roadStrokeCommand.cornerTile = Int2(roadPlan.endTileX, roadPlan.endTileY);
-    roadStrokeCommand.endTile = Int2(roadPlan.endTileX, roadPlan.endTileY);
-    roadStrokeCommand.templateKind = RoadTemplateKind::Street;
-    roadStrokeCommand.family = RoadFamily::LocalStreet;
-    roadStrokeCommand.layer = TransportLayerId::Ground;
-    roadStrokeCommand.roadTemplate = TransportNetwork::makeRoadTemplate(
-        roadStrokeCommand.templateKind,
-        RoadTrafficSide::RightHand,
-        RoadDirectionMode::TwoWay);
-    return roadStrokeCommand;
-}
-
 // Returns the world-space vertical offset for a road layer.
 float RoadLayerLift(TransportLayerId layer) {
     switch (layer) {
@@ -1876,10 +2032,10 @@ void UpdateTileOverlayChunkTexture(GLuint textureId, const PublishedWorldSnapsho
     }
 
     const std::size_t startOffset =
-        (static_cast<std::size_t>(chunkRect.startY) * static_cast<std::size_t>(snapshot.width) + static_cast<std::size_t>(chunkRect.startX)) * 4u;
+        static_cast<std::size_t>(chunkRect.startY) * static_cast<std::size_t>(snapshot.width) + static_cast<std::size_t>(chunkRect.startX);
     glActiveTexture(GL_TEXTURE5);
     glBindTexture(GL_TEXTURE_2D, textureId);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, snapshot.width);
     glTexSubImage2D(
         GL_TEXTURE_2D,
@@ -1888,49 +2044,49 @@ void UpdateTileOverlayChunkTexture(GLuint textureId, const PublishedWorldSnapsho
         chunkRect.startY,
         chunkRect.width,
         chunkRect.height,
-        GL_RGBA,
-        GL_UNSIGNED_BYTE,
+        kRendererScalarPayloadUploadFormat,
+        kRendererScalarPayloadUploadType,
         &(*snapshot.tileOverlayState)[startOffset]);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 }
 
-void FillZoningOverlayChunkPixels(const PublishedWorldSnapshot& snapshot, const ChunkRect& chunkRect, std::vector<std::uint8_t>& texturePixels) {
-    const std::size_t chunkByteCount = static_cast<std::size_t>(chunkRect.width) * static_cast<std::size_t>(chunkRect.height) * 4u;
-    if (texturePixels.size() != chunkByteCount) {
-        texturePixels.resize(chunkByteCount, 0u);
+void FillZoningOverlayChunkValues(const PublishedWorldSnapshot& snapshot, const ChunkRect& chunkRect, std::vector<RendererScalarPayload>& textureValues) {
+    const std::size_t chunkValueCount = static_cast<std::size_t>(chunkRect.width) * static_cast<std::size_t>(chunkRect.height);
+    if (textureValues.size() != chunkValueCount) {
+        textureValues.resize(chunkValueCount, 0u);
     }
 
     if (snapshot.tiles == 0) {
-        std::fill(texturePixels.begin(), texturePixels.end(), 0u);
+        std::fill(textureValues.begin(), textureValues.end(), 0u);
         return;
     }
 
-    RendererFillZoningOverlayChunkPixels(*snapshot.tiles, snapshot.width, chunkRect, texturePixels);
+    RendererFillZoningOverlayChunkValues(*snapshot.tiles, snapshot.width, chunkRect, textureValues);
 }
 
-void FillLandValueOverlayChunkPixels(const PublishedWorldSnapshot& snapshot, const ChunkRect& chunkRect, int minimumLandValue, int maximumLandValue, std::vector<std::uint8_t>& texturePixels) {
-    const std::size_t chunkByteCount = static_cast<std::size_t>(chunkRect.width) * static_cast<std::size_t>(chunkRect.height) * 4u;
-    if (texturePixels.size() != chunkByteCount) {
-        texturePixels.resize(chunkByteCount, 0u);
+void FillLandValueOverlayChunkValues(const PublishedWorldSnapshot& snapshot, const ChunkRect& chunkRect, std::vector<RendererScalarPayload>& textureValues) {
+    const std::size_t chunkValueCount = static_cast<std::size_t>(chunkRect.width) * static_cast<std::size_t>(chunkRect.height);
+    if (textureValues.size() != chunkValueCount) {
+        textureValues.resize(chunkValueCount, 0u);
     }
 
     if (snapshot.tiles == 0) {
-        std::fill(texturePixels.begin(), texturePixels.end(), 0u);
+        std::fill(textureValues.begin(), textureValues.end(), 0u);
         return;
     }
 
-    RendererFillLandValueOverlayChunkPixels(*snapshot.tiles, snapshot.width, chunkRect, minimumLandValue, maximumLandValue, kTrafficOverlayAlphaByte, texturePixels);
+    RendererFillLandValueOverlayChunkValues(*snapshot.tiles, snapshot.width, chunkRect, textureValues);
 }
 
-void UploadRgbaOverlayChunkTexture(GLuint textureId, const ChunkRect& chunkRect, const std::vector<std::uint8_t>& texturePixels) {
-    if (texturePixels.empty()) {
+void UploadScalarOverlayChunkTexture(GLuint textureId, const ChunkRect& chunkRect, const std::vector<RendererScalarPayload>& textureValues) {
+    if (textureValues.empty()) {
         return;
     }
 
     glActiveTexture(GL_TEXTURE5);
     glBindTexture(GL_TEXTURE_2D, textureId);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
     glTexSubImage2D(
         GL_TEXTURE_2D,
         0,
@@ -1938,9 +2094,9 @@ void UploadRgbaOverlayChunkTexture(GLuint textureId, const ChunkRect& chunkRect,
         chunkRect.startY,
         chunkRect.width,
         chunkRect.height,
-        GL_RGBA,
-        GL_UNSIGNED_BYTE,
-        &texturePixels[0]);
+        kRendererScalarPayloadUploadFormat,
+        kRendererScalarPayloadUploadType,
+        &textureValues[0]);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 }
 
@@ -2249,11 +2405,6 @@ int Renderer::run() {
     const int initialWindowHeight = startupVideoMode == 0 ? configuredWindowedHeight : startupVideoMode->height;
     GLFWwindow* window = glfwCreateWindow(initialWindowWidth, initialWindowHeight, "Project Prime", startupMonitor, 0);
     if (window == 0) {
-        LogWarning("Renderer::run", "Window creation with 32-bit depth buffer failed. Retrying with a 24-bit depth buffer.");
-        glfwWindowHint(GLFW_DEPTH_BITS, 24);
-        window = glfwCreateWindow(initialWindowWidth, initialWindowHeight, "Project Prime", startupMonitor, 0);
-    }
-    if (window == 0) {
         glfwTerminate();
         LogError("Renderer::run", "Window creation failed.");
         return 1;
@@ -2334,7 +2485,7 @@ int Renderer::run() {
     glTexImage2D(
         GL_TEXTURE_2D,
         0,
-        GL_RG16_SNORM,
+        kLegacyTileStateTextureInternalFormat,
         simulationRuntime.mapWidth(),
         simulationRuntime.mapHeight(),
         0,
@@ -2388,12 +2539,12 @@ int Renderer::run() {
     glTexImage2D(
         GL_TEXTURE_2D,
         0,
-        GL_RGBA8,
+        kLegacyScalarOverlayTextureInternalFormat,
         simulationRuntime.mapWidth(),
         simulationRuntime.mapHeight(),
         0,
-        GL_RGBA,
-        GL_UNSIGNED_BYTE,
+        kRendererScalarPayloadUploadFormat,
+        kRendererScalarPayloadUploadType,
         0);
 
     GLuint zoningOverlayTextureId = 0;
@@ -2406,12 +2557,12 @@ int Renderer::run() {
     glTexImage2D(
         GL_TEXTURE_2D,
         0,
-        GL_RGBA8,
+        kLegacyScalarOverlayTextureInternalFormat,
         simulationRuntime.mapWidth(),
         simulationRuntime.mapHeight(),
         0,
-        GL_RGBA,
-        GL_UNSIGNED_BYTE,
+        kRendererScalarPayloadUploadFormat,
+        kRendererScalarPayloadUploadType,
         0);
 
     const GLuint roadBaseAtlasTextureId = CreateRoadAtlasTexture(BuildRoadBaseAtlas(true));
@@ -2512,12 +2663,6 @@ int Renderer::run() {
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, cityPreviewDepthRenderbufferId);
     bool cityPreviewFramebufferComplete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
     if (!cityPreviewFramebufferComplete) {
-        LogWarning("Renderer::run", "City preview framebuffer with 32-bit float depth is incomplete. Retrying with 24-bit depth.");
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, City::kPreviewWidth, City::kPreviewHeight);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, cityPreviewDepthRenderbufferId);
-        cityPreviewFramebufferComplete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
-    }
-    if (!cityPreviewFramebufferComplete) {
         LogError("Renderer::run", "City preview framebuffer is incomplete.");
     }
     GLint cityPreviewDepthBits = 0;
@@ -2582,6 +2727,8 @@ int Renderer::run() {
     const GLint lotTintStrengthLocation = glGetUniformLocation(shaderProgram.programId(), "uLotTintStrength");
     const GLint regionPreviewTextureLocation = glGetUniformLocation(shaderProgram.programId(), "uRegionPreviewTexture");
     const GLint zoningOverlayVisibleLocation = glGetUniformLocation(shaderProgram.programId(), "uZoningOverlayVisible");
+    const GLint tileOverlaySemanticModeLocation = glGetUniformLocation(shaderProgram.programId(), "uTileOverlaySemanticMode");
+    const GLint tileOverlayGradientDirectionLocation = glGetUniformLocation(shaderProgram.programId(), "uTileOverlayGradientDirection");
     glUniform1i(tileTextureLocation, 0);
     glUniform1i(groundRoadStateTextureLocation, 1);
     glUniform1i(roadBaseAtlasTextureLocation, 2);
@@ -2598,12 +2745,14 @@ int Renderer::run() {
     glUniform3f(lotTintColorLocation, 1.0f, 1.0f, 1.0f);
     glUniform1f(lotTintStrengthLocation, 0.0f);
     glUniform1i(zoningOverlayVisibleLocation, 1);
+    glUniform1i(tileOverlaySemanticModeLocation, RendererOverlaySemanticIndex(RendererOverlaySemantic::TrafficCapacity));
+    glUniform1i(tileOverlayGradientDirectionLocation, RendererOverlayGradientDirectionIndex(RendererOverlayGradientDirection::GoodToBad));
 
     std::vector<GLshort> tileStateChunkPixels;
     std::vector<std::uint8_t> tileLiftChunkPixels;
-    std::vector<std::uint8_t> zoningOverlayChunkPixels;
-    std::vector<std::uint8_t> landValueOverlayChunkPixels;
-    std::vector<std::uint8_t> desirabilityOverlayChunkPixels;
+    std::vector<RendererScalarPayload> zoningOverlayChunkValues;
+    std::vector<RendererScalarPayload> landValueOverlayChunkValues;
+    std::vector<RendererScalarPayload> desirabilityOverlayChunkValues;
     std::vector<std::uint8_t> emptyGroundRoadChunkPixels;
     std::vector<LotInstanceData> lotInstances;
     std::vector<LotInstanceData> lotGhostInstances;
@@ -2644,6 +2793,7 @@ int Renderer::run() {
             loadingFramebufferWidth,
             loadingFramebufferHeight,
             uiQuadInstances);
+        CopyRequestedScreenshotToClipboard(callbacks, loadingFramebufferWidth, loadingFramebufferHeight);
         glfwSwapBuffers(window);
     };
 
@@ -2658,7 +2808,9 @@ int Renderer::run() {
     startupLoadingStatus.label = "Loading UI";
     startupLoadingStatus.progress = 0.08f;
     drawLoadingScreen(startupLoadingStatus);
-    queryWindow.loadFromXmlFile(BuildDataPath("UI\\lot_query.xml"));
+    if (!queryWindow.loadFromXmlFile(BuildDataPath("UI\\lot_query.xml"))) {
+        throw std::runtime_error("Renderer::run: failed to load query window UI XML.");
+    }
     appController_.loadLocaleFromJsonFile(BuildDataPath("Locale\\en-US.json"));
     appController_.loadUiLayoutFromXmlFile(BuildDataPath("UI\\city_tools.xml"));
     startupLoadingStatus.label = "Loading tools";
@@ -2677,9 +2829,6 @@ int Renderer::run() {
     OverlayMode lastUploadedTileOverlayMode = OverlayMode::None;
     OverlayMode lastUploadedLotOverlayMode = OverlayMode::None;
     std::string lastUploadedDesirabilityOverlayToolId;
-    std::uint64_t landValueOverlayRangeGeneration = std::numeric_limits<std::uint64_t>::max();
-    int landValueOverlayMinimum = 0;
-    int landValueOverlayMaximum = 0;
     bool lastFrameWasRegion = true;
     std::uint64_t lastHandledRenderStateRevision = gameSession_.renderStateRevision();
     std::uint64_t lastRegionPreviewCacheRevision = std::numeric_limits<std::uint64_t>::max();
@@ -2762,7 +2911,6 @@ int Renderer::run() {
         lastUploadedTileOverlayMode = OverlayMode::None;
         lastUploadedLotOverlayMode = OverlayMode::None;
         lastUploadedDesirabilityOverlayToolId.clear();
-        landValueOverlayRangeGeneration = std::numeric_limits<std::uint64_t>::max();
         lastUploadedLotRevision = std::numeric_limits<std::uint64_t>::max();
         lastUploadedZoningLotRevision = std::numeric_limits<std::uint64_t>::max();
         lastUploadedRciParcelLotRevision = std::numeric_limits<std::uint64_t>::max();
@@ -3093,6 +3241,7 @@ int Renderer::run() {
                 framebufferWidth,
                 framebufferHeight,
                 uiQuadInstances);
+            CopyRequestedScreenshotToClipboard(callbacks, framebufferWidth, framebufferHeight);
             glfwSwapBuffers(window);
             glfwPollEvents();
             if (appController_.quitRequested()) {
@@ -3412,8 +3561,8 @@ int Renderer::run() {
                     }
 
                     const ChunkRect& chunkRect = chunkCaches[uploadChunkIndex].chunkRect;
-                    FillZoningOverlayChunkPixels(snapshot, chunkRect, zoningOverlayChunkPixels);
-                    UploadRgbaOverlayChunkTexture(zoningOverlayTextureId, chunkRect, zoningOverlayChunkPixels);
+                    FillZoningOverlayChunkValues(snapshot, chunkRect, zoningOverlayChunkValues);
+                    UploadScalarOverlayChunkTexture(zoningOverlayTextureId, chunkRect, zoningOverlayChunkValues);
                     lastUploadedZoningOverlayChunkRevisions[uploadChunkIndex] = publishedRevision;
                 }
             }
@@ -3442,14 +3591,6 @@ int Renderer::run() {
                     ++frameMetrics.tileOverlayUploadedChunkCount;
                 }
             } else if (viewState.overlayMode == OverlayMode::LandValue && snapshot.tiles != 0) {
-                if (landValueOverlayRangeGeneration != snapshot.generation) {
-                    if (!RendererFindLandValueRange(*snapshot.tiles, landValueOverlayMinimum, landValueOverlayMaximum)) {
-                        landValueOverlayMinimum = kLandValueDisplayMinimum;
-                        landValueOverlayMaximum = kLandValueDisplayCap;
-                    }
-                    landValueOverlayRangeGeneration = snapshot.generation;
-                }
-
                 for (uploadChunkIndex = 0; uploadChunkIndex < chunkCaches.size(); ++uploadChunkIndex) {
                     const std::uint64_t publishedRevision = snapshot.generation;
                     if (lastUploadedTileOverlayChunkRevisions[uploadChunkIndex] == publishedRevision) {
@@ -3462,8 +3603,8 @@ int Renderer::run() {
                     }
 
                     const ChunkRect& chunkRect = chunkCaches[uploadChunkIndex].chunkRect;
-                    FillLandValueOverlayChunkPixels(snapshot, chunkRect, landValueOverlayMinimum, landValueOverlayMaximum, landValueOverlayChunkPixels);
-                    UploadRgbaOverlayChunkTexture(tileOverlayTextureId, chunkRect, landValueOverlayChunkPixels);
+                    FillLandValueOverlayChunkValues(snapshot, chunkRect, landValueOverlayChunkValues);
+                    UploadScalarOverlayChunkTexture(tileOverlayTextureId, chunkRect, landValueOverlayChunkValues);
                     lastUploadedTileOverlayChunkRevisions[uploadChunkIndex] = publishedRevision;
                     ++frameMetrics.tileOverlayUploadedChunkCount;
                 }
@@ -3480,8 +3621,8 @@ int Renderer::run() {
                     }
 
                     const ChunkRect& chunkRect = chunkCaches[uploadChunkIndex].chunkRect;
-                    if (simulationRuntime.fillRciDesirabilityOverlayChunkPixels(viewState.overlayRciTypeId, snapshot, chunkRect, desirabilityOverlayChunkPixels)) {
-                        UploadRgbaOverlayChunkTexture(tileOverlayTextureId, chunkRect, desirabilityOverlayChunkPixels);
+                    if (simulationRuntime.fillRciDesirabilityOverlayChunkValues(viewState.overlayRciTypeId, snapshot, chunkRect, desirabilityOverlayChunkValues)) {
+                        UploadScalarOverlayChunkTexture(tileOverlayTextureId, chunkRect, desirabilityOverlayChunkValues);
                         lastUploadedTileOverlayChunkRevisions[uploadChunkIndex] = publishedRevision;
                         ++frameMetrics.tileOverlayUploadedChunkCount;
                     }
@@ -3687,6 +3828,11 @@ int Renderer::run() {
             if (drawTileOverlay) {
                 glActiveTexture(GL_TEXTURE5);
                 glBindTexture(GL_TEXTURE_2D, tileOverlayTextureId);
+                const RendererOverlaySemantic tileOverlaySemantic = RendererOverlaySemanticForOverlayMode(viewState.overlayMode);
+                glUniform1i(tileOverlaySemanticModeLocation, RendererOverlaySemanticIndex(tileOverlaySemantic));
+                glUniform1i(
+                    tileOverlayGradientDirectionLocation,
+                    RendererOverlayGradientDirectionIndex(RendererOverlayGradientDirectionForSemantic(tileOverlaySemantic)));
                 glUniform1i(renderModeLocation, 3);
                 glDepthMask(GL_FALSE);
                 glDisable(GL_DEPTH_TEST);
@@ -3769,6 +3915,7 @@ int Renderer::run() {
         }
 
         simulationRuntime.releasePublishedSnapshot(snapshot);
+        CopyRequestedScreenshotToClipboard(callbacks, framebufferWidth, framebufferHeight);
         glfwSwapBuffers(window);
         glfwPollEvents();
         if (appController_.quitRequested()) {

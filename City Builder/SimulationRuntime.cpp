@@ -2,6 +2,8 @@
 
 #include "AssetLoader.h"
 #include "CrashLogger.h"
+#include "RendererPayload.h"
+#include "RuntimePaths.h"
 #include "RoadTemplateDefinition.h"
 #include "SimulationTime.h"
 
@@ -11,10 +13,6 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
-
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
 
 namespace {
 // Converts a steady-clock span to microseconds for lightweight profiling.
@@ -96,21 +94,6 @@ RciRect NormalizeRciBounds(int startTileX, int startTileY, int endTileX, int end
         ClampTileCoordinate(std::max(startTileY, endTileY), mapHeight - 1));
 }
 
-RoadStrokeCommand BuildRciRoadStrokeCommand(const RciRoadPlan& roadPlan) {
-    RoadStrokeCommand roadStrokeCommand;
-    roadStrokeCommand.startTile = Int2(roadPlan.startTileX, roadPlan.startTileY);
-    roadStrokeCommand.cornerTile = Int2(roadPlan.endTileX, roadPlan.endTileY);
-    roadStrokeCommand.endTile = Int2(roadPlan.endTileX, roadPlan.endTileY);
-    roadStrokeCommand.family = RoadFamily::LocalStreet;
-    roadStrokeCommand.layer = TransportLayerId::Ground;
-    roadStrokeCommand.templateKind = RoadTemplateKind::Street;
-    roadStrokeCommand.roadTemplate = TransportNetwork::makeRoadTemplate(
-        roadStrokeCommand.templateKind,
-        RoadTrafficSide::RightHand,
-        RoadDirectionMode::TwoWay);
-    return roadStrokeCommand;
-}
-
 std::uint8_t RoadAxisMaskForResolvedCell(const ResolvedRoadCell& roadCell) {
     std::uint8_t axisMask = 0u;
     if (HasHorizontalLane(roadCell.travelMask)) {
@@ -151,11 +134,7 @@ float RciStarterDensityFloor(std::uint16_t zoningType) {
 }
 
 int ClampDesirability(int desirability) {
-    return std::max(0, std::min(desirability, 100));
-}
-
-std::uint8_t OverlayColorByte(double value) {
-    return static_cast<std::uint8_t>(std::max(0.0, std::min(value, 255.0)) + 0.5);
+    return std::max(kRciDesirabilityDisplayMinimum, std::min(desirability, kRciDesirabilityDisplayCap));
 }
 
 int RciDesirabilityFieldRawValue(RciDesirabilityField field, const Tile& tile) {
@@ -293,19 +272,6 @@ void AddUniqueBoundary(std::vector<int>& boundaries, int value) {
 void MixRciHash(std::uint32_t& hash, std::uint32_t value) {
     hash ^= value;
     hash *= 16777619u;
-}
-
-// Finds the executable directory so data assets can be loaded beside the binary.
-std::string GetExecutableDirectory() {
-    char modulePath[MAX_PATH];
-    const DWORD pathLength = GetModuleFileNameA(0, modulePath, MAX_PATH);
-    std::string fullPath(modulePath, modulePath + pathLength);
-    const std::string::size_type separatorIndex = fullPath.find_last_of("\\/");
-    if (separatorIndex == std::string::npos) {
-        return ".";
-    }
-
-    return fullPath.substr(0, separatorIndex);
 }
 
 int NormalizeRotationSteps(int rotationSteps) {
@@ -467,7 +433,7 @@ SimulationRuntime::SimulationRuntime(const RuntimeOptions& runtimeOptions)
         tileBuffers_[bufferIndex].publishedLotOccupancy.assign(totalTileCount, kInvalidLotId);
         tileBuffers_[bufferIndex].publishedRoads.assign(totalTileCount * TransportNetwork::layerCount(), ResolvedRoadCell());
         tileBuffers_[bufferIndex].publishedGroundRoadRenderState.assign(totalTileCount * kGroundRoadRenderChannelsPerTile, 0);
-        tileBuffers_[bufferIndex].publishedTileOverlayState.assign(totalTileCount * 4u, 0);
+        tileBuffers_[bufferIndex].publishedTileOverlayState.assign(totalTileCount, 0u);
         tileBuffers_[bufferIndex].publishedGroundRoadChunkRevisions.assign(chunkCount, 1);
         tileBuffers_[bufferIndex].publishedElevatedRoadChunkRevisions.assign(chunkCount, 1);
         tileBuffers_[bufferIndex].publishedTileOverlayChunkRevisions.assign(chunkCount, 1);
@@ -1109,7 +1075,7 @@ void SimulationRuntime::importCitySaveState(const CitySaveState& saveState) {
         tileBuffers_[bufferIndex].publishedLotOccupancy.assign(totalTileCount, kInvalidLotId);
         tileBuffers_[bufferIndex].publishedRoads.assign(totalTileCount * TransportNetwork::layerCount(), ResolvedRoadCell());
         tileBuffers_[bufferIndex].publishedGroundRoadRenderState.assign(totalTileCount * kGroundRoadRenderChannelsPerTile, 0);
-        tileBuffers_[bufferIndex].publishedTileOverlayState.assign(totalTileCount * 4u, 0);
+        tileBuffers_[bufferIndex].publishedTileOverlayState.assign(totalTileCount, 0u);
         tileBuffers_[bufferIndex].publishedGroundRoadChunkRevisions.assign(chunkLayout_.size(), 1);
         tileBuffers_[bufferIndex].publishedElevatedRoadChunkRevisions.assign(chunkLayout_.size(), 1);
         tileBuffers_[bufferIndex].publishedTileOverlayChunkRevisions.assign(chunkLayout_.size(), 1);
@@ -1202,15 +1168,15 @@ void SimulationRuntime::releasePublishedSnapshot(const PublishedWorldSnapshot& s
     renderCv_.notify_all();
 }
 
-bool SimulationRuntime::fillRciDesirabilityOverlayChunkPixels(const std::string& rciTypeId, const PublishedWorldSnapshot& snapshot, const ChunkRect& chunkRect, std::vector<std::uint8_t>& texturePixels) const {
+bool SimulationRuntime::fillRciDesirabilityOverlayChunkValues(const std::string& rciTypeId, const PublishedWorldSnapshot& snapshot, const ChunkRect& chunkRect, std::vector<RendererScalarPayload>& textureValues) const {
     const RciType* rciType = rciTools_.findRciType(rciTypeId);
     if (rciType == 0 || snapshot.tiles == 0) {
         return false;
     }
 
     const std::size_t chunkTileCount = static_cast<std::size_t>(chunkRect.width) * static_cast<std::size_t>(chunkRect.height);
-    if (texturePixels.size() != chunkTileCount * 4u) {
-        texturePixels.resize(chunkTileCount * 4u, 0u);
+    if (textureValues.size() != chunkTileCount) {
+        textureValues.resize(chunkTileCount, 0u);
     }
 
     std::size_t writeIndex = 0;
@@ -1220,14 +1186,7 @@ bool SimulationRuntime::fillRciDesirabilityOverlayChunkPixels(const std::string&
         for (; tileX < chunkRect.startX + chunkRect.width; ++tileX) {
             const std::size_t sourceIndex = static_cast<std::size_t>(tileY) * static_cast<std::size_t>(snapshot.width) + static_cast<std::size_t>(tileX);
             const int desirability = rciDesirabilityForTile(rciType->id(), (*snapshot.tiles)[sourceIndex]);
-            const double normalized = static_cast<double>(desirability) / 100.0;
-            const double red = normalized <= 0.5 ? 255.0 : (1.0 - normalized) * 510.0;
-            const double green = normalized <= 0.5 ? normalized * 510.0 : 255.0;
-
-            texturePixels[writeIndex++] = OverlayColorByte(red);
-            texturePixels[writeIndex++] = OverlayColorByte(green);
-            texturePixels[writeIndex++] = 0u;
-            texturePixels[writeIndex++] = 128u;
+            textureValues[writeIndex++] = RendererPackCappedStatToScalarPayload(desirability, kRciDesirabilityDisplayCap);
         }
     }
 
@@ -1276,7 +1235,7 @@ void SimulationRuntime::loadAssets() {
     CrashScope crashScope("SimulationRuntime::loadAssets");
     LoadedGameAssets loadedAssets;
     std::string errorMessage;
-    if (!LoadGameAssets(GetExecutableDirectory() + "\\Data", cityParameterRegistry_, loadedAssets, errorMessage)) {
+    if (!LoadGameAssets(RuntimeDataDirectory(), cityParameterRegistry_, loadedAssets, errorMessage)) {
         LogError("SimulationRuntime::loadAssets", errorMessage);
         throw std::runtime_error(errorMessage);
     }
@@ -1292,7 +1251,7 @@ void SimulationRuntime::loadAssets() {
     rciConstructorAttemptsPerTick_ = std::max(1, loadedAssets.rciConstructorAttemptsPerTick);
     rciConstructorOverbuildMultiplier_ = std::max(0.0f, loadedAssets.rciConstructorOverbuildMultiplier);
     rciBaselineLandValue_ = std::max(0, std::min(loadedAssets.rciBaselineLandValue, kLandValueDisplayCap));
-    const std::string rciToolsPath = GetExecutableDirectory() + "\\Data\\RCI\\rci_tools.xml";
+    const std::string rciToolsPath = RuntimeDataPath("RCI\\rci_tools.xml");
     if (!rciTools_.loadFromXmlFile(rciToolsPath)) {
         throw std::runtime_error("SimulationRuntime::loadAssets: failed to load " + rciToolsPath);
     }
@@ -1358,7 +1317,7 @@ void SimulationRuntime::initializeWorld() {
         tileBuffers_[bufferIndex].publishedLotOccupancy.assign(static_cast<std::size_t>(mapWidth_) * static_cast<std::size_t>(mapHeight_), kInvalidLotId);
         tileBuffers_[bufferIndex].publishedRoads.assign(static_cast<std::size_t>(mapWidth_) * static_cast<std::size_t>(mapHeight_) * TransportNetwork::layerCount(), ResolvedRoadCell());
         tileBuffers_[bufferIndex].publishedGroundRoadRenderState.assign(static_cast<std::size_t>(mapWidth_) * static_cast<std::size_t>(mapHeight_) * kGroundRoadRenderChannelsPerTile, 0);
-        tileBuffers_[bufferIndex].publishedTileOverlayState.assign(static_cast<std::size_t>(mapWidth_) * static_cast<std::size_t>(mapHeight_) * 4u, 0);
+        tileBuffers_[bufferIndex].publishedTileOverlayState.assign(static_cast<std::size_t>(mapWidth_) * static_cast<std::size_t>(mapHeight_), 0u);
         tileBuffers_[bufferIndex].publishedGroundRoadChunkRevisions.assign(chunkLayout_.size(), 1);
         tileBuffers_[bufferIndex].publishedElevatedRoadChunkRevisions.assign(chunkLayout_.size(), 1);
         tileBuffers_[bufferIndex].publishedTileOverlayChunkRevisions.assign(chunkLayout_.size(), 1);
@@ -2039,6 +1998,13 @@ void SimulationRuntime::runCommuteAssignment() {
         int lotId;
         int demand;
         std::vector<std::uint32_t> accessNodes;
+
+        CommuteSource()
+            : lotIndex(0u),
+              lotId(-1),
+              demand(0),
+              accessNodes() {
+        }
     };
 
     struct JobDestination {
@@ -2046,6 +2012,13 @@ void SimulationRuntime::runCommuteAssignment() {
         int lotId;
         int remainingCapacity;
         std::vector<std::uint32_t> accessNodes;
+
+        JobDestination()
+            : lotIndex(0u),
+              lotId(-1),
+              remainingCapacity(0),
+              accessNodes() {
+        }
     };
 
     const CommuteTimeOfDay activeCommuteTime = (simulationTick_ % SimulationTime::ticksPerDay()) == 0u
@@ -2328,11 +2301,11 @@ void SimulationRuntime::runCommuteAssignment() {
 
         if (commuteTimeOfDay == CommuteTimeOfDay::Morning) {
             route.morningPathResult = pathResult;
-            route.morningSegments = this->buildCommuteRouteSegments(pathResult, route.transportLoad);
+            route.morningSegments = this->buildCommuteRouteSegments(pathResult, route.transportLoad, CommuteTimeOfDay::Morning);
             route.morningMediumRetry = classifyPath(pathResult) == CommuteCostClass::Medium;
         } else {
             route.eveningPathResult = pathResult;
-            route.eveningSegments = this->buildCommuteRouteSegments(pathResult, route.transportLoad);
+            route.eveningSegments = this->buildCommuteRouteSegments(pathResult, route.transportLoad, CommuteTimeOfDay::Evening);
             route.eveningMediumRetry = classifyPath(pathResult) == CommuteCostClass::Medium;
         }
 
@@ -2547,8 +2520,8 @@ void SimulationRuntime::runCommuteAssignment() {
                     false,
                     morningPathResult,
                     eveningPathResult,
-                    buildCommuteRouteSegments(morningPathResult, clampedDemand),
-                    buildCommuteRouteSegments(eveningPathResult, clampedDemand));
+                    buildCommuteRouteSegments(morningPathResult, clampedDemand, CommuteTimeOfDay::Morning),
+                    buildCommuteRouteSegments(eveningPathResult, clampedDemand, CommuteTimeOfDay::Evening));
                 lots_[reachedDestination.lotIndex].addLowWealthJobsFilled(acceptedDemand);
                 transportNetwork_.applyTrafficPathLoad(CommuteTimeOfDay::Morning, morningPathResult, clampedDemand, true);
                 transportNetwork_.applyTrafficPathLoad(CommuteTimeOfDay::Evening, eveningPathResult, clampedDemand, true);
@@ -2705,6 +2678,7 @@ void SimulationRuntime::refreshPublishedLotSnapshot(TileBuffer& completedBuffer)
                 AccumulatePublishedCommuteCategory(sourceInfo, routes[routeIndex]);
                 sourceInfo.commuteRouteSegments.insert(sourceInfo.commuteRouteSegments.end(), routes[routeIndex].morningSegments.begin(), routes[routeIndex].morningSegments.end());
                 completedBuffer.publishedCommuteRouteSegments.insert(completedBuffer.publishedCommuteRouteSegments.end(), routes[routeIndex].morningSegments.begin(), routes[routeIndex].morningSegments.end());
+                completedBuffer.publishedCommuteRouteSegments.insert(completedBuffer.publishedCommuteRouteSegments.end(), routes[routeIndex].eveningSegments.begin(), routes[routeIndex].eveningSegments.end());
             }
         }
 
@@ -5136,7 +5110,7 @@ void SimulationRuntime::collectLotAccessNodes(const Lot& lot, const LotAsset& lo
     accessNodes.erase(std::unique(accessNodes.begin(), accessNodes.end()), accessNodes.end());
 }
 
-std::vector<CommuteRouteSegment> SimulationRuntime::buildCommuteRouteSegments(const TransportPathResult& pathResult, std::uint16_t demand) const {
+std::vector<CommuteRouteSegment> SimulationRuntime::buildCommuteRouteSegments(const TransportPathResult& pathResult, std::uint16_t demand, CommuteTimeOfDay timeOfDay) const {
     std::vector<CommuteRouteSegment> segments;
     if (!pathResult.success || demand == 0u) {
         return segments;
@@ -5178,6 +5152,7 @@ std::vector<CommuteRouteSegment> SimulationRuntime::buildCommuteRouteSegments(co
         segment.endTileY = toTileY;
         segment.layer = costMap.nodeLayer(step.fromNodeId);
         segment.mode = costMap.nodeMode(step.fromNodeId);
+        segment.timeOfDay = timeOfDay;
         segment.direction = step.roadDirection;
         segment.demand = demand;
         segments.push_back(segment);

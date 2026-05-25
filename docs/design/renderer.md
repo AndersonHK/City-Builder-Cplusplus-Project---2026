@@ -5,7 +5,9 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 ## Intent
 - Rendering is presentation only. Simulation data remains authoritative in `SimulationRuntime`.
 - The renderer consumes immutable published snapshots and never reads mutable simulation buffers.
-- GPU work is acceptable; CPU packing, single-thread bandwidth, and RAM-to-VRAM uploads should stay measured and bounded.
+- GPU work is cheap relative to CPU time and memory bandwidth. Keep persistent scene data in VRAM, upload only compact typed deltas, and prefer shader colorization/composition over CPU-packed presentation colors.
+- The color contract is scene-linear HDR internally. Authored sRGB colors convert to scene-linear at load/render-boundary time; output encoding and clamping happen only in the final Vulkan presentation pass.
+- Do not add silent CPU or SDR fallbacks for renderer hot paths. Missing Vulkan/HDR/device capabilities must be logged as explicit startup failures for that path.
 - Window-mode concerns such as fullscreen toggles belong in the GLFW callback layer, not in simulation input commands.
 - The current visual style is a staging layer for future richer 3D, not the final art direction.
 - Camera setup should stay projection/direction agnostic; city interaction and region mode use the shared angled view settings, while city preview capture uses a top-down orthographic view.
@@ -14,16 +16,18 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Tiles draw from persistent per-chunk static instance buffers containing world origin and map UV.
 - Tile scalar color comes from a persistent full-map `GL_RG16_SNORM` texture updated only for visible stale chunks.
 - Lot occupancy lift comes from a persistent full-map `GL_R8` mask texture updated only for visible stale chunks. Occupied tiles use a shallow mask value so the hidden terrain surface stays below low concrete/pavement lot surfaces at distant zoom levels.
-- Ground roads render in the tile pass from packed road-state bytes and CPU-generated road atlases. The ground-road upload path is `UpdateGroundRoadChunkTexture`.
-- Reusable tile overlays render from RGBA tile textures. Zoning, RCI tile color, RCI desirability, and traffic capacity use visible-dirty chunk uploads from published state; land value reuses the same overlay texture/draw path and packs visible chunks from the published tile snapshot using the current city-wide min/max land-value range.
-- Queried lot and road commutes render morning-only coalesced route arrows above roads, lots, and tile overlays; car arrows are green and pedestrian arrows are pink.
+- Ground roads render in the tile pass from packed road-state bytes and CPU-generated road atlases. In Vulkan these bytes are typed/index payloads, not normalized color. The current legacy upload path is `UpdateGroundRoadChunkTexture`.
+- Reusable tile overlays render from compact scalar or semantic payload textures. Traffic capacity publishes one configured renderer scalar payload per tile with a relevance bit plus the remaining utilization bits; zoning publishes the `Tile::zoningType` semantic id; land value and RCI desirability publish one renderer scalar payload per tile. These payloads are fixed-point data, not colors. The current payload storage is 16-bit, land value packs against `kSimulationStatDisplayCap`, RCI desirability packs against `kRciDesirabilityDisplayCap`, and the shader owns all color ramps and alpha.
+- Overlay ramps carry explicit semantic direction through `RendererOverlayGradientDirection`: red is bad and green is good. Traffic utilization and air pollution are `GoodToBad` because rising payload is worse; land value and RCI desirability are `BadToGood` because rising payload is better. Do not add per-overlay shader inversions when a semantic direction entry is enough.
+- Gradient calibration is semantic-cap based: minimum maps to payload zero, half-cap maps to the midpoint, cap and over-cap map to full scale. Changing the displayed stat cap should change the constant in `Tile.h`, not a shader/channel literal.
+- Queried lots render accepted morning route arrows, while queried roads render both morning and evening coalesced route arrows above roads, lots, and tile overlays; car arrows are green and pedestrian arrows are pink.
 - Elevated roads use separate per-chunk instance buffers and rebuild lazily for visible stale chunks. They consume the same resolved road glyph, lane graphic, and divider masks through `BuildRoadChunkInstances`.
 - Road placement ghost previews are transient renderer instances built from the active drag stroke and drawn with a blue alpha tint when valid or a red tint when invalid. They do not enter published road snapshots.
 - Lot placement ghost previews are transient renderer instances built from XML-backed, rotation-aware lot candidate geometry and drawn with a green alpha tint when valid or a red tint when invalid. They do not enter published lot snapshots.
 - Bulldoze area previews are transient renderer instances built from the active drag rectangle. The selected tiles draw a red world-space overlay and intersecting buildings draw through a red-tinted lot pass; the preview does not enter published snapshots, and the committed command may destroy buildings or roads.
 - Low-density residential, high-density residential, and industrial zoning previews are produced by the XML-backed RCI zone planner. Plain area mode reuses the transient tint overlay; lot modes draw parcel-style ghost overlays with boundary lines, and lots+roads also feeds alpha-tinted two-tile local road ghost instances.
 - Committed zoning draws from the published `Tile::zoningType` texture overlay. Empty RCI zoning lots publish separately as parcel rectangles so the renderer can draw persistent lot-boundary overlays without using the building `Lot` path; runtime area zoning may create those rectangles after commit even though its preview was a simple tint.
-- Lots still render through one global placeholder-prism instance buffer keyed by lot revision.
+- Lots still render through one global placeholder-prism instance buffer keyed by lot revision in the legacy renderer. The Vulkan renderer should keep lot mesh/material/object resources resident after creation and update only transforms, visibility, construction progress, and dirty object records.
 - In-game windows, tool menus, overlay menus, and child menus render as screen-space UI quads after world rendering. `InGameWindow` supplies window/text layout, `UiLayout` supplies menu/button layout, and `BuildWindowQuads` / `RendererBuildUiMenuQuads` turn them into dynamic `UiQuadInstanceData`.
 - The startup and foreground save/load screens use the same screen-space UI quad path through `RendererAppendLoadingScreenQuads`, with the loading bar positioned about three-quarters down the screen. `GameSession` owns the current label/progress and calls the renderer presenter for blocking foreground work; renderer-owned region preview refresh uses the same loading quad builder while stale preview textures are regenerated.
 - A minimal bootstrap loading bar is drawn immediately after the OpenGL context is ready, before heavier renderer resource creation, so startup does not sit on a black window.
@@ -33,7 +37,7 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - The current text renderer decodes UTF-8 and emits clipped 5x7 bitmap glyph quads. Unsupported glyphs draw as `?`.
 - Region mode draws city preview textures with the same angled camera settings as city mode.
 - City previews are rendered through the normal city draw passes with a top-down orthographic camera, then uploaded to renderer-owned region preview textures.
-- City mode requests a 32-bit default framebuffer depth buffer and logs the actual negotiated depth bits. The angled city camera keeps its perspective near/far planes tight to the current zoom distance so distant pavement and concrete surfaces keep more usable depth precision. City preview rendering uses a 32-bit float depth renderbuffer with a 24-bit fallback if the framebuffer is incomplete.
+- Vulkan world and preview passes must use `VK_FORMAT_D32_SFLOAT` depth images. The old OpenGL default-framebuffer depth request/fallback path is legacy-only and should be deleted with the OpenGL backend rather than preserved.
 - Preview state loading/generation may happen on background futures, but GL preview rendering and texture upload stay on the render thread.
 - Region preview textures stay resident when entering city mode so F3 return can draw cached previews and refresh only stale city previews, normally the city that was just open.
 - `GameSession::renderStateRevision` fences city load/enter transitions; when it changes, all city tile, road, lot, overlay, and route upload caches must be treated as stale before the next draw.
@@ -67,13 +71,16 @@ Use this guide when changing `Renderer.cpp`, `Basic.shader`, or render-facing sn
 - Keep HUD values read-only from published snapshots or region metadata; do not query mutable simulation state directly from the renderer.
 - Keep date formatting presentation-only. The city simulation tick comes from snapshots; `AppConfig` only selects how the renderer formats that tick.
 - Keep game-speed buttons as controller intent. The renderer only draws icon buttons and active states; `SimulationRuntime` owns tick pacing.
-- Future overlays should publish the same RGBA tile payload and chunk revisions instead of adding one-off shader paths.
-- Snapshot-derived overlays that do not need simulation-owned derived state may pack into the existing overlay texture on the renderer side, but should keep the same visible-chunk freshness behavior.
+- Future overlays should publish compact semantic IDs or scalar fields plus chunk revisions. Do not publish RGBA color when a shader can derive the presentation color from stable ramp/material policy.
+- Keep fixed-point payload helpers in `RendererPayload.h` as the single place where semantic ratios become configured channel-depth values and overlay directions are declared. Do not scatter payload max values, signed payload bounds, traffic bit masks, semantic indices, or gradient direction literals through renderer code.
+- Keep color conversion/output helpers in `RendererColor.h` as the shared contract for authored sRGB, scene-linear HDR, SDR tone mapping, HDR10 PQ encode, and output-mode preference.
+- Snapshot-derived overlays that do not need simulation-owned derived state may compute compact visible-chunk scalar payloads on the renderer side, but should keep the same visible-chunk freshness behavior and avoid CPU colorization.
+- Static road/lane graphics, lot meshes/materials, terrain meshes, region previews, and persistent object instances should stay resident in VRAM. Camera movement, lighting changes, and final HDR composition should not require CPU-side repacking of scene geometry or color.
 - Keep city preview capture top-down orthographic so preview orientation remains stable before the region camera projects it.
 
 ## Checks
 - Build `x64 Release`.
-- Build and run `RendererTests.vcxproj` after touching renderer CPU packing, UTF-8 text, or UI quad generation.
+- Build and run `RendererTests.vcxproj` after touching renderer payload packing, semantic display caps, HDR color/output helpers, UTF-8 text, or UI quad generation.
 - Toggle `fullscreen` and the preferred windowed dimensions in `Data/config.ini` before launch to verify startup and `Alt+Enter` restore behavior.
 - Compare the status line at `32`, `64`, `128`, `256`, `512`, `1024`, and `2048` visible-tile zoom.
 - Verify `tileStateChunks`, `tileStateTiles`, and `tileStateBytes` scale with visible chunks.

@@ -1,12 +1,10 @@
 #include "RendererAlgorithms.h"
 
 #include <algorithm>
-#include <cmath>
 #include <cstddef>
 #include <limits>
 
 namespace {
-const float kTileStateScalarScale = 640000.0f;
 // Keep occupied terrain below shallow lot surfaces; a full mask is close enough
 // to concrete pavements to z-fight at distant zoom levels.
 const std::uint8_t kOccupiedTileLiftMask = 32u;
@@ -143,11 +141,6 @@ RendererColor ToRendererColor(const UiColor& color) {
     return RendererColor(color.r, color.g, color.b, color.a);
 }
 
-std::uint8_t RendererColorByte(double value) {
-    const double clampedValue = std::max(0.0, std::min(value, 255.0));
-    return static_cast<std::uint8_t>(clampedValue + 0.5);
-}
-
 std::size_t RendererVisibleCharacterCount(const std::string& text) {
     std::size_t byteIndex = 0;
     std::size_t characterCount = 0;
@@ -252,16 +245,27 @@ void RendererBuildTextQuads(const TextFieldElement& field, float windowX, float 
 }
 }
 
-std::int16_t RendererPackTileStateScalar(int value) {
-    const float normalizedValue = std::max(-1.0f, std::min(static_cast<float>(value) / kTileStateScalarScale, 1.0f));
-    if (normalizedValue <= -1.0f) {
-        return static_cast<std::int16_t>(-32768);
+RendererSignedScalarPayload RendererPackTileStateScalar(int value) {
+    if (value >= kSimulationStatDisplayCap) {
+        return static_cast<RendererSignedScalarPayload>(kRendererSignedScalarPayloadMaxValue);
     }
 
-    return static_cast<std::int16_t>(std::lround(normalizedValue * 32767.0f));
+    if (value <= -kSimulationStatDisplayCap) {
+        return static_cast<RendererSignedScalarPayload>(kRendererSignedScalarPayloadMinValue);
+    }
+
+    const bool negative = value < 0;
+    const std::int64_t wideValue = static_cast<std::int64_t>(value);
+    const std::uint64_t magnitude = static_cast<std::uint64_t>(negative ? -wideValue : wideValue);
+    const std::uint64_t packedMagnitude =
+        ((magnitude * static_cast<std::uint64_t>(kRendererSignedScalarPayloadMaxValue)) +
+         (static_cast<std::uint64_t>(kSimulationStatDisplayCap) / 2u)) /
+        static_cast<std::uint64_t>(kSimulationStatDisplayCap);
+    const std::int32_t signedValue = static_cast<std::int32_t>(packedMagnitude);
+    return static_cast<RendererSignedScalarPayload>(negative ? -signedValue : signedValue);
 }
 
-void RendererFillTileStateChunkPixels(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, std::vector<std::int16_t>& texturePixels) {
+void RendererFillTileStateChunkPixels(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, std::vector<RendererSignedScalarPayload>& texturePixels) {
     const std::size_t chunkTileCount = static_cast<std::size_t>(chunkRect.width) * static_cast<std::size_t>(chunkRect.height);
     if (texturePixels.size() != chunkTileCount * 2u) {
         texturePixels.resize(chunkTileCount * 2u, 0);
@@ -297,10 +301,10 @@ void RendererFillTileLiftChunkPixels(const std::vector<int>& lotOccupancy, int m
     }
 }
 
-void RendererFillZoningOverlayChunkPixels(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, std::vector<std::uint8_t>& texturePixels) {
+void RendererFillZoningOverlayChunkValues(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, std::vector<RendererScalarPayload>& textureValues) {
     const std::size_t chunkTileCount = static_cast<std::size_t>(chunkRect.width) * static_cast<std::size_t>(chunkRect.height);
-    if (texturePixels.size() != chunkTileCount * 4u) {
-        texturePixels.resize(chunkTileCount * 4u, 0u);
+    if (textureValues.size() != chunkTileCount) {
+        textureValues.resize(chunkTileCount, 0u);
     }
 
     std::size_t writeIndex = 0;
@@ -310,72 +314,24 @@ void RendererFillZoningOverlayChunkPixels(const std::vector<Tile>& tiles, int ma
         for (; tileX < chunkRect.startX + chunkRect.width; ++tileX) {
             const std::size_t sourceIndex = static_cast<std::size_t>(tileY) * static_cast<std::size_t>(mapWidth) + static_cast<std::size_t>(tileX);
             const Tile& tile = tiles[sourceIndex];
-            if (tile.zoningType == TileZoningResidentialLow) {
-                texturePixels[writeIndex++] = 112u;
-                texturePixels[writeIndex++] = 235u;
-                texturePixels[writeIndex++] = 117u;
-                texturePixels[writeIndex++] = 96u;
-            } else if (tile.zoningType == TileZoningResidentialHigh) {
-                texturePixels[writeIndex++] = 26u;
-                texturePixels[writeIndex++] = 122u;
-                texturePixels[writeIndex++] = 51u;
-                texturePixels[writeIndex++] = 96u;
-            } else if (tile.zoningType == TileZoningIndustrial) {
-                texturePixels[writeIndex++] = 238u;
-                texturePixels[writeIndex++] = 211u;
-                texturePixels[writeIndex++] = 58u;
-                texturePixels[writeIndex++] = 104u;
-            } else {
-                texturePixels[writeIndex++] = 0u;
-                texturePixels[writeIndex++] = 0u;
-                texturePixels[writeIndex++] = 0u;
-                texturePixels[writeIndex++] = 0u;
-            }
+            textureValues[writeIndex++] = tile.zoningType;
         }
     }
 }
 
-bool RendererFindLandValueRange(const std::vector<Tile>& tiles, int& minimumLandValue, int& maximumLandValue) {
-    if (tiles.empty()) {
-        minimumLandValue = 0;
-        maximumLandValue = 0;
-        return false;
-    }
-
-    minimumLandValue = std::numeric_limits<int>::max();
-    maximumLandValue = std::numeric_limits<int>::min();
-    std::size_t tileIndex = 0;
-    for (; tileIndex < tiles.size(); ++tileIndex) {
-        minimumLandValue = std::min(minimumLandValue, tiles[tileIndex].landValue);
-        maximumLandValue = std::max(maximumLandValue, tiles[tileIndex].landValue);
-    }
-
-    return true;
-}
-
-void RendererFillLandValueOverlayChunkPixels(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, int minimumLandValue, int maximumLandValue, std::uint8_t alpha, std::vector<std::uint8_t>& texturePixels) {
+void RendererFillLandValueOverlayChunkValues(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, std::vector<RendererScalarPayload>& textureValues) {
     const std::size_t chunkTileCount = static_cast<std::size_t>(chunkRect.width) * static_cast<std::size_t>(chunkRect.height);
-    if (texturePixels.size() != chunkTileCount * 4u) {
-        texturePixels.resize(chunkTileCount * 4u, 0u);
+    if (textureValues.size() != chunkTileCount) {
+        textureValues.resize(chunkTileCount, 0u);
     }
 
-    const double range = static_cast<double>(maximumLandValue) - static_cast<double>(minimumLandValue);
     std::size_t writeIndex = 0;
     int tileY = chunkRect.startY;
     for (; tileY < chunkRect.startY + chunkRect.height; ++tileY) {
         int tileX = chunkRect.startX;
         for (; tileX < chunkRect.startX + chunkRect.width; ++tileX) {
             const std::size_t sourceIndex = static_cast<std::size_t>(tileY) * static_cast<std::size_t>(mapWidth) + static_cast<std::size_t>(tileX);
-            const double normalizedLandValue = range > 0.0
-                ? std::max(0.0, std::min((static_cast<double>(tiles[sourceIndex].landValue) - static_cast<double>(minimumLandValue)) / range, 1.0))
-                : 0.5;
-            const double red = normalizedLandValue <= 0.5 ? 255.0 : (1.0 - normalizedLandValue) * 510.0;
-            const double green = normalizedLandValue <= 0.5 ? normalizedLandValue * 510.0 : 255.0;
-
-            texturePixels[writeIndex++] = RendererColorByte(red);
-            texturePixels[writeIndex++] = RendererColorByte(green);
-            texturePixels[writeIndex++] = 0u;
-            texturePixels[writeIndex++] = alpha;
+            textureValues[writeIndex++] = RendererPackCappedStatToScalarPayload(tiles[sourceIndex].landValue, kSimulationStatDisplayCap);
         }
     }
 }
