@@ -18,6 +18,7 @@
 namespace {
 std::mutex gCrashLogMutex;
 std::string gApplicationName = "City Builder";
+HWND gApplicationDialogOwner = 0;
 int gCrashLogSuppressionDepth = 0;
 thread_local std::string gCurrentCrashScope = "unknown";
 
@@ -71,6 +72,17 @@ void WriteLine(const std::string& severity, const std::string& scope, const std:
     if (log) {
         log << line << std::endl;
     }
+}
+
+HWND CurrentDialogOwner() {
+    return gApplicationDialogOwner != 0 && IsWindow(gApplicationDialogOwner) ? gApplicationDialogOwner : 0;
+}
+
+int ShowApplicationDialog(const std::string& title, const std::string& message, UINT iconFlags) {
+    HWND owner = CurrentDialogOwner();
+    UINT flags = MB_OK | iconFlags;
+    flags |= owner == 0 ? MB_TASKMODAL : MB_APPLMODAL;
+    return MessageBoxA(owner, message.c_str(), title.c_str(), flags);
 }
 
 std::string ExceptionCodeString(DWORD exceptionCode) {
@@ -177,6 +189,17 @@ void LogException(const std::string& scope, const std::exception& error) {
     LogError(scope, error.what());
 }
 
+void SetApplicationDialogOwner(void* nativeWindowHandle) {
+    gApplicationDialogOwner = static_cast<HWND>(nativeWindowHandle);
+}
+
+void ClearApplicationDialogOwner(void* nativeWindowHandle) {
+    HWND handle = static_cast<HWND>(nativeWindowHandle);
+    if (nativeWindowHandle == 0 || gApplicationDialogOwner == handle) {
+        gApplicationDialogOwner = 0;
+    }
+}
+
 int LogCrashAndShowWindow(const std::string& scope, const std::string& message) {
     WriteLine("fatal", scope, message);
 
@@ -187,7 +210,7 @@ int LogCrashAndShowWindow(const std::string& scope, const std::string& message) 
         << "Error: " << message << "\n\n"
         << "Log file:\n" << CrashLogFilePath();
 
-    return MessageBoxA(0, dialogText.str().c_str(), "City Builder Crash", MB_OK | MB_ICONERROR | MB_TASKMODAL);
+    return ShowApplicationDialog("City Builder Crash", dialogText.str(), MB_ICONERROR);
 }
 
 int LogCrashAndShowWindow(const std::string& scope, const std::exception& error) {

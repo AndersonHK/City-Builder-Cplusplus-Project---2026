@@ -1,5 +1,5 @@
 <module id="park_module">
   <size width="2" height="2" />
-  <effects airPollution="-4000" parkEffect="10000" landValue="0" />
-  <render height="0.35" colorR="0.18" colorG="0.54" colorB="0.23" />
+  <effects airPollution="-2000" parkEffect="5000" landValue="0" />
+  <render mesh="box" height="0.35" colorR="0.18" colorG="0.54" colorB="0.23" />
 </module>

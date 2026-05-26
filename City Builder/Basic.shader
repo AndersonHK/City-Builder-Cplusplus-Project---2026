@@ -5,6 +5,7 @@ layout(location = 0) in vec3 aLocalPosition;
 layout(location = 1) in vec4 aInstanceData0;
 layout(location = 2) in vec4 aInstanceData1;
 layout(location = 3) in vec4 aInstanceData2;
+layout(location = 4) in vec3 aMeshColor;
 
 uniform mat4 uViewProjection;
 uniform int uRenderMode;
@@ -48,6 +49,20 @@ void main()
         vTileUv = vec2(0.0);
         vLocalUv = aLocalPosition.xz;
         vLotColor = aInstanceData1.yzw;
+        vRoadGlyphs = vec2(0.0);
+        vRoadMasks = aInstanceData2.xy;
+        vRouteColor = vec3(0.0);
+        vUiColor = vec4(0.0);
+        vSurfaceLift = 0.0;
+    } else if (uRenderMode == 9) {
+        vec3 scaledPosition = vec3(
+            aLocalPosition.x * aInstanceData0.z,
+            aLocalPosition.y * aInstanceData1.x,
+            aLocalPosition.z * aInstanceData0.w);
+        worldPosition = vec3(aInstanceData0.x, 0.0, aInstanceData0.y) + scaledPosition;
+        vTileUv = vec2(0.0);
+        vLocalUv = aLocalPosition.xz;
+        vLotColor = aInstanceData1.yzw * aMeshColor;
         vRoadGlyphs = vec2(0.0);
         vRoadMasks = aInstanceData2.xy;
         vRouteColor = vec3(0.0);
@@ -191,6 +206,8 @@ const int kOverlayScalarPayloadBitDepth = 16;
 const int kTileOverlaySemanticTrafficCapacity = 0;
 const int kTileOverlaySemanticLandValue = 1;
 const int kTileOverlaySemanticRciDesirability = 2;
+const int kTileOverlaySemanticAirPollution = 3;
+const int kTileOverlaySemanticParkEffect = 4;
 const int kOverlayGradientGoodToBad = 0;
 const int kOverlayGradientBadToGood = 1;
 const uint kOverlayScalarPayloadMaxValue = (1u << kOverlayScalarPayloadBitDepth) - 1u;
@@ -251,6 +268,14 @@ vec4 tileOverlayColor(uint payload)
         return rampOverlayColor(normalized, 128.0 / kAuthoredColorByteMax);
     }
 
+    if (uTileOverlaySemanticMode == kTileOverlaySemanticAirPollution) {
+        return rampOverlayColor(normalized, 101.0 / kAuthoredColorByteMax);
+    }
+
+    if (uTileOverlaySemanticMode == kTileOverlaySemanticParkEffect) {
+        return rampOverlayColor(normalized, 101.0 / kAuthoredColorByteMax);
+    }
+
     return vec4(0.0);
 }
 
@@ -300,8 +325,15 @@ float roadTileGlyphIndex(float baseGlyph, float laneGraphicMask, float dividerMa
 void main()
 {
     if (vRenderMode == 0) {
-        vec2 tileState = clamp(vec2(0.5) + texture(uTileStateTexture, vTileUv).rg * 0.5, vec2(0.0), vec2(1.0));
-        vec3 finalColor = vec3(tileState.r, tileState.g, 0.18 + vSurfaceLift * 4.0);
+        vec2 tileState = clamp(texture(uTileStateTexture, vTileUv).rg, vec2(0.0), vec2(1.0));
+        float airPollution = tileState.r;
+        float parkEffect = tileState.g;
+        vec3 neutralGrass = vec3(0.19, 0.29, 0.17);
+        vec3 healthyGrass = vec3(0.43, 0.64, 0.31);
+        vec3 pollutedGrass = vec3(0.48, 0.39, 0.18);
+        vec3 finalColor = mix(neutralGrass, healthyGrass, clamp(parkEffect * (1.0 - airPollution * 0.65), 0.0, 1.0));
+        finalColor = mix(finalColor, pollutedGrass, clamp(airPollution * (1.0 - parkEffect * 0.45), 0.0, 1.0));
+        finalColor += vec3(vSurfaceLift * 0.08);
         if (uZoningOverlayVisible != 0) {
             vec4 zoningColor = zoningOverlayColor(overlayPayload(vTileUv));
             finalColor = mix(finalColor, zoningColor.rgb, zoningColor.a);
@@ -331,7 +363,7 @@ void main()
         return;
     }
 
-    if (vRenderMode == 1) {
+    if (vRenderMode == 1 || vRenderMode == 9) {
         vec3 finalColor = mix(vLotColor, uLotTintColor, clamp(uLotTintStrength, 0.0, 1.0));
         int surfacePattern = int(floor(vRoadMasks.x + 0.5));
         int surfaceDirection = int(floor(vRoadMasks.y + 0.5));

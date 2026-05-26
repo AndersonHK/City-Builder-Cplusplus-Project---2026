@@ -1,7 +1,7 @@
 <module id="superblock_midrise_module" density="medium">
   <size width="5" height="7" />
-  <effects airPollution="0" landValue="19000" />
-  <render height="3.00" colorR="0.60" colorG="0.63" colorB="0.61" />
+  <effects airPollution="0" landValue="9500" />
+  <render mesh="box" height="3.00" colorR="0.60" colorG="0.63" colorB="0.61" />
   <parameters>
     <driver id="residents.low_wealth" amount="140" />
   </parameters>

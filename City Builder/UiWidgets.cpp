@@ -1,8 +1,10 @@
 #include "UiWidgets.h"
 
+#include "Localization.h"
 #include "SimpleXml.h"
 
 #include <algorithm>
+#include <stdexcept>
 
 namespace {
 UiAnchor AttributeAnchorValue(const std::string& tag, const std::string& attributeName, UiAnchor fallback) {
@@ -83,6 +85,27 @@ UiColor AttributeColorValue(const std::string& tag, const std::string& prefix, c
 
 bool ActionIsActive(const std::vector<std::string>& activeActions, const std::string& action) {
     return !action.empty() && std::find(activeActions.begin(), activeActions.end(), action) != activeActions.end();
+}
+
+std::string LocalizedButtonText(const std::string& buttonTag, const std::string& buttonId, const LocalizationCatalog* localization) {
+    std::string textStringId = XmlAttributeValue(buttonTag, "textStringId", std::string());
+    if (textStringId.empty()) {
+        textStringId = XmlAttributeValue(buttonTag, "stringId", std::string());
+    }
+
+    if (!textStringId.empty()) {
+        return localization == 0
+            ? XmlAttributeValue(buttonTag, "text", std::string())
+            : localization->stringForKey(textStringId, "UI button " + buttonId);
+    }
+
+    const bool hasTextAttribute = XmlAttributeExists(buttonTag, "text");
+    const std::string literalText = hasTextAttribute ? XmlAttributeValue(buttonTag, "text", std::string()) : buttonId;
+    if (localization != 0 && !literalText.empty()) {
+        throw std::runtime_error("UI button '" + buttonId + "' has visible text without a textStringId.");
+    }
+
+    return literalText;
 }
 }
 
@@ -462,6 +485,10 @@ UiLayout::UiLayout() {
 }
 
 bool UiLayout::loadFromXmlFile(const std::string& filePath) {
+    return loadFromXmlFile(filePath, 0);
+}
+
+bool UiLayout::loadFromXmlFile(const std::string& filePath, const LocalizationCatalog* localization) {
     const std::string xml = XmlReadFileToString(filePath);
     if (xml.empty()) {
         menus_.clear();
@@ -526,10 +553,12 @@ bool UiLayout::loadFromXmlFile(const std::string& filePath) {
 
             const std::string buttonTag = xml.substr(buttonStart, buttonEnd - buttonStart + 1u);
             UiButton button;
+            const std::string buttonId = XmlAttributeValue(buttonTag, "id", "button");
+            const std::string buttonIcon = XmlAttributeValue(buttonTag, "icon", std::string());
             const UiColor buttonColor = AttributeColorValue(buttonTag, "color", UiColor(0.15f, 0.20f, 0.22f, 0.88f));
             button.setDefinition(
-                XmlAttributeValue(buttonTag, "id", "button"),
-                XmlAttributeValue(buttonTag, "text", XmlAttributeValue(buttonTag, "id", "button")),
+                buttonId,
+                LocalizedButtonText(buttonTag, buttonId, localization),
                 XmlAttributeValue(buttonTag, "action", std::string()),
                 XmlAttributeIntValue(buttonTag, "x", 0),
                 XmlAttributeIntValue(buttonTag, "y", 0),
@@ -541,7 +570,7 @@ bool UiLayout::loadFromXmlFile(const std::string& filePath) {
                 XmlAttributeExists(buttonTag, "height"),
                 buttonColor,
                 AttributeColorValue(buttonTag, "active", UiColor(0.25f, 0.42f, 0.33f, 0.96f)),
-                XmlAttributeValue(buttonTag, "icon", std::string()));
+                buttonIcon);
             menu.addButton(button);
             buttonSearchStart = buttonEnd + 1u;
         }

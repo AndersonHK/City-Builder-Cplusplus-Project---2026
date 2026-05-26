@@ -1,8 +1,8 @@
 <module id="row_house_module" density="low">
   <size width="2" height="2" />
-  <effects airPollution="0" landValue="3900" />
-  <render height="0.82" colorR="0.60" colorG="0.47" colorB="0.40" />
+  <effects airPollution="0" landValue="1950" />
+  <render mesh="rowhouse_2_roof" height="0.82" colorR="0.60" colorG="0.47" colorB="0.40" />
   <parameters>
-    <driver id="residents.low_wealth" amount="7" />
+    <driver id="residents.low_wealth" amount="8" />
   </parameters>
 </module>

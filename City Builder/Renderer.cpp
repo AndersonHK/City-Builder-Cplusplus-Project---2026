@@ -3,7 +3,9 @@
 #include "RuntimePaths.h"
 
 #include <GL/glew.h>
+#define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3.h>
+#include <GLFW/glfw3native.h>
 
 #include <algorithm>
 #include <chrono>
@@ -12,15 +14,19 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <memory>
 #include <sstream>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 #include "City.h"
 #include "CrashLogger.h"
+#include "GeneratedMeshCatalog.h"
 #include "InGameWindow.h"
+#include "LotRenderSurfacePatterns.h"
 #include "RendererAlgorithms.h"
 #include "RoadAtlas.h"
 #include "RoadRenderState.h"
@@ -50,6 +56,10 @@ RendererOverlaySemantic RendererOverlaySemanticForOverlayMode(OverlayMode overla
     switch (overlayMode) {
     case OverlayMode::LandValue:
         return RendererOverlaySemantic::LandValue;
+    case OverlayMode::ParkEffect:
+        return RendererOverlaySemantic::ParkEffect;
+    case OverlayMode::AirPollution:
+        return RendererOverlaySemantic::AirPollution;
     case OverlayMode::RciDesirability:
         return RendererOverlaySemantic::RciDesirability;
     case OverlayMode::TrafficCapacity:
@@ -247,6 +257,22 @@ struct LotInstanceData {
     float surfaceDirection;
     float padding0;
     float padding1;
+};
+
+struct LotMeshDrawBatch {
+    std::uint16_t meshHandle;
+    GLsizei firstVertex;
+    GLsizei vertexCount;
+    GLsizei instanceOffset;
+    GLsizei instanceCount;
+
+    LotMeshDrawBatch()
+        : meshHandle(0u),
+          firstVertex(0),
+          vertexCount(0),
+          instanceOffset(0),
+          instanceCount(0) {
+    }
 };
 
 struct RoadInstanceData {
@@ -1192,6 +1218,98 @@ void AppendHudTextPanel(std::vector<UiQuadInstanceData>& quads, const std::strin
     RendererAppendTextQuads(text, x + 10.0f, y + 7.0f, width - 20.0f, height - 8.0f, UiColor(0.92f, 0.96f, 0.92f, 1.0f), false, quads);
 }
 
+std::string TrimLeadingSpaces(const std::string& text) {
+    std::string::size_type first = 0u;
+    while (first < text.size() && text[first] == ' ') {
+        ++first;
+    }
+    return text.substr(first);
+}
+
+void AppendWrappedWarningLine(std::vector<std::string>& lines, const std::string& text, std::size_t maxCharacters, std::size_t maxLines) {
+    if (lines.size() >= maxLines) {
+        return;
+    }
+
+    std::string remaining = TrimLeadingSpaces(text);
+    if (remaining.empty()) {
+        lines.push_back(std::string());
+        return;
+    }
+
+    while (remaining.size() > maxCharacters && lines.size() < maxLines) {
+        std::string::size_type split = remaining.rfind(' ', maxCharacters);
+        if (split == std::string::npos || split < 8u) {
+            split = maxCharacters;
+        }
+        lines.push_back(remaining.substr(0u, split));
+        remaining = TrimLeadingSpaces(remaining.substr(split));
+    }
+
+    if (!remaining.empty() && lines.size() < maxLines) {
+        lines.push_back(remaining);
+    }
+}
+
+std::vector<std::string> BuildWarningMessageLines(const std::string& message, std::size_t maxCharacters, std::size_t maxLines) {
+    std::vector<std::string> lines;
+    std::istringstream stream(message);
+    std::string sourceLine;
+    while (std::getline(stream, sourceLine)) {
+        AppendWrappedWarningLine(lines, sourceLine, maxCharacters, maxLines);
+        if (lines.size() >= maxLines) {
+            break;
+        }
+    }
+
+    if (!stream.eof() && !lines.empty()) {
+        lines.back() = "...";
+    }
+
+    return lines;
+}
+
+void AppendApplicationWarningPanel(std::vector<UiQuadInstanceData>& quads, const ApplicationWarning& warning, int framebufferWidth, int framebufferHeight) {
+    const float screenWidth = static_cast<float>(std::max(1, framebufferWidth));
+    const float screenHeight = static_cast<float>(std::max(1, framebufferHeight));
+    const float panelWidth = std::max(340.0f, std::min(720.0f, screenWidth - 48.0f));
+    const float panelHeight = 280.0f;
+    const float panelX = std::max(16.0f, (screenWidth - panelWidth) * 0.5f);
+    const float panelY = std::max(20.0f, (screenHeight - panelHeight) * 0.5f);
+    const std::size_t maxCharacters = static_cast<std::size_t>(std::max(24.0f, (panelWidth - 48.0f) / 12.0f));
+    const std::vector<std::string> lines = BuildWarningMessageLines(warning.message, maxCharacters, 9u);
+
+    AddUiQuad(quads, 0.0f, 0.0f, screenWidth, screenHeight, Vec4(0.0f, 0.0f, 0.0f, 0.48f));
+    AddUiQuad(quads, panelX, panelY, panelWidth, panelHeight, Vec4(0.035f, 0.047f, 0.058f, 0.96f));
+    AddUiQuad(quads, panelX, panelY, panelWidth, 3.0f, Vec4(0.58f, 0.42f, 0.18f, 0.96f));
+    AddUiQuad(quads, panelX, panelY + panelHeight - 2.0f, panelWidth, 2.0f, Vec4(0.13f, 0.18f, 0.19f, 0.92f));
+    AddUiQuad(quads, panelX, panelY, 2.0f, panelHeight, Vec4(0.27f, 0.31f, 0.29f, 0.92f));
+    AddUiQuad(quads, panelX + panelWidth - 2.0f, panelY, 2.0f, panelHeight, Vec4(0.13f, 0.18f, 0.19f, 0.92f));
+
+    RendererAppendTextQuads(
+        warning.title,
+        panelX + 24.0f,
+        panelY + 24.0f,
+        panelWidth - 48.0f,
+        24.0f,
+        UiColor(0.98f, 0.86f, 0.60f, 1.0f),
+        false,
+        quads);
+
+    std::size_t lineIndex = 0u;
+    for (; lineIndex < lines.size(); ++lineIndex) {
+        RendererAppendTextQuads(
+            lines[lineIndex],
+            panelX + 24.0f,
+            panelY + 62.0f + static_cast<float>(lineIndex) * 20.0f,
+            panelWidth - 48.0f,
+            18.0f,
+            UiColor(0.90f, 0.96f, 0.93f, 1.0f),
+            false,
+            quads);
+    }
+}
+
 void BuildTextQuads(const TextFieldElement& field, float windowX, float windowY, std::vector<UiQuadInstanceData>& quads) {
     const float scale = 2.0f;
     const float characterAdvance = 6.0f * scale;
@@ -1285,6 +1403,23 @@ void ConfigureLotVertexArray(GLuint vertexArrayId, GLuint boxVertexBufferId, GLu
     glBindBuffer(GL_ARRAY_BUFFER, boxVertexBufferId);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(float) * 3, 0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, instanceBufferId);
+    SetupInstanceAttribute(1, 4, sizeof(LotInstanceData), 0);
+    SetupInstanceAttribute(2, 4, sizeof(LotInstanceData), sizeof(float) * 4);
+    SetupInstanceAttribute(3, 4, sizeof(LotInstanceData), sizeof(float) * 8);
+
+    glBindVertexArray(0);
+}
+
+void ConfigureGeneratedLotVertexArray(GLuint vertexArrayId, GLuint meshVertexBufferId, GLuint instanceBufferId) {
+    glBindVertexArray(vertexArrayId);
+
+    glBindBuffer(GL_ARRAY_BUFFER, meshVertexBufferId);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(GeneratedMeshVertex), 0);
+    glEnableVertexAttribArray(4);
+    glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, sizeof(GeneratedMeshVertex), reinterpret_cast<void*>(sizeof(float) * 3));
 
     glBindBuffer(GL_ARRAY_BUFFER, instanceBufferId);
     SetupInstanceAttribute(1, 4, sizeof(LotInstanceData), 0);
@@ -1399,13 +1534,14 @@ std::vector<TileInstanceData> BuildTileChunkInstances(int mapWidth, int mapHeigh
 }
 
 AreaOverlayInstanceData BuildAreaOverlayInstance(int minTileX, int minTileY, int maxTileX, int maxTileY, float colorR, float colorG, float colorB, float colorA);
+bool LotInstanceIntersectsTileRect(const LotRenderInstance& lot, int minTileX, int minTileY, int maxTileX, int maxTileY);
 
 LotInstanceData BuildLotInstance(const LotRenderInstance& lot) {
     LotInstanceData instance;
-    instance.originX = static_cast<float>(lot.originX);
-    instance.originZ = static_cast<float>(lot.originY);
-    instance.sizeX = static_cast<float>(lot.width);
-    instance.sizeZ = static_cast<float>(lot.height);
+    instance.originX = static_cast<float>(lot.originX) + lot.renderOffsetX;
+    instance.originZ = static_cast<float>(lot.originY) + lot.renderOffsetY;
+    instance.sizeX = lot.renderWidth > 0.0f ? lot.renderWidth : static_cast<float>(lot.width);
+    instance.sizeZ = lot.renderHeightOverride > 0.0f ? lot.renderHeightOverride : static_cast<float>(lot.height);
     instance.height = lot.renderHeight;
     instance.colorR = lot.colorR;
     instance.colorG = lot.colorG;
@@ -1465,6 +1601,123 @@ std::vector<LotInstanceData> BuildLotInstances(const std::vector<LotRenderInstan
     }
 
     return instances;
+}
+
+std::map<std::uint16_t, GeneratedMeshRange> BuildRuntimeMeshRanges(const GeneratedMeshCatalog& catalog, const std::vector<RenderMeshBinding>* bindings) {
+    std::map<std::uint16_t, GeneratedMeshRange> ranges;
+    const GeneratedMeshRange* boxRange = catalog.findMesh("box");
+    const GeneratedMeshRange* placeholderRange = catalog.findMesh("missing_mesh_placeholder");
+    const GeneratedMeshRange* missingMeshRange = placeholderRange != 0 ? placeholderRange : boxRange;
+    if (bindings == 0) {
+        if (boxRange != 0) {
+            ranges[0u] = *boxRange;
+        }
+        return ranges;
+    }
+
+    std::size_t bindingIndex = 0;
+    for (; bindingIndex < bindings->size(); ++bindingIndex) {
+        const RenderMeshBinding& binding = (*bindings)[bindingIndex];
+        const GeneratedMeshRange* range = catalog.findMesh(binding.key);
+        if (range == 0) {
+            static std::set<std::string> warnedMissingMeshKeys;
+            if (warnedMissingMeshKeys.insert(binding.key).second) {
+                LogWarning("Renderer", "Generated mesh catalog missing mesh '" + binding.key + "'; using missing mesh placeholder.");
+            }
+            range = missingMeshRange;
+        }
+        if (range != 0) {
+            ranges[binding.handle] = *range;
+        }
+    }
+
+    if (ranges.find(0u) == ranges.end()) {
+        if (boxRange != 0) {
+            ranges[0u] = *boxRange;
+        }
+    }
+
+    return ranges;
+}
+
+bool BuildGeneratedLotInstances(
+    const std::vector<LotRenderInstance>& lots,
+    const std::map<std::uint16_t, GeneratedMeshRange>& meshRanges,
+    bool hideRciLots,
+    std::vector<LotInstanceData>& instances,
+    std::vector<LotMeshDrawBatch>& batches) {
+    instances.clear();
+    batches.clear();
+    if (meshRanges.empty()) {
+        return false;
+    }
+
+    std::map<std::uint16_t, std::vector<LotInstanceData> > groupedInstances;
+    std::size_t lotIndex = 0;
+    for (; lotIndex < lots.size(); ++lotIndex) {
+        const LotRenderInstance& lot = lots[lotIndex];
+        if (hideRciLots && RenderInstanceIsRciLot(lot)) {
+            continue;
+        }
+
+        std::uint16_t meshHandle = lot.renderMeshHandle;
+        if (meshRanges.find(meshHandle) == meshRanges.end()) {
+            meshHandle = 0u;
+        }
+        groupedInstances[meshHandle].push_back(BuildLotInstance(lot));
+    }
+
+    std::map<std::uint16_t, std::vector<LotInstanceData> >::const_iterator groupIterator = groupedInstances.begin();
+    for (; groupIterator != groupedInstances.end(); ++groupIterator) {
+        const std::map<std::uint16_t, GeneratedMeshRange>::const_iterator rangeIterator = meshRanges.find(groupIterator->first);
+        if (rangeIterator == meshRanges.end()) {
+            continue;
+        }
+
+        LotMeshDrawBatch batch;
+        batch.meshHandle = groupIterator->first;
+        batch.firstVertex = rangeIterator->second.firstVertex;
+        batch.vertexCount = rangeIterator->second.vertexCount;
+        batch.instanceOffset = static_cast<GLsizei>(instances.size());
+        batch.instanceCount = static_cast<GLsizei>(groupIterator->second.size());
+        batches.push_back(batch);
+        instances.insert(instances.end(), groupIterator->second.begin(), groupIterator->second.end());
+    }
+
+    return true;
+}
+
+bool BuildGeneratedLotInstancesInTileRect(
+    const std::vector<LotRenderInstance>& lots,
+    int minTileX,
+    int minTileY,
+    int maxTileX,
+    int maxTileY,
+    const std::map<std::uint16_t, GeneratedMeshRange>& meshRanges,
+    std::vector<LotInstanceData>& instances,
+    std::vector<LotMeshDrawBatch>& batches) {
+    std::vector<LotRenderInstance> filteredLots;
+    std::size_t lotIndex = 0;
+    for (; lotIndex < lots.size(); ++lotIndex) {
+        if (LotInstanceIntersectsTileRect(lots[lotIndex], minTileX, minTileY, maxTileX, maxTileY)) {
+            filteredLots.push_back(lots[lotIndex]);
+        }
+    }
+
+    return BuildGeneratedLotInstances(filteredLots, meshRanges, false, instances, batches);
+}
+
+void DrawGeneratedLotBatches(const std::vector<LotMeshDrawBatch>& batches) {
+    std::size_t batchIndex = 0;
+    for (; batchIndex < batches.size(); ++batchIndex) {
+        const LotMeshDrawBatch& batch = batches[batchIndex];
+        glDrawArraysInstancedBaseInstance(
+            GL_TRIANGLES,
+            batch.firstVertex,
+            batch.vertexCount,
+            batch.instanceCount,
+            static_cast<GLuint>(batch.instanceOffset));
+    }
 }
 
 void FlushRciParcelOverlayInstance(
@@ -1904,7 +2157,7 @@ GLshort PackTileStateScalar(int value) {
     return static_cast<GLshort>(RendererPackTileStateScalar(value));
 }
 
-// Packs air pollution and land value for one visible chunk.
+// Packs air pollution and park effect for one visible chunk.
 void FillTileStateChunkPixels(const PublishedWorldSnapshot& snapshot, const ChunkRect& chunkRect, std::vector<GLshort>& texturePixels) {
     if (snapshot.tiles == 0) {
         return;
@@ -2077,6 +2330,34 @@ void FillLandValueOverlayChunkValues(const PublishedWorldSnapshot& snapshot, con
     }
 
     RendererFillLandValueOverlayChunkValues(*snapshot.tiles, snapshot.width, chunkRect, textureValues);
+}
+
+void FillAirPollutionOverlayChunkValues(const PublishedWorldSnapshot& snapshot, const ChunkRect& chunkRect, std::vector<RendererScalarPayload>& textureValues) {
+    const std::size_t chunkValueCount = static_cast<std::size_t>(chunkRect.width) * static_cast<std::size_t>(chunkRect.height);
+    if (textureValues.size() != chunkValueCount) {
+        textureValues.resize(chunkValueCount, 0u);
+    }
+
+    if (snapshot.tiles == 0) {
+        std::fill(textureValues.begin(), textureValues.end(), 0u);
+        return;
+    }
+
+    RendererFillAirPollutionOverlayChunkValues(*snapshot.tiles, snapshot.width, chunkRect, textureValues);
+}
+
+void FillParkEffectOverlayChunkValues(const PublishedWorldSnapshot& snapshot, const ChunkRect& chunkRect, std::vector<RendererScalarPayload>& textureValues) {
+    const std::size_t chunkValueCount = static_cast<std::size_t>(chunkRect.width) * static_cast<std::size_t>(chunkRect.height);
+    if (textureValues.size() != chunkValueCount) {
+        textureValues.resize(chunkValueCount, 0u);
+    }
+
+    if (snapshot.tiles == 0) {
+        std::fill(textureValues.begin(), textureValues.end(), 0u);
+        return;
+    }
+
+    RendererFillParkEffectOverlayChunkValues(*snapshot.tiles, snapshot.width, chunkRect, textureValues);
 }
 
 void UploadScalarOverlayChunkTexture(GLuint textureId, const ChunkRect& chunkRect, const std::vector<RendererScalarPayload>& textureValues) {
@@ -2305,6 +2586,29 @@ void UploadRegionPreviewTexture(RegionPreviewTextureCache& cache, const City& ci
     cache.previewRevision = city.previewRevision();
 }
 
+void UploadRegionPreviewPlaceholderTexture(RegionPreviewTextureCache& cache, const City& city) {
+    if (cache.textureId == 0) {
+        return;
+    }
+
+    const std::uint8_t placeholderPixels[4] = {20u, 28u, 38u, 255u};
+    glActiveTexture(GL_TEXTURE6);
+    glBindTexture(GL_TEXTURE_2D, cache.textureId);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RGBA8,
+        1,
+        1,
+        0,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        placeholderPixels);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    cache.previewRevision = city.previewRevision();
+}
+
 float LoadingBarYForHeight(float height) {
     float barY = height * 0.75f;
     if (barY + 96.0f > height) {
@@ -2360,6 +2664,72 @@ void DrawBootstrapLoadingScreen(GLFWwindow* window, float progress) {
     glfwPollEvents();
 }
 
+bool RuntimeFileExists(const std::string& path) {
+    const DWORD attributes = GetFileAttributesA(path.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0u;
+}
+
+void RunOptionalAssetGenerator(GLFWwindow* window, float progressStart, float progressEnd) {
+    const std::string executablePath = RuntimeExecutablePath("CityBuilderAssetGenerator.exe");
+    DrawBootstrapLoadingScreen(window, progressStart);
+    if (!RuntimeFileExists(executablePath)) {
+        LogWarning("AssetGenerator", "Optional asset generator not found: " + executablePath);
+        DrawBootstrapLoadingScreen(window, progressEnd);
+        return;
+    }
+
+    const std::string dataDirectory = RuntimeDataDirectory();
+    std::string commandLine = "\"" + executablePath + "\" \"" + dataDirectory + "\"";
+    std::vector<char> mutableCommandLine(commandLine.begin(), commandLine.end());
+    mutableCommandLine.push_back('\0');
+
+    STARTUPINFOA startupInfo;
+    ZeroMemory(&startupInfo, sizeof(startupInfo));
+    startupInfo.cb = sizeof(startupInfo);
+    PROCESS_INFORMATION processInfo;
+    ZeroMemory(&processInfo, sizeof(processInfo));
+
+    if (!CreateProcessA(
+            0,
+            &mutableCommandLine[0],
+            0,
+            0,
+            FALSE,
+            CREATE_NO_WINDOW,
+            0,
+            RuntimeExecutableDirectory().c_str(),
+            &startupInfo,
+            &processInfo)) {
+        std::ostringstream message;
+        message << "Optional asset generator failed to launch with error " << GetLastError() << ": " << executablePath;
+        LogWarning("AssetGenerator", message.str());
+        DrawBootstrapLoadingScreen(window, progressEnd);
+        return;
+    }
+
+    float progress = progressStart;
+    DWORD waitResult = WAIT_TIMEOUT;
+    while ((waitResult = WaitForSingleObject(processInfo.hProcess, 16u)) == WAIT_TIMEOUT) {
+        progress = std::min(progressEnd - 0.01f, progress + 0.0025f);
+        DrawBootstrapLoadingScreen(window, progress);
+    }
+
+    DWORD exitCode = 0;
+    GetExitCodeProcess(processInfo.hProcess, &exitCode);
+    CloseHandle(processInfo.hThread);
+    CloseHandle(processInfo.hProcess);
+    if (exitCode != 0u) {
+        std::ostringstream message;
+        message << "Optional asset generator exited with code " << exitCode << ".";
+        LogWarning("AssetGenerator", message.str());
+        DrawBootstrapLoadingScreen(window, progressEnd);
+        return;
+    }
+
+    LogInfo("AssetGenerator", "Generated startup assets.");
+    DrawBootstrapLoadingScreen(window, progressEnd);
+}
+
 }
 
 // Connects the renderer to immutable snapshots and user input state.
@@ -2409,6 +2779,7 @@ int Renderer::run() {
         LogError("Renderer::run", "Window creation failed.");
         return 1;
     }
+    SetApplicationDialogOwner(glfwGetWin32Window(window));
 
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
@@ -2416,6 +2787,7 @@ int Renderer::run() {
     glewExperimental = GL_TRUE;
     if (glewInit() != GLEW_OK) {
         LogError("Renderer::run", "GLEW initialization failed.");
+        ClearApplicationDialogOwner(glfwGetWin32Window(window));
         glfwDestroyWindow(window);
         glfwTerminate();
         return 1;
@@ -2425,7 +2797,13 @@ int Renderer::run() {
     glGetIntegerv(GL_DEPTH_BITS, &defaultFramebufferDepthBits);
     LogInfo("Renderer::run", "Default framebuffer depth bits: " + std::to_string(defaultFramebufferDepthBits));
 
+    DrawBootstrapLoadingScreen(window, 0.02f);
+    RunOptionalAssetGenerator(window, 0.04f, 0.10f);
+    gameSession_.setLoadingPresenter([&] (const LoadingStatus& loadingStatus) {
+        DrawBootstrapLoadingScreen(window, loadingStatus.progress);
+    });
     SimulationRuntime& simulationRuntime = gameSession_.runtime();
+    DrawBootstrapLoadingScreen(window, 0.22f);
 
     RendererCallbacks callbacks(appController_, startupMonitor != 0, configuredWindowedWidth, configuredWindowedHeight);
     glfwSetWindowUserPointer(window, &callbacks);
@@ -2438,8 +2816,6 @@ int Renderer::run() {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
-
-    DrawBootstrapLoadingScreen(window, 0.02f);
 
     const float tileVertices[] = {
         0.0f, 0.0f, 0.0f,
@@ -2474,6 +2850,27 @@ int Renderer::run() {
     glGenBuffers(1, &lotVertexBufferId);
     glBindBuffer(GL_ARRAY_BUFFER, lotVertexBufferId);
     glBufferData(GL_ARRAY_BUFFER, sizeof(boxVertices), boxVertices, GL_STATIC_DRAW);
+
+    GeneratedMeshCatalog generatedMeshCatalog;
+    bool generatedLotMeshesLoaded = false;
+    GLuint generatedLotVertexBufferId = 0;
+    {
+        std::string meshCatalogError;
+        const std::string meshCatalogPath = RuntimeDataPath("Generated\\module_meshes.txt");
+        if (generatedMeshCatalog.loadFromFile(meshCatalogPath, meshCatalogError)) {
+            glGenBuffers(1, &generatedLotVertexBufferId);
+            glBindBuffer(GL_ARRAY_BUFFER, generatedLotVertexBufferId);
+            glBufferData(
+                GL_ARRAY_BUFFER,
+                static_cast<GLsizeiptr>(generatedMeshCatalog.vertices().size() * sizeof(GeneratedMeshVertex)),
+                generatedMeshCatalog.vertices().empty() ? 0 : &generatedMeshCatalog.vertices()[0],
+                GL_STATIC_DRAW);
+            generatedLotMeshesLoaded = true;
+            LogInfo("Renderer", "Loaded generated mesh catalog: " + meshCatalogPath);
+        } else {
+            LogWarning("Renderer", meshCatalogError + " Falling back to box lot meshes.");
+        }
+    }
 
     GLuint tileStateTextureId = 0;
     glGenTextures(1, &tileStateTextureId);
@@ -2614,11 +3011,23 @@ int Renderer::run() {
     glGenBuffers(1, &lotInstanceBufferId);
     ConfigureLotVertexArray(lotVertexArrayId, lotVertexBufferId, lotInstanceBufferId);
 
+    GLuint generatedLotVertexArrayId = 0;
+    if (generatedLotMeshesLoaded) {
+        glGenVertexArrays(1, &generatedLotVertexArrayId);
+        ConfigureGeneratedLotVertexArray(generatedLotVertexArrayId, generatedLotVertexBufferId, lotInstanceBufferId);
+    }
+
     GLuint lotGhostVertexArrayId = 0;
     GLuint lotGhostInstanceBufferId = 0;
     glGenVertexArrays(1, &lotGhostVertexArrayId);
     glGenBuffers(1, &lotGhostInstanceBufferId);
     ConfigureLotVertexArray(lotGhostVertexArrayId, lotVertexBufferId, lotGhostInstanceBufferId);
+
+    GLuint generatedLotGhostVertexArrayId = 0;
+    if (generatedLotMeshesLoaded) {
+        glGenVertexArrays(1, &generatedLotGhostVertexArrayId);
+        ConfigureGeneratedLotVertexArray(generatedLotGhostVertexArrayId, generatedLotVertexBufferId, lotGhostInstanceBufferId);
+    }
 
     GLuint areaOverlayVertexArrayId = 0;
     GLuint areaOverlayInstanceBufferId = 0;
@@ -2691,8 +3100,14 @@ int Renderer::run() {
         glDeleteVertexArrays(1, &zoningLotOverlayVertexArrayId);
         glDeleteBuffers(1, &lotGhostInstanceBufferId);
         glDeleteVertexArrays(1, &lotGhostVertexArrayId);
+        if (generatedLotGhostVertexArrayId != 0) {
+            glDeleteVertexArrays(1, &generatedLotGhostVertexArrayId);
+        }
         glDeleteBuffers(1, &lotInstanceBufferId);
         glDeleteVertexArrays(1, &lotVertexArrayId);
+        if (generatedLotVertexArrayId != 0) {
+            glDeleteVertexArrays(1, &generatedLotVertexArrayId);
+        }
         glDeleteTextures(1, &roadArrowAtlasTextureId);
         glDeleteTextures(1, &roadBaseCleanAtlasTextureId);
         glDeleteTextures(1, &roadBaseAtlasTextureId);
@@ -2702,7 +3117,11 @@ int Renderer::run() {
         glDeleteTextures(1, &tileLiftTextureId);
         glDeleteTextures(1, &tileStateTextureId);
         glDeleteBuffers(1, &lotVertexBufferId);
+        if (generatedLotVertexBufferId != 0) {
+            glDeleteBuffers(1, &generatedLotVertexBufferId);
+        }
         glDeleteBuffers(1, &tileVertexBufferId);
+        ClearApplicationDialogOwner(glfwGetWin32Window(window));
         glfwDestroyWindow(window);
         glfwTerminate();
         return 1;
@@ -2752,11 +3171,16 @@ int Renderer::run() {
     std::vector<std::uint8_t> tileLiftChunkPixels;
     std::vector<RendererScalarPayload> zoningOverlayChunkValues;
     std::vector<RendererScalarPayload> landValueOverlayChunkValues;
+    std::vector<RendererScalarPayload> parkEffectOverlayChunkValues;
+    std::vector<RendererScalarPayload> airPollutionOverlayChunkValues;
     std::vector<RendererScalarPayload> desirabilityOverlayChunkValues;
     std::vector<std::uint8_t> emptyGroundRoadChunkPixels;
     std::vector<LotInstanceData> lotInstances;
     std::vector<LotInstanceData> lotGhostInstances;
     std::vector<LotInstanceData> bulldozeLotInstances;
+    std::vector<LotMeshDrawBatch> lotMeshBatches;
+    std::vector<LotMeshDrawBatch> lotGhostMeshBatches;
+    std::vector<LotMeshDrawBatch> bulldozeLotMeshBatches;
     std::vector<AreaOverlayInstanceData> areaOverlayInstances;
     std::vector<AreaOverlayInstanceData> zoningLotOverlayInstances;
     std::vector<RoadInstanceData> roadGhostInstances;
@@ -2817,7 +3241,6 @@ int Renderer::run() {
     startupLoadingStatus.progress = 0.14f;
     drawLoadingScreen(startupLoadingStatus);
     appController_.loadRciToolsFromXmlFile(BuildDataPath("RCI\\rci_tools.xml"));
-    gameSession_.loadOrCreateRegion();
     std::uint64_t lastUploadedLotRevision = std::numeric_limits<std::uint64_t>::max();
     std::uint64_t lastUploadedZoningLotRevision = std::numeric_limits<std::uint64_t>::max();
     std::uint64_t lastUploadedRciParcelLotRevision = std::numeric_limits<std::uint64_t>::max();
@@ -2919,19 +3342,23 @@ int Renderer::run() {
         lotInstances.clear();
         lotGhostInstances.clear();
         bulldozeLotInstances.clear();
+        lotMeshBatches.clear();
+        lotGhostMeshBatches.clear();
+        bulldozeLotMeshBatches.clear();
         areaOverlayInstances.clear();
         zoningLotOverlayInstances.clear();
         roadGhostInstances.clear();
         routeArrowInstances.clear();
     };
 
-    auto renderCityPreview = [&] (const CitySaveState& citySaveState) -> bool {
+    auto renderCityPreview = [&] (const CitySaveState& citySaveState, std::vector<std::uint8_t>& previewPixels) -> bool {
         if (!cityPreviewFramebufferComplete) {
             return false;
         }
+        previewPixels.resize(static_cast<std::size_t>(City::kPreviewWidth) * static_cast<std::size_t>(City::kPreviewHeight) * 4u);
 
         simulationRuntime.stop();
-        simulationRuntime.importCitySaveState(citySaveState);
+        simulationRuntime.importCitySaveState(citySaveState, false);
         const PublishedWorldSnapshot snapshot = simulationRuntime.acquirePublishedSnapshot();
         if (snapshot.tiles == 0 || snapshot.chunkRevisions == 0) {
             simulationRuntime.releasePublishedSnapshot(snapshot);
@@ -2980,7 +3407,13 @@ int Renderer::run() {
         }
 
         if (snapshot.lots != 0) {
-            lotInstances = BuildLotInstances(*snapshot.lots);
+            const std::map<std::uint16_t, GeneratedMeshRange> meshRanges = generatedLotMeshesLoaded
+                ? BuildRuntimeMeshRanges(generatedMeshCatalog, snapshot.renderMeshBindings)
+                : std::map<std::uint16_t, GeneratedMeshRange>();
+            if (!generatedLotMeshesLoaded || !BuildGeneratedLotInstances(*snapshot.lots, meshRanges, false, lotInstances, lotMeshBatches)) {
+                lotInstances = BuildLotInstances(*snapshot.lots);
+                lotMeshBatches.clear();
+            }
             glBindBuffer(GL_ARRAY_BUFFER, lotInstanceBufferId);
             glBufferData(
                 GL_ARRAY_BUFFER,
@@ -2989,6 +3422,7 @@ int Renderer::run() {
                 GL_DYNAMIC_DRAW);
         } else {
             lotInstances.clear();
+            lotMeshBatches.clear();
         }
 
         shaderProgram.bind();
@@ -3031,22 +3465,32 @@ int Renderer::run() {
         }
 
         if (!lotInstances.empty()) {
-            glUniform1i(renderModeLocation, 1);
+            glUniform1i(renderModeLocation, lotMeshBatches.empty() ? 1 : 9);
             glUniform1f(lotAlphaScaleLocation, 1.0f);
             glUniform3f(lotTintColorLocation, 1.0f, 1.0f, 1.0f);
             glUniform1f(lotTintStrengthLocation, 0.0f);
-            glBindVertexArray(lotVertexArrayId);
-            glDrawArraysInstanced(GL_TRIANGLES, 0, 36, static_cast<GLsizei>(lotInstances.size()));
+            if (lotMeshBatches.empty()) {
+                glBindVertexArray(lotVertexArrayId);
+                glDrawArraysInstanced(GL_TRIANGLES, 0, 36, static_cast<GLsizei>(lotInstances.size()));
+            } else {
+                glBindVertexArray(generatedLotVertexArrayId);
+                DrawGeneratedLotBatches(lotMeshBatches);
+            }
         }
 
         glBindVertexArray(0);
         glPixelStorei(GL_PACK_ALIGNMENT, 1);
-        glReadPixels(0, 0, City::kPreviewWidth, City::kPreviewHeight, GL_RGBA, GL_UNSIGNED_BYTE, &cityPreviewReadPixels[0]);
+        glReadPixels(0, 0, City::kPreviewWidth, City::kPreviewHeight, GL_RGBA, GL_UNSIGNED_BYTE, &previewPixels[0]);
         glPixelStorei(GL_PACK_ALIGNMENT, 4);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         simulationRuntime.releasePublishedSnapshot(snapshot);
         return true;
     };
+
+    gameSession_.setCityPreviewRenderer([&] (const CitySaveState& citySaveState, std::vector<std::uint8_t>& previewPixels) -> bool {
+        return renderCityPreview(citySaveState, previewPixels);
+    });
+    gameSession_.loadOrCreateRegion();
 
     auto updateRegionPreviewTextures = [&] () -> bool {
         if (lastRegionPreviewCacheRevision != gameSession_.region().revision()) {
@@ -3055,7 +3499,6 @@ int Renderer::run() {
         }
         SynchronizeRegionPreviewTextures(gameSession_.region(), regionPreviewTextureCaches);
 
-        bool allPreviewsReady = true;
         std::size_t previewCityIndex = 0;
         for (; previewCityIndex < gameSession_.region().cities().size() && previewCityIndex < regionPreviewTextureCaches.size(); ++previewCityIndex) {
             City& city = *gameSession_.region().cities()[previewCityIndex];
@@ -3064,7 +3507,6 @@ int Renderer::run() {
                 continue;
             }
 
-            allPreviewsReady = false;
             CitySaveState previewState;
             bool hasPreviewState = false;
             bool canPersistRenderedPreview = false;
@@ -3077,14 +3519,12 @@ int Renderer::run() {
                 if (cache.previewRevision == city.previewRevision()) {
                     continue;
                 }
-            } else if (gameSession_.takeReadyCityPreviewState(city, previewState)) {
-                hasPreviewState = true;
-                canPersistRenderedPreview = true;
             } else {
-                gameSession_.requestCityPreviewBuild(city);
+                UploadRegionPreviewPlaceholderTexture(cache, city);
+                continue;
             }
 
-            if (hasPreviewState && renderCityPreview(previewState)) {
+            if (hasPreviewState && renderCityPreview(previewState, cityPreviewReadPixels)) {
                 UploadRegionPreviewTexture(cache, city, cityPreviewReadPixels);
                 if (canPersistRenderedPreview) {
                     gameSession_.saveCityPreviewPixels(city, cityPreviewReadPixels);
@@ -3093,6 +3533,9 @@ int Renderer::run() {
                 if (cache.previewRevision == city.previewRevision()) {
                     continue;
                 }
+            }
+            if (cache.previewRevision != city.previewRevision()) {
+                UploadRegionPreviewPlaceholderTexture(cache, city);
             }
         }
 
@@ -3107,7 +3550,6 @@ int Renderer::run() {
             }
         }
 
-        (void)allPreviewsReady;
         return true;
     };
 
@@ -3214,11 +3656,14 @@ int Renderer::run() {
             {
                 std::vector<std::string> regionMenuIds;
                 regionMenuIds.push_back("region_exit");
-                if (appController_.uiLayout().menuVisible("escape_menu")) {
-                    regionMenuIds.push_back("escape_menu");
+                if (appController_.uiLayout().menuVisible("region_escape_menu")) {
+                    regionMenuIds.push_back("region_escape_menu");
                 }
                 if (appController_.uiLayout().menuVisible("exit_confirm_dialog")) {
                     regionMenuIds.push_back("exit_confirm_dialog");
+                }
+                if (appController_.uiLayout().menuVisible("quit_region_confirm_dialog")) {
+                    regionMenuIds.push_back("quit_region_confirm_dialog");
                 }
                 if (appController_.uiLayout().menuVisible("city_switch_confirm_dialog")) {
                     regionMenuIds.push_back("city_switch_confirm_dialog");
@@ -3231,6 +3676,20 @@ int Renderer::run() {
                     activeActions,
                     regionMenuIds);
                 uiQuadInstances.insert(uiQuadInstances.end(), menuQuadInstances.begin(), menuQuadInstances.end());
+            }
+            const ApplicationWarning* regionWarning = gameSession_.currentApplicationWarning();
+            if (regionWarning != 0) {
+                AppendApplicationWarningPanel(uiQuadInstances, *regionWarning, framebufferWidth, framebufferHeight);
+                std::vector<std::string> warningMenuIds;
+                warningMenuIds.push_back("app_warning_dialog");
+                const std::vector<std::string> activeActions;
+                std::vector<UiQuadInstanceData> warningMenuQuadInstances = RendererBuildUiMenuQuads(
+                    appController_.uiLayout(),
+                    framebufferWidth,
+                    framebufferHeight,
+                    activeActions,
+                    warningMenuIds);
+                uiQuadInstances.insert(uiQuadInstances.end(), warningMenuQuadInstances.begin(), warningMenuQuadInstances.end());
             }
             DrawUiQuadInstances(
                 shaderProgram,
@@ -3275,6 +3734,8 @@ int Renderer::run() {
 
         RendererFrameMetrics frameMetrics;
         frameMetrics.totalChunkCount = static_cast<int>(chunkCaches.size());
+
+        const PublishedWorldSnapshot snapshot = simulationRuntime.acquirePublishedSnapshot();
 
         RciPlan rciGhostPlan;
         const bool hasRciGhostPlan = appController_.rciPreviewPlan(rciGhostPlan);
@@ -3333,10 +3794,17 @@ int Renderer::run() {
             const std::chrono::steady_clock::time_point lotGhostUploadStart = std::chrono::steady_clock::now();
             std::vector<LotRenderInstance> lotGhostRenderInstances;
             lotGhostInstances.clear();
+            lotGhostMeshBatches.clear();
             if (simulationRuntime.buildLotPreviewInstances(lotGhostAssetId, lotGhostTileX, lotGhostTileY, lotGhostRotationSteps, lotGhostRenderInstances, lotGhostPlacementValid)) {
-                std::size_t lotGhostIndex = 0;
-                for (; lotGhostIndex < lotGhostRenderInstances.size(); ++lotGhostIndex) {
-                    lotGhostInstances.push_back(BuildLotInstance(lotGhostRenderInstances[lotGhostIndex]));
+                const std::map<std::uint16_t, GeneratedMeshRange> meshRanges = generatedLotMeshesLoaded
+                    ? BuildRuntimeMeshRanges(generatedMeshCatalog, snapshot.renderMeshBindings)
+                    : std::map<std::uint16_t, GeneratedMeshRange>();
+                if (!generatedLotMeshesLoaded || !BuildGeneratedLotInstances(lotGhostRenderInstances, meshRanges, false, lotGhostInstances, lotGhostMeshBatches)) {
+                    std::size_t lotGhostIndex = 0;
+                    for (; lotGhostIndex < lotGhostRenderInstances.size(); ++lotGhostIndex) {
+                        lotGhostInstances.push_back(BuildLotInstance(lotGhostRenderInstances[lotGhostIndex]));
+                    }
+                    lotGhostMeshBatches.clear();
                 }
             } else {
                 lotGhostPlacementValid = false;
@@ -3351,6 +3819,7 @@ int Renderer::run() {
             frameMetrics.lotGhostInstanceCount = static_cast<int>(lotGhostInstances.size());
         } else {
             lotGhostInstances.clear();
+            lotGhostMeshBatches.clear();
             lotGhostPlacementValid = true;
         }
 
@@ -3364,8 +3833,6 @@ int Renderer::run() {
                 GL_DYNAMIC_DRAW);
             lastUploadedQueryRouteRevision = viewState.queryRouteRevision;
         }
-
-        const PublishedWorldSnapshot snapshot = simulationRuntime.acquirePublishedSnapshot();
 
         int bulldozeMinTileX = 0;
         int bulldozeMinTileY = 0;
@@ -3383,8 +3850,16 @@ int Renderer::run() {
                 GL_DYNAMIC_DRAW);
 
             bulldozeLotInstances.clear();
+            bulldozeLotMeshBatches.clear();
             if (snapshot.lots != 0) {
-                bulldozeLotInstances = BuildLotInstancesInTileRect(*snapshot.lots, bulldozeMinTileX, bulldozeMinTileY, bulldozeMaxTileX, bulldozeMaxTileY);
+                const std::map<std::uint16_t, GeneratedMeshRange> meshRanges = generatedLotMeshesLoaded
+                    ? BuildRuntimeMeshRanges(generatedMeshCatalog, snapshot.renderMeshBindings)
+                    : std::map<std::uint16_t, GeneratedMeshRange>();
+                if (!generatedLotMeshesLoaded ||
+                    !BuildGeneratedLotInstancesInTileRect(*snapshot.lots, bulldozeMinTileX, bulldozeMinTileY, bulldozeMaxTileX, bulldozeMaxTileY, meshRanges, bulldozeLotInstances, bulldozeLotMeshBatches)) {
+                    bulldozeLotInstances = BuildLotInstancesInTileRect(*snapshot.lots, bulldozeMinTileX, bulldozeMinTileY, bulldozeMaxTileX, bulldozeMaxTileY);
+                    bulldozeLotMeshBatches.clear();
+                }
             }
             glBindBuffer(GL_ARRAY_BUFFER, lotGhostInstanceBufferId);
             glBufferData(
@@ -3394,6 +3869,7 @@ int Renderer::run() {
                 GL_DYNAMIC_DRAW);
         } else {
             bulldozeLotInstances.clear();
+            bulldozeLotMeshBatches.clear();
             if (hasRciGhostPlan) {
                 areaOverlayInstances.clear();
                 areaOverlayUsesParcelStyle = rciGhostPlan.mode != RciPlanMode::Area;
@@ -3590,7 +4066,7 @@ int Renderer::run() {
                     lastUploadedTileOverlayChunkRevisions[uploadChunkIndex] = publishedRevision;
                     ++frameMetrics.tileOverlayUploadedChunkCount;
                 }
-            } else if (viewState.overlayMode == OverlayMode::LandValue && snapshot.tiles != 0) {
+            } else if ((viewState.overlayMode == OverlayMode::LandValue || viewState.overlayMode == OverlayMode::ParkEffect || viewState.overlayMode == OverlayMode::AirPollution) && snapshot.tiles != 0) {
                 for (uploadChunkIndex = 0; uploadChunkIndex < chunkCaches.size(); ++uploadChunkIndex) {
                     const std::uint64_t publishedRevision = snapshot.generation;
                     if (lastUploadedTileOverlayChunkRevisions[uploadChunkIndex] == publishedRevision) {
@@ -3603,8 +4079,16 @@ int Renderer::run() {
                     }
 
                     const ChunkRect& chunkRect = chunkCaches[uploadChunkIndex].chunkRect;
-                    FillLandValueOverlayChunkValues(snapshot, chunkRect, landValueOverlayChunkValues);
-                    UploadScalarOverlayChunkTexture(tileOverlayTextureId, chunkRect, landValueOverlayChunkValues);
+                    if (viewState.overlayMode == OverlayMode::LandValue) {
+                        FillLandValueOverlayChunkValues(snapshot, chunkRect, landValueOverlayChunkValues);
+                        UploadScalarOverlayChunkTexture(tileOverlayTextureId, chunkRect, landValueOverlayChunkValues);
+                    } else if (viewState.overlayMode == OverlayMode::ParkEffect) {
+                        FillParkEffectOverlayChunkValues(snapshot, chunkRect, parkEffectOverlayChunkValues);
+                        UploadScalarOverlayChunkTexture(tileOverlayTextureId, chunkRect, parkEffectOverlayChunkValues);
+                    } else {
+                        FillAirPollutionOverlayChunkValues(snapshot, chunkRect, airPollutionOverlayChunkValues);
+                        UploadScalarOverlayChunkTexture(tileOverlayTextureId, chunkRect, airPollutionOverlayChunkValues);
+                    }
                     lastUploadedTileOverlayChunkRevisions[uploadChunkIndex] = publishedRevision;
                     ++frameMetrics.tileOverlayUploadedChunkCount;
                 }
@@ -3660,7 +4144,13 @@ int Renderer::run() {
 
             if (snapshot.lots != 0 && (snapshot.lotRevision != lastUploadedLotRevision || viewState.overlayMode != lastUploadedLotOverlayMode)) {
                 const std::chrono::steady_clock::time_point lotUploadStart = std::chrono::steady_clock::now();
-                lotInstances = BuildLotInstances(*snapshot.lots, rciOverlayActive);
+                const std::map<std::uint16_t, GeneratedMeshRange> meshRanges = generatedLotMeshesLoaded
+                    ? BuildRuntimeMeshRanges(generatedMeshCatalog, snapshot.renderMeshBindings)
+                    : std::map<std::uint16_t, GeneratedMeshRange>();
+                if (!generatedLotMeshesLoaded || !BuildGeneratedLotInstances(*snapshot.lots, meshRanges, rciOverlayActive, lotInstances, lotMeshBatches)) {
+                    lotInstances = BuildLotInstances(*snapshot.lots, rciOverlayActive);
+                    lotMeshBatches.clear();
+                }
                 glBindBuffer(GL_ARRAY_BUFFER, lotInstanceBufferId);
                 glBufferData(
                     GL_ARRAY_BUFFER,
@@ -3773,7 +4263,7 @@ int Renderer::run() {
             }
 
             if (!lotGhostInstances.empty()) {
-                glUniform1i(renderModeLocation, 1);
+                glUniform1i(renderModeLocation, lotGhostMeshBatches.empty() ? 1 : 9);
                 glUniform1f(lotAlphaScaleLocation, lotGhostPlacementValid ? kLotGhostAlpha : 0.55f);
                 if (lotGhostPlacementValid) {
                     glUniform3f(lotTintColorLocation, 0.76f, 1.0f, 0.58f);
@@ -3784,8 +4274,13 @@ int Renderer::run() {
                 }
                 glDepthMask(GL_FALSE);
                 const std::chrono::steady_clock::time_point lotGhostDrawStart = std::chrono::steady_clock::now();
-                glBindVertexArray(lotGhostVertexArrayId);
-                glDrawArraysInstanced(GL_TRIANGLES, 0, 36, static_cast<GLsizei>(lotGhostInstances.size()));
+                if (lotGhostMeshBatches.empty()) {
+                    glBindVertexArray(lotGhostVertexArrayId);
+                    glDrawArraysInstanced(GL_TRIANGLES, 0, 36, static_cast<GLsizei>(lotGhostInstances.size()));
+                } else {
+                    glBindVertexArray(generatedLotGhostVertexArrayId);
+                    DrawGeneratedLotBatches(lotGhostMeshBatches);
+                }
                 frameMetrics.lotGhostDrawMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - lotGhostDrawStart).count();
                 glDepthMask(GL_TRUE);
                 glUniform1f(lotAlphaScaleLocation, 1.0f);
@@ -3794,25 +4289,35 @@ int Renderer::run() {
             }
 
             if (!lotInstances.empty()) {
-                glUniform1i(renderModeLocation, 1);
+                glUniform1i(renderModeLocation, lotMeshBatches.empty() ? 1 : 9);
                 glUniform1f(lotAlphaScaleLocation, 1.0f);
                 glUniform3f(lotTintColorLocation, 1.0f, 1.0f, 1.0f);
                 glUniform1f(lotTintStrengthLocation, 0.0f);
                 const std::chrono::steady_clock::time_point lotDrawStart = std::chrono::steady_clock::now();
-                glBindVertexArray(lotVertexArrayId);
-                glDrawArraysInstanced(GL_TRIANGLES, 0, 36, static_cast<GLsizei>(lotInstances.size()));
+                if (lotMeshBatches.empty()) {
+                    glBindVertexArray(lotVertexArrayId);
+                    glDrawArraysInstanced(GL_TRIANGLES, 0, 36, static_cast<GLsizei>(lotInstances.size()));
+                } else {
+                    glBindVertexArray(generatedLotVertexArrayId);
+                    DrawGeneratedLotBatches(lotMeshBatches);
+                }
                 frameMetrics.lotDrawMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - lotDrawStart).count();
             }
 
             if (!bulldozeLotInstances.empty()) {
-                glUniform1i(renderModeLocation, 1);
+                glUniform1i(renderModeLocation, bulldozeLotMeshBatches.empty() ? 1 : 9);
                 glUniform1f(lotAlphaScaleLocation, 0.70f);
                 glUniform3f(lotTintColorLocation, 1.0f, 0.05f, 0.03f);
                 glUniform1f(lotTintStrengthLocation, 0.78f);
                 glDepthMask(GL_FALSE);
                 glDepthFunc(GL_LEQUAL);
-                glBindVertexArray(lotGhostVertexArrayId);
-                glDrawArraysInstanced(GL_TRIANGLES, 0, 36, static_cast<GLsizei>(bulldozeLotInstances.size()));
+                if (bulldozeLotMeshBatches.empty()) {
+                    glBindVertexArray(lotGhostVertexArrayId);
+                    glDrawArraysInstanced(GL_TRIANGLES, 0, 36, static_cast<GLsizei>(bulldozeLotInstances.size()));
+                } else {
+                    glBindVertexArray(generatedLotGhostVertexArrayId);
+                    DrawGeneratedLotBatches(bulldozeLotMeshBatches);
+                }
                 glDepthFunc(GL_LEQUAL);
                 glDepthMask(GL_TRUE);
                 glUniform1f(lotAlphaScaleLocation, 1.0f);
@@ -3824,6 +4329,8 @@ int Renderer::run() {
             const bool drawTileOverlay =
                 (viewState.overlayMode == OverlayMode::TrafficCapacity && snapshot.tileOverlayState != 0) ||
                 (viewState.overlayMode == OverlayMode::LandValue && snapshot.tiles != 0) ||
+                (viewState.overlayMode == OverlayMode::ParkEffect && snapshot.tiles != 0) ||
+                (viewState.overlayMode == OverlayMode::AirPollution && snapshot.tiles != 0) ||
                 (viewState.overlayMode == OverlayMode::RciDesirability && snapshot.tiles != 0 && !viewState.overlayRciTypeId.empty());
             if (drawTileOverlay) {
                 glActiveTexture(GL_TEXTURE5);
@@ -3895,8 +4402,25 @@ int Renderer::run() {
                 if (appController_.uiLayout().menuVisible("exit_confirm_dialog")) {
                     cityMenuIds.push_back("exit_confirm_dialog");
                 }
+                if (appController_.uiLayout().menuVisible("quit_region_confirm_dialog")) {
+                    cityMenuIds.push_back("quit_region_confirm_dialog");
+                }
                 std::vector<UiQuadInstanceData> menuQuadInstances = RendererBuildUiMenuQuads(appController_.uiLayout(), framebufferWidth, framebufferHeight, appController_.activeUiActions(), cityMenuIds);
                 uiQuadInstances.insert(uiQuadInstances.end(), menuQuadInstances.begin(), menuQuadInstances.end());
+            }
+            const ApplicationWarning* cityWarning = gameSession_.currentApplicationWarning();
+            if (cityWarning != 0) {
+                AppendApplicationWarningPanel(uiQuadInstances, *cityWarning, framebufferWidth, framebufferHeight);
+                std::vector<std::string> warningMenuIds;
+                warningMenuIds.push_back("app_warning_dialog");
+                const std::vector<std::string> activeActions;
+                std::vector<UiQuadInstanceData> warningMenuQuadInstances = RendererBuildUiMenuQuads(
+                    appController_.uiLayout(),
+                    framebufferWidth,
+                    framebufferHeight,
+                    activeActions,
+                    warningMenuIds);
+                uiQuadInstances.insert(uiQuadInstances.end(), warningMenuQuadInstances.begin(), warningMenuQuadInstances.end());
             }
 
             DrawUiQuadInstances(
@@ -3971,6 +4495,7 @@ int Renderer::run() {
     }
 
     gameSession_.clearLoadingPresenter();
+    gameSession_.clearCityPreviewRenderer();
     DestroyTileChunkCaches(chunkCaches);
     DestroyRoadChunkCaches(roadChunkCaches);
     DestroyRegionPreviewTextureCaches(regionPreviewTextureCaches);
@@ -3991,8 +4516,14 @@ int Renderer::run() {
     glDeleteVertexArrays(1, &zoningLotOverlayVertexArrayId);
     glDeleteBuffers(1, &lotGhostInstanceBufferId);
     glDeleteVertexArrays(1, &lotGhostVertexArrayId);
+    if (generatedLotGhostVertexArrayId != 0) {
+        glDeleteVertexArrays(1, &generatedLotGhostVertexArrayId);
+    }
     glDeleteBuffers(1, &lotInstanceBufferId);
     glDeleteVertexArrays(1, &lotVertexArrayId);
+    if (generatedLotVertexArrayId != 0) {
+        glDeleteVertexArrays(1, &generatedLotVertexArrayId);
+    }
     glDeleteTextures(1, &roadArrowAtlasTextureId);
     glDeleteTextures(1, &roadBaseCleanAtlasTextureId);
     glDeleteTextures(1, &roadBaseAtlasTextureId);
@@ -4002,7 +4533,11 @@ int Renderer::run() {
     glDeleteTextures(1, &tileLiftTextureId);
     glDeleteTextures(1, &tileStateTextureId);
     glDeleteBuffers(1, &lotVertexBufferId);
+    if (generatedLotVertexBufferId != 0) {
+        glDeleteBuffers(1, &generatedLotVertexBufferId);
+    }
     glDeleteBuffers(1, &tileVertexBufferId);
+    ClearApplicationDialogOwner(glfwGetWin32Window(window));
     glfwDestroyWindow(window);
     glfwTerminate();
     return 0;

@@ -1,5 +1,5 @@
 <module id="concrete_floor_module">
   <size width="1" height="1" />
-  <effects airPollution="0" landValue="40" />
-  <render height="0.05" colorR="0.46" colorG="0.46" colorB="0.43" />
+  <effects airPollution="0" landValue="20" />
+  <render mesh="flat_surface" height="0.05" colorR="0.46" colorG="0.46" colorB="0.43" />
 </module>

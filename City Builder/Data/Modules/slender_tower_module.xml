@@ -1,7 +1,7 @@
 <module id="slender_tower_module" density="high">
   <size width="3" height="5" />
-  <effects airPollution="0" landValue="21000" />
-  <render height="5.20" colorR="0.63" colorG="0.67" colorB="0.69" />
+  <effects airPollution="0" landValue="10500" />
+  <render mesh="box" height="5.20" colorR="0.63" colorG="0.67" colorB="0.69" />
   <parameters>
     <driver id="residents.low_wealth" amount="96" />
   </parameters>

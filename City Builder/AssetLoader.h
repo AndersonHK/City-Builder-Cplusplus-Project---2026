@@ -73,18 +73,24 @@ struct RciDesirabilityRule {
 struct LoadedGameAssets {
     std::vector<LotModule> modules;
     std::vector<LotAsset> lots;
+    std::vector<RenderMeshBinding> renderMeshBindings;
     std::vector<RciGrowthRule> rciGrowthRules;
     std::vector<RciDesirabilityRule> rciDesirabilityRules;
     std::vector<float> initialDemands;
     TransportCongestionCurve congestionCurve;
     RoadLaneCapacityConfig roadLaneCapacities;
+    std::vector<std::string> invalidLotReports;
     int rciConstructorAttemptsPerTick;
     float rciConstructorOverbuildMultiplier;
+    float rciConstructorMergeCapacityDiscount;
+    float rciConstructorRedevelopmentCapacityIncrease;
     int rciBaselineLandValue;
 
     LoadedGameAssets()
         : rciConstructorAttemptsPerTick(5),
           rciConstructorOverbuildMultiplier(1.2f),
+          rciConstructorMergeCapacityDiscount(0.2f),
+          rciConstructorRedevelopmentCapacityIncrease(0.2f),
           rciBaselineLandValue(0) {
     }
 };

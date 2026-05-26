@@ -24,7 +24,8 @@ namespace {
 const std::uint32_t kRegionSaveMagic = 0x52424743u; // CBGR
 const std::uint32_t kRegionSaveVersion = 3u;
 const std::uint32_t kCitySaveMagic = 0x59544243u; // CBTY
-const std::uint32_t kCitySaveVersion = 11u;
+const std::uint32_t kMinimumReadableCitySaveVersion = 11u;
+const std::uint32_t kCitySaveVersion = 12u;
 const std::uint32_t kCityPreviewSaveMagic = 0x56504243u; // CBPV
 const std::uint32_t kCityPreviewSaveVersion = 1u;
 const int kMaximumPreviewBuildsInFlight = 2;
@@ -94,10 +95,26 @@ bool SaveFileStampsMatch(const SaveFileStamp& left, const SaveFileStamp& right) 
         left.lastWriteHigh == right.lastWriteHigh;
 }
 
+bool IsReadableCitySaveVersion(std::uint32_t version) {
+    return version >= kMinimumReadableCitySaveVersion && version <= kCitySaveVersion;
+}
+
 std::size_t ExpectedPreviewPixelCount(const City& city) {
     return static_cast<std::size_t>(city.previewWidth()) *
         static_cast<std::size_t>(city.previewHeight()) *
         4u;
+}
+
+void BuildFallbackCityPreviewPixels(const City& city, std::vector<std::uint8_t>& previewPixels) {
+    const std::size_t expectedPixelByteCount = ExpectedPreviewPixelCount(city);
+    previewPixels.assign(expectedPixelByteCount, 0u);
+    std::size_t pixelIndex = 0u;
+    for (; pixelIndex + 3u < previewPixels.size(); pixelIndex += 4u) {
+        previewPixels[pixelIndex + 0u] = 20u;
+        previewPixels[pixelIndex + 1u] = 28u;
+        previewPixels[pixelIndex + 2u] = 38u;
+        previewPixels[pixelIndex + 3u] = 255u;
+    }
 }
 
 template <typename T>
@@ -366,6 +383,16 @@ void WriteCityState(std::ostream& stream, const CitySaveState& state) {
         for (; moduleIndex < lot.modules.size(); ++moduleIndex) {
             WriteString(stream, lot.modules[moduleIndex].moduleAssetId);
             WriteInt2(stream, lot.modules[moduleIndex].localOrigin);
+            WriteValue(stream, lot.modules[moduleIndex].footprintWidth);
+            WriteValue(stream, lot.modules[moduleIndex].footprintHeight);
+            WriteValue(stream, lot.modules[moduleIndex].renderOffsetX);
+            WriteValue(stream, lot.modules[moduleIndex].renderOffsetY);
+            WriteValue(stream, lot.modules[moduleIndex].renderWidth);
+            WriteValue(stream, lot.modules[moduleIndex].renderHeight);
+            const std::uint8_t affectsSimulation = lot.modules[moduleIndex].affectsSimulation ? 1u : 0u;
+            const std::uint8_t claimsFootprint = lot.modules[moduleIndex].claimsFootprint ? 1u : 0u;
+            WriteValue(stream, affectsSimulation);
+            WriteValue(stream, claimsFootprint);
         }
     }
 
@@ -390,7 +417,7 @@ void WriteCityState(std::ostream& stream, const CitySaveState& state) {
     }
 }
 
-CitySaveState ReadCityState(std::istream& stream) {
+CitySaveState ReadCityState(std::istream& stream, std::uint32_t version) {
     CitySaveState state;
     ReadValue(stream, state.width);
     ReadValue(stream, state.height);
@@ -434,6 +461,20 @@ CitySaveState ReadCityState(std::istream& stream) {
         for (; moduleIndex < lot.modules.size(); ++moduleIndex) {
             lot.modules[moduleIndex].moduleAssetId = ReadString(stream);
             lot.modules[moduleIndex].localOrigin = ReadInt2(stream);
+            if (version >= 12u) {
+                ReadValue(stream, lot.modules[moduleIndex].footprintWidth);
+                ReadValue(stream, lot.modules[moduleIndex].footprintHeight);
+                ReadValue(stream, lot.modules[moduleIndex].renderOffsetX);
+                ReadValue(stream, lot.modules[moduleIndex].renderOffsetY);
+                ReadValue(stream, lot.modules[moduleIndex].renderWidth);
+                ReadValue(stream, lot.modules[moduleIndex].renderHeight);
+                std::uint8_t affectsSimulation = 1u;
+                std::uint8_t claimsFootprint = 1u;
+                ReadValue(stream, affectsSimulation);
+                ReadValue(stream, claimsFootprint);
+                lot.modules[moduleIndex].affectsSimulation = affectsSimulation != 0u;
+                lot.modules[moduleIndex].claimsFootprint = claimsFootprint != 0u;
+            }
         }
     }
 
@@ -461,15 +502,30 @@ CitySaveState ReadCityState(std::istream& stream) {
 }
 }
 
+ApplicationWarning::ApplicationWarning()
+    : title(),
+      message() {
+}
+
+ApplicationWarning::ApplicationWarning(const std::string& warningTitle, const std::string& warningMessage)
+    : title(warningTitle),
+      message(warningMessage) {
+}
+
 GameSession::GameSession(const RuntimeOptions& runtimeOptions)
     : runtimeOptions_(runtimeOptions),
-      runtime_(new SimulationRuntime(runtimeOptions)),
+      runtime_(),
       mode_(GameMode::Region),
       activeCity_(0),
       loadingStatus_(),
       loadingPresenter_(),
+      cityPreviewRenderer_(),
       saveDirectoryOverride_(),
-      renderStateRevision_(0) {
+      renderStateRevision_(0),
+      applicationWarnings_() {
+    runtimeOptions_.nonFatalAssetWarningHandler = [this] (const std::string& title, const std::string& message) {
+        queueApplicationWarning(title, message);
+    };
 }
 
 GameSession::~GameSession() {
@@ -483,6 +539,10 @@ void GameSession::loadOrCreateRegion() {
     if (!loadRegionFromDisk()) {
         updateLoadingStage("Creating region", 0.72f);
         region_.createDefault();
+        updateLoadingStage("Saving new region", 0.76f);
+        if (!saveRegionToDisk(0.78f, 0.96f)) {
+            std::cout << "Created default region, but could not write its initial autoslot." << std::endl;
+        }
         std::cout << "Created default 3x3 region." << std::endl;
     } else {
         updateLoadingStage("Preparing region", 0.82f);
@@ -517,18 +577,26 @@ const Region& GameSession::region() const {
 }
 
 SimulationRuntime& GameSession::runtime() {
+    ensureRuntime();
     return *runtime_;
 }
 
 const SimulationRuntime& GameSession::runtime() const {
+    if (!runtime_) {
+        throw std::runtime_error("Simulation runtime has not been initialized.");
+    }
     return *runtime_;
 }
 
 void GameSession::setGameSpeed(GameSpeed gameSpeed) {
+    ensureRuntime();
     runtime_->setGameSpeed(gameSpeed);
 }
 
 GameSpeed GameSession::gameSpeed() const {
+    if (!runtime_) {
+        return runtimeOptions_.fastForward ? GameSpeed::FastForward : GameSpeed::Fast;
+    }
     return runtime_->gameSpeed();
 }
 
@@ -562,12 +630,63 @@ void GameSession::clearLoadingPresenter() {
     loadingPresenter_ = LoadingPresenter();
 }
 
+void GameSession::setCityPreviewRenderer(const CityPreviewRenderer& cityPreviewRenderer) {
+    cityPreviewRenderer_ = cityPreviewRenderer;
+}
+
+void GameSession::clearCityPreviewRenderer() {
+    cityPreviewRenderer_ = CityPreviewRenderer();
+}
+
 void GameSession::setSaveDirectoryOverride(const std::string& saveDirectoryOverride) {
     saveDirectoryOverride_ = saveDirectoryOverride;
 }
 
 std::uint64_t GameSession::renderStateRevision() const {
     return renderStateRevision_;
+}
+
+void GameSession::queueApplicationWarning(const std::string& title, const std::string& message) {
+    applicationWarnings_.push_back(ApplicationWarning(title, message));
+    ++renderStateRevision_;
+}
+
+bool GameSession::hasApplicationWarning() const {
+    return !applicationWarnings_.empty();
+}
+
+const ApplicationWarning* GameSession::currentApplicationWarning() const {
+    return applicationWarnings_.empty() ? 0 : &applicationWarnings_.front();
+}
+
+void GameSession::dismissCurrentApplicationWarning() {
+    if (applicationWarnings_.empty()) {
+        return;
+    }
+
+    applicationWarnings_.erase(applicationWarnings_.begin());
+    ++renderStateRevision_;
+}
+
+void GameSession::ensureRuntime() {
+    if (runtime_) {
+        return;
+    }
+
+    const bool hadLoadingStage = loadingStatus_.active;
+    if (!hadLoadingStage) {
+        beginLoadingStage("Loading simulation assets", 0.12f);
+    } else {
+        updateLoadingStage("Loading simulation assets", std::max(loadingStatus_.progress, 0.12f));
+    }
+
+    runtime_.reset(new SimulationRuntime(runtimeOptions_));
+
+    if (!hadLoadingStage && !loadingPresenter_) {
+        finishLoadingStage(false);
+    } else {
+        updateLoadingStage("Simulation assets ready", std::max(loadingStatus_.progress, 0.20f));
+    }
 }
 
 void GameSession::setActiveCityCamera(int cameraX, int cameraY, int visibleTiles) {
@@ -591,6 +710,7 @@ bool GameSession::enterCity(int regionX, int regionY) {
     }
 
     beginLoadingStage("Loading city", 0.08f);
+    ensureRuntime();
     try {
         if (mode_ == GameMode::City) {
             updateLoadingStage("Packing active city", 0.20f);
@@ -635,6 +755,7 @@ void GameSession::exitToRegion() {
     }
 
     beginLoadingStage("Loading region", 0.08f);
+    ensureRuntime();
     try {
         updateLoadingStage("Packing active city", 0.24f);
         runtime_->stop();
@@ -654,12 +775,78 @@ void GameSession::exitToRegion() {
     }
 }
 
+bool GameSession::quitCityToRegion(bool saveBeforeQuit) {
+    if (mode_ != GameMode::City) {
+        return true;
+    }
+
+    City* quittingCity = activeCity_;
+    activeCity_ = 0;
+    mode_ = GameMode::Region;
+
+    beginLoadingStage(saveBeforeQuit ? "Saving city" : "Loading region", 0.08f);
+    ensureRuntime();
+    try {
+        updateLoadingStage(saveBeforeQuit ? "Packing active city" : "Stopping city", 0.20f);
+        runtime_->stop();
+
+        if (saveBeforeQuit) {
+            if (quittingCity != 0) {
+                CitySaveState saveState = runtime_->exportCitySaveState();
+                saveState.cameraX = quittingCity->cameraX();
+                saveState.cameraY = quittingCity->cameraY();
+                saveState.visibleTiles = quittingCity->visibleTiles();
+                quittingCity->setSaveState(saveState, true);
+                region_.recalculateRegionParameters();
+            }
+
+            updateLoadingStage("Writing autoslot", 0.34f);
+            if (!saveRegionToDisk(0.36f, 0.82f)) {
+                if (quittingCity != 0) {
+                    quittingCity->unloadSaveState();
+                }
+                updateLoadingStage("Unloading city", 0.88f);
+                CitySaveState emptyRuntimeState = City::createDefaultSaveState(0u, runtime_->mapWidth(), runtime_->mapHeight());
+                runtime_->importCitySaveState(emptyRuntimeState, false);
+                finishLoadingStage(true);
+                return false;
+            }
+        } else if (quittingCity != 0) {
+            updateLoadingStage("Discarding city changes", 0.42f);
+            CitySaveState saveState = loadCitySaveStateFromDiskOrDefault(*quittingCity);
+            quittingCity->setMetadataFromSaveState(saveState);
+            quittingCity->unloadSaveState();
+            quittingCity->clearPreview();
+            region_.recalculateRegionParameters();
+        }
+
+        updateLoadingStage("Unloading city", 0.88f);
+        CitySaveState emptyRuntimeState = City::createDefaultSaveState(0u, runtime_->mapWidth(), runtime_->mapHeight());
+        runtime_->importCitySaveState(emptyRuntimeState, false);
+        if (quittingCity != 0) {
+            quittingCity->unloadCleanSaveState();
+        }
+        finishLoadingStage(true);
+        std::cout << "Quit city to region." << std::endl;
+        return true;
+    } catch (const std::exception& error) {
+        LogException("GameSession::quitCityToRegion", error);
+        finishLoadingStage(false);
+        throw;
+    } catch (...) {
+        LogError("GameSession::quitCityToRegion", "unknown exception.");
+        finishLoadingStage(false);
+        throw;
+    }
+}
+
 bool GameSession::discardActiveCityChanges() {
     if (activeCity_ == 0) {
         return true;
     }
 
     beginLoadingStage("Reloading city save", 0.12f);
+    ensureRuntime();
     try {
         runtime_->stop();
         updateLoadingStage("Reading city save", 0.45f);
@@ -686,22 +873,35 @@ bool GameSession::discardActiveCityChanges() {
 
 bool GameSession::saveAutoslot() {
     beginLoadingStage(mode_ == GameMode::City ? "Saving city" : "Saving region", 0.08f);
+    ensureRuntime();
     bool shouldRestartRuntime = false;
     if (mode_ == GameMode::City) {
+        CitySaveState restartState;
+        bool hasRestartState = false;
         try {
             updateLoadingStage("Packing active city", 0.18f);
             runtime_->stop();
             shouldRestartRuntime = true;
             exportActiveCity();
+            if (activeCity_ != 0 && activeCity_->hasSaveState()) {
+                restartState = activeCity_->saveState();
+                hasRestartState = true;
+            }
             updateLoadingStage("Writing autoslot", 0.32f);
             const bool saved = saveRegionToDisk(0.34f, 0.94f);
             if (shouldRestartRuntime) {
+                if (hasRestartState) {
+                    runtime_->importCitySaveState(restartState);
+                }
                 runtime_->start();
             }
             finishLoadingStage(false);
             return saved;
         } catch (...) {
             if (shouldRestartRuntime) {
+                if (hasRestartState) {
+                    runtime_->importCitySaveState(restartState);
+                }
                 runtime_->start();
             }
             finishLoadingStage(false);
@@ -727,6 +927,7 @@ bool GameSession::loadAutoslot() {
     CrashScope crashScope("GameSession::loadAutoslot");
 
     beginLoadingStage("Loading autoslot", 0.08f);
+    ensureRuntime();
     const bool reloadActiveCity = mode_ == GameMode::City && activeCity_ != 0;
     int activeRegionX = 0;
     int activeRegionY = 0;
@@ -870,6 +1071,9 @@ bool GameSession::saveRegionToDisk(float progressStart, float progressEnd) {
             }
             city.setMetadataFromSaveState(cityState);
             city.markSaveStateClean();
+            if (!writeCityPreviewCache(city, cityState)) {
+                return false;
+            }
             city.unloadCleanSaveState();
         }
 
@@ -936,10 +1140,10 @@ CitySaveState GameSession::loadCitySaveStateFromDiskOrDefault(City& city) {
             std::uint32_t version = 0u;
             ReadValue(stream, magic);
             ReadValue(stream, version);
-            if (magic != kCitySaveMagic || version != kCitySaveVersion) {
+            if (magic != kCitySaveMagic || !IsReadableCitySaveVersion(version)) {
                 std::cout << "City save version mismatch for " << city.name() << "." << std::endl;
             } else {
-                CitySaveState saveState = ReadCityState(stream);
+                CitySaveState saveState = ReadCityState(stream, version);
                 city.setMetadataFromSaveState(saveState);
                 return saveState;
             }
@@ -977,6 +1181,30 @@ bool GameSession::saveCityStateToDisk(City& city, const CitySaveState& saveState
     return false;
 }
 
+bool GameSession::writeCityPreviewCache(City& city, const CitySaveState& saveState) const {
+    std::vector<std::uint8_t> previewPixels;
+    bool renderedPreview = false;
+    if (cityPreviewRenderer_) {
+        renderedPreview = cityPreviewRenderer_(saveState, previewPixels);
+    }
+
+    if (!renderedPreview || previewPixels.size() != ExpectedPreviewPixelCount(city)) {
+        if (!renderedPreview) {
+            LogWarning("GameSession::writeCityPreviewCache", "City preview renderer was unavailable; writing a fallback preview for " + city.name() + ".");
+        } else {
+            LogWarning("GameSession::writeCityPreviewCache", "City preview renderer returned an invalid pixel buffer for " + city.name() + "; writing a fallback preview.");
+        }
+        BuildFallbackCityPreviewPixels(city, previewPixels);
+    }
+
+    if (!saveCityPreviewPixels(city, previewPixels)) {
+        std::cout << "Could not save mandatory region preview cache for " << city.name() << "." << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
 bool GameSession::requestCityPreviewBuild(City& city) {
     if (city.hasSaveState() || city.hasPreviewBuildInFlight()) {
         return false;
@@ -1008,8 +1236,8 @@ bool GameSession::requestCityPreviewBuild(City& city) {
                 std::uint32_t version = 0u;
                 ReadValue(stream, magic);
                 ReadValue(stream, version);
-                if (magic == kCitySaveMagic && version == kCitySaveVersion) {
-                    return ReadCityState(stream);
+                if (magic == kCitySaveMagic && IsReadableCitySaveVersion(version)) {
+                    return ReadCityState(stream, version);
                 }
                 std::cout << "City save version mismatch for preview " << cityName << "." << std::endl;
             } catch (const std::exception& error) {
@@ -1163,6 +1391,7 @@ void GameSession::exportActiveCity() {
     if (activeCity_ == 0) {
         return;
     }
+    ensureRuntime();
 
     CitySaveState saveState = runtime_->exportCitySaveState();
     saveState.cameraX = activeCity_->cameraX();

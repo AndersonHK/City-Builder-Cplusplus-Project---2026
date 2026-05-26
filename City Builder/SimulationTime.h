@@ -5,7 +5,7 @@
 class SimulationTime {
 public:
     static constexpr std::uint64_t ticksPerDay() {
-        return 2u;
+        return 4u;
     }
 
     static constexpr std::uint64_t daysToTicks(std::uint64_t days) {

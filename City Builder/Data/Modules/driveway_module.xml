@@ -1,5 +1,5 @@
 <module id="driveway_module">
   <size width="1" height="1" />
-  <effects airPollution="0" landValue="220" />
-  <render height="0.08" colorR="0.28" colorG="0.28" colorB="0.30" />
+  <effects airPollution="0" landValue="110" />
+  <render mesh="flat_surface" height="0.15" colorR="0.28" colorG="0.28" colorB="0.30" />
 </module>

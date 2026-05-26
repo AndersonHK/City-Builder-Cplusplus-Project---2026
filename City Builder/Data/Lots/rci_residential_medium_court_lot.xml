@@ -1,0 +1,58 @@
+<lot id="rci_residential_medium_court_lot" name="Medium Residential Court" zoningType="residential" densityBand="medium" constructionDays="8">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="2" height="2" />
+  <compatibility minWidth="2" maxWidth="8" minDepth="2" maxDepth="8" />
+  <front direction="north" />
+  <autoLayout>
+    <autoModule id="small_apartment_module" role="primary" minWidth="2" maxWidth="2" minDepth="2" maxDepth="2" xRef="start" x="0" yRef="start" y="0" />
+    <autoModule id="walkup_apartment_module" role="primary" minWidth="2" maxWidth="2" minDepth="3" maxDepth="3" xRef="start" x="0" yRef="start" y="0" />
+    <autoModule id="narrow_walkup_module" role="primary" minWidth="2" maxWidth="2" minDepth="4" maxDepth="4" xRef="start" x="0" yRef="start" y="0" />
+    <autoModule id="narrow_walkup_module" role="primary" minWidth="2" maxWidth="2" minDepth="5" maxDepth="8" xRef="start" x="0" yRef="start" y="1" />
+    <autoModule id="small_apartment_module" role="primary" minWidth="3" maxWidth="3" minDepth="2" maxDepth="2" xRef="start" x="1" yRef="start" y="0" />
+    <autoModule id="walkup_apartment_module" role="primary" minWidth="3" maxWidth="3" minDepth="3" maxDepth="3" xRef="start" x="1" yRef="start" y="0" />
+    <autoModule id="midrise_corner_module" role="primary" minWidth="3" maxWidth="3" minDepth="4" maxDepth="4" xRef="start" x="0" yRef="start" y="0" />
+    <autoModule id="midrise_slab_module" role="primary" minWidth="3" maxWidth="3" minDepth="5" maxDepth="5" xRef="start" x="0" yRef="start" y="0" />
+    <autoModule id="deep_midrise_module" role="primary" minWidth="3" maxWidth="3" minDepth="6" maxDepth="6" xRef="start" x="0" yRef="start" y="0" />
+    <autoModule id="deep_midrise_module" role="primary" minWidth="3" maxWidth="3" minDepth="7" maxDepth="8" xRef="start" x="0" yRef="start" y="1" />
+    <autoModule id="small_apartment_module" role="primary" minWidth="4" maxWidth="4" minDepth="2" maxDepth="2" xRef="start" x="1" yRef="start" y="0" />
+    <autoModule id="walkup_apartment_module" role="primary" minWidth="4" maxWidth="4" minDepth="3" maxDepth="3" xRef="start" x="1" yRef="start" y="0" />
+    <autoModule id="walkup_block_module" role="primary" minWidth="4" maxWidth="4" minDepth="4" maxDepth="4" xRef="start" x="0" yRef="start" y="0" />
+    <autoModule id="midrise_block_module" role="primary" minWidth="4" maxWidth="4" minDepth="5" maxDepth="5" xRef="start" x="0" yRef="start" y="0" />
+    <autoModule id="midrise_block_module" role="primary" minWidth="4" maxWidth="4" minDepth="6" maxDepth="8" xRef="start" x="0" yRef="start" y="1" />
+    <autoModule id="small_apartment_module" role="primary" minWidth="5" maxWidth="5" minDepth="2" maxDepth="2" xRef="start" x="2" yRef="start" y="0" />
+    <autoModule id="shallow_walkup_module" role="primary" minWidth="5" maxWidth="5" minDepth="3" maxDepth="3" xRef="start" x="0" yRef="start" y="0" />
+    <autoModule id="wide_midrise_module" role="primary" minWidth="5" maxWidth="5" minDepth="4" maxDepth="4" xRef="start" x="0" yRef="start" y="0" />
+    <autoModule id="midrise_court_module" role="primary" minWidth="5" maxWidth="5" minDepth="5" maxDepth="5" xRef="start" x="0" yRef="start" y="0" />
+    <autoModule id="avenue_midrise_module" role="primary" minWidth="5" maxWidth="5" minDepth="6" maxDepth="6" xRef="start" x="0" yRef="start" y="0" />
+    <autoModule id="superblock_midrise_module" role="primary" minWidth="5" maxWidth="5" minDepth="7" maxDepth="7" xRef="start" x="0" yRef="start" y="0" />
+    <autoModule id="superblock_midrise_module" role="primary" minWidth="5" maxWidth="5" minDepth="8" maxDepth="8" xRef="start" x="0" yRef="start" y="1" />
+    <autoModule id="small_apartment_module" role="primary" minWidth="6" maxWidth="6" minDepth="2" maxDepth="2" xRef="start" x="2" yRef="start" y="0" />
+    <autoModule id="shallow_midrise_module" role="primary" minWidth="6" maxWidth="6" minDepth="3" maxDepth="3" xRef="start" x="0" yRef="start" y="0" />
+    <autoModule id="wide_midrise_module" role="primary" minWidth="6" maxWidth="6" minDepth="4" maxDepth="4" xRef="start" x="1" yRef="start" y="0" />
+    <autoModule id="midrise_court_module" role="primary" minWidth="6" maxWidth="6" minDepth="5" maxDepth="5" xRef="start" x="1" yRef="start" y="0" />
+    <autoModule id="avenue_midrise_module" role="primary" minWidth="6" maxWidth="6" minDepth="6" maxDepth="6" xRef="start" x="1" yRef="start" y="0" />
+    <autoModule id="superblock_midrise_module" role="primary" minWidth="6" maxWidth="6" minDepth="7" maxDepth="7" xRef="start" x="1" yRef="start" y="0" />
+    <autoModule id="superblock_midrise_module" role="primary" minWidth="6" maxWidth="6" minDepth="8" maxDepth="8" xRef="start" x="1" yRef="start" y="1" />
+    <autoModule id="small_apartment_module" role="primary" minWidth="7" maxWidth="7" minDepth="2" maxDepth="2" xRef="start" x="3" yRef="start" y="0" />
+    <autoModule id="shallow_midrise_module" role="primary" minWidth="7" maxWidth="7" minDepth="3" maxDepth="3" xRef="start" x="1" yRef="start" y="0" />
+    <autoModule id="wide_midrise_module" role="primary" minWidth="7" maxWidth="7" minDepth="4" maxDepth="4" xRef="start" x="1" yRef="start" y="0" />
+    <autoModule id="midrise_court_module" role="primary" minWidth="7" maxWidth="7" minDepth="5" maxDepth="5" xRef="start" x="1" yRef="start" y="0" />
+    <autoModule id="avenue_midrise_module" role="primary" minWidth="7" maxWidth="7" minDepth="6" maxDepth="6" xRef="start" x="1" yRef="start" y="0" />
+    <autoModule id="superblock_midrise_module" role="primary" minWidth="7" maxWidth="7" minDepth="7" maxDepth="7" xRef="start" x="1" yRef="start" y="0" />
+    <autoModule id="superblock_midrise_module" role="primary" minWidth="7" maxWidth="7" minDepth="8" maxDepth="8" xRef="start" x="1" yRef="start" y="1" />
+    <autoModule id="small_apartment_module" role="primary" minWidth="8" maxWidth="8" minDepth="2" maxDepth="2" xRef="start" x="3" yRef="start" y="0" />
+    <autoModule id="shallow_midrise_module" role="primary" minWidth="8" maxWidth="8" minDepth="3" maxDepth="3" xRef="start" x="1" yRef="start" y="0" />
+    <autoModule id="wide_midrise_module" role="primary" minWidth="8" maxWidth="8" minDepth="4" maxDepth="4" xRef="start" x="2" yRef="start" y="0" />
+    <autoModule id="midrise_court_module" role="primary" minWidth="8" maxWidth="8" minDepth="5" maxDepth="5" xRef="start" x="2" yRef="start" y="0" />
+    <autoModule id="avenue_midrise_module" role="primary" minWidth="8" maxWidth="8" minDepth="6" maxDepth="6" xRef="start" x="2" yRef="start" y="0" />
+    <autoModule id="superblock_midrise_module" role="primary" minWidth="8" maxWidth="8" minDepth="7" maxDepth="7" xRef="start" x="2" yRef="start" y="0" />
+    <autoModule id="superblock_midrise_module" role="primary" minWidth="8" maxWidth="8" minDepth="8" maxDepth="8" xRef="start" x="2" yRef="start" y="1" />
+    <autoModule id="driveway_module" required="false" xRef="end" yRef="front" />
+    <autoLine id="pathway_module" required="false" xRef="center" yStartRef="front" yEndRef="primaryStart" yEndOffset="-1" />
+    <autoFill id="garden_module" alternatives="garden_module:3,garden_tree_module:1" />
+  </autoLayout>
+  <access>
+    <connection xRef="center" yRef="front" modes="pedestrian" />
+    <connection xRef="end" yRef="front" modes="car" />
+  </access>
+</lot>

@@ -1,7 +1,7 @@
 <module id="yard_workshop_module" density="low">
   <size width="2" height="1" />
-  <effects airPollution="800" landValue="1700" />
-  <render height="0.52" colorR="0.45" colorG="0.41" colorB="0.34" />
+  <effects airPollution="160" landValue="850" />
+  <render mesh="box" height="0.52" colorR="0.45" colorG="0.41" colorB="0.34" />
   <parameters>
     <driver id="jobs.dirty_industry" amount="2" />
   </parameters>

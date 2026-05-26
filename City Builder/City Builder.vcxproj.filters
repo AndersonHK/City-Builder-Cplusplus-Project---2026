@@ -39,6 +39,9 @@
     <ClCompile Include="GameSession.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="GeneratedMeshCatalog.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="InGameWindow.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -111,6 +114,9 @@
       <Filter>Resource Files</Filter>
     </None>
     <None Include="Data\config.ini">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Locale\en-US.json">
       <Filter>Resource Files</Filter>
     </None>
     <None Include="Data\Lots\factory_lot.xml">
@@ -2161,6 +2167,9 @@
     <ClInclude Include="GameSession.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="GeneratedMeshCatalog.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="InGameWindow.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -2168,6 +2177,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="LotModule.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="LotRenderSurfacePatterns.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Road.h">

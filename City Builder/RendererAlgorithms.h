@@ -24,7 +24,7 @@ struct UiQuadInstanceData {
 // Packs signed tile stats into the configured fixed-point signed payload range.
 RendererSignedScalarPayload RendererPackTileStateScalar(int value);
 
-// Writes pollution and land-value stat channels for one chunk.
+// Writes pollution and park-effect stat channels for one chunk.
 void RendererFillTileStateChunkPixels(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, std::vector<RendererSignedScalarPayload>& texturePixels);
 
 // Writes the lot-occupancy lift mask used to keep occupied terrain below lots.
@@ -35,6 +35,12 @@ void RendererFillZoningOverlayChunkValues(const std::vector<Tile>& tiles, int ma
 
 // Writes land value as a capped scalar against kSimulationStatDisplayCap.
 void RendererFillLandValueOverlayChunkValues(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, std::vector<RendererScalarPayload>& textureValues);
+
+// Writes air pollution as a capped scalar against kSimulationStatDisplayCap.
+void RendererFillAirPollutionOverlayChunkValues(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, std::vector<RendererScalarPayload>& textureValues);
+
+// Writes park effect as a capped scalar against kSimulationStatDisplayCap.
+void RendererFillParkEffectOverlayChunkValues(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, std::vector<RendererScalarPayload>& textureValues);
 
 // Decodes one UTF-8 codepoint for the renderer bitmap text path.
 bool RendererNextUtf8Codepoint(const std::string& text, std::size_t& byteIndex, std::uint32_t& codepoint);

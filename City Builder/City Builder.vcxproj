@@ -114,6 +114,7 @@
     <PostBuildEvent>
       <Command>copy /Y "$(ProjectDir)Basic.shader" "$(OutDir)Basic.shader"
 "$(SystemRoot)\System32\xcopy.exe" /Y /I /E "$(ProjectDir)Data" "$(OutDir)Data"
+"$(OutDir)CityBuilderAssetGenerator.exe" "$(OutDir)Data"
 copy /Y "$(ProjectDir)..\DLLs\glew32.dll" "$(OutDir)glew32.dll"
 copy /Y "$(ProjectDir)..\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"</Command>
     </PostBuildEvent>
@@ -153,6 +154,7 @@ copy /Y "$(ProjectDir)..\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"</Command>
     <PostBuildEvent>
       <Command>copy /Y "$(ProjectDir)Basic.shader" "$(OutDir)Basic.shader"
 "$(SystemRoot)\System32\xcopy.exe" /Y /I /E "$(ProjectDir)Data" "$(OutDir)Data"
+"$(OutDir)CityBuilderAssetGenerator.exe" "$(OutDir)Data"
 copy /Y "$(ProjectDir)..\DLLs\glew32.dll" "$(OutDir)glew32.dll"
 copy /Y "$(ProjectDir)..\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"</Command>
     </PostBuildEvent>
@@ -165,6 +167,7 @@ copy /Y "$(ProjectDir)..\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"</Command>
     <ClCompile Include="CityParameters.cpp" />
     <ClCompile Include="CrashLogger.cpp" />
     <ClCompile Include="GameSession.cpp" />
+    <ClCompile Include="GeneratedMeshCatalog.cpp" />
     <ClCompile Include="InGameWindow.cpp" />
     <ClCompile Include="ChunkConfig.cpp" />
     <ClCompile Include="Localization.cpp" />
@@ -195,6 +198,7 @@ copy /Y "$(ProjectDir)..\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"</Command>
   <ItemGroup>
     <None Include="Basic.shader" />
     <None Include="Data\config.ini" />
+    <None Include="Data\Locale\en-US.json" />
     <None Include="Data\Lots\factory_lot.xml" />
     <None Include="Data\Lots\house_lot.xml" />
     <None Include="Data\Lots\park_lot.xml" />
@@ -878,12 +882,14 @@ copy /Y "$(ProjectDir)..\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"</Command>
     <ClInclude Include="CityParameters.h" />
     <ClInclude Include="CrashLogger.h" />
     <ClInclude Include="GameSession.h" />
+    <ClInclude Include="GeneratedMeshCatalog.h" />
     <ClInclude Include="InGameWindow.h" />
     <ClInclude Include="ChunkConfig.h" />
     <ClInclude Include="CommuteTypes.h" />
     <ClInclude Include="Localization.h" />
     <ClInclude Include="Lot.h" />
     <ClInclude Include="LotModule.h" />
+    <ClInclude Include="LotRenderSurfacePatterns.h" />
     <ClInclude Include="Road.h" />
     <ClInclude Include="RoadAtlas.h" />
     <ClInclude Include="RoadGraphic.h" />
@@ -910,6 +916,11 @@ copy /Y "$(ProjectDir)..\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"</Command>
     <ClInclude Include="TransportNetwork.h" />
     <ClInclude Include="TransportTypes.h" />
     <ClInclude Include="UiWidgets.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="CityBuilderAssetGenerator.vcxproj">
+      <Project>{4E2B5E6E-0C08-49B2-B9CE-D46F98AD2C28}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

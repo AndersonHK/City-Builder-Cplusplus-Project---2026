@@ -1,0 +1,12 @@
+<module id="rci_residential_house_7_module" density="low">
+  <size width="2" height="2" />
+  <effects airPollution="0" landValue="1150" />
+  <render mesh="gabled_roof" height="0.74" colorR="0.60" colorG="0.46" colorB="0.35" />
+  <props>
+    <prop id="garden_module" x="0" y="0" footprintWidth="2" footprintHeight="2" renderWidth="2" renderHeight="2" />
+    <prop id="pathway_module" x="0" y="0" footprintWidth="2" footprintHeight="2" renderWidth="0.34" renderHeight="2" alignX="center" alignY="start" />
+  </props>
+  <parameters>
+    <driver id="residents.low_wealth" amount="7" />
+  </parameters>
+</module>

@@ -71,6 +71,12 @@ const char* OverlayModeName(OverlayMode overlayMode) {
         case OverlayMode::LandValue:
             return "land value";
 
+        case OverlayMode::ParkEffect:
+            return "park effect";
+
+        case OverlayMode::AirPollution:
+            return "air pollution";
+
         case OverlayMode::Rci:
             return "RCI parcels";
 
@@ -137,6 +143,12 @@ std::string OverlayAction(OverlayMode overlayMode) {
 
         case OverlayMode::LandValue:
             return "toggle_overlay_land_value";
+
+        case OverlayMode::ParkEffect:
+            return "toggle_overlay_park_effect";
+
+        case OverlayMode::AirPollution:
+            return "toggle_overlay_air_pollution";
 
         case OverlayMode::Rci:
             return "toggle_overlay_rci";
@@ -364,6 +376,11 @@ std::vector<std::string> BuildLotQueryWindowLines(const TileQueryResult& queryRe
     }
     if (!queryResult.rciLandValueLevel.empty()) {
         lines.push_back("Land value: " + queryResult.rciLandValueLevel);
+    }
+    if (queryResult.rciCapacityMaximum > 0) {
+        std::ostringstream capacityLine;
+        capacityLine << "Capacity: " << queryResult.rciCapacityCurrent << " / " << queryResult.rciCapacityMaximum;
+        lines.push_back(capacityLine.str());
     }
     lines.push_back(BuildCommuteCategoryLine(queryResult));
     if (queryResult.residentsLowWealthTotal > 0) {
@@ -942,6 +959,14 @@ void AppController::onKeyPressed(int key, int action) {
         toggleLandValueOverlay();
         return;
     }
+    if (key == hotkeys.toggleParkEffectOverlay) {
+        toggleParkEffectOverlay();
+        return;
+    }
+    if (key == hotkeys.toggleAirPollutionOverlay) {
+        toggleAirPollutionOverlay();
+        return;
+    }
     if (key == hotkeys.addParkModule) {
         setActiveTool(ActiveTool::AddParkModule);
         return;
@@ -1140,7 +1165,7 @@ bool AppController::rciPreviewPlan(RciPlan& plan) const {
 }
 
 bool AppController::loadUiLayoutFromXmlFile(const std::string& filePath) {
-    if (!uiLayout_.loadFromXmlFile(filePath)) {
+    if (!uiLayout_.loadFromXmlFile(filePath, &localization_)) {
         throw std::runtime_error("AppController::loadUiLayoutFromXmlFile: failed to load " + filePath);
     }
     if (!rciTools_.tools().empty()) {
@@ -1300,6 +1325,14 @@ void AppController::toggleLandValueOverlay() {
     toggleOverlayMode(OverlayMode::LandValue);
 }
 
+void AppController::toggleParkEffectOverlay() {
+    toggleOverlayMode(OverlayMode::ParkEffect);
+}
+
+void AppController::toggleAirPollutionOverlay() {
+    toggleOverlayMode(OverlayMode::AirPollution);
+}
+
 void AppController::toggleRoadDebugGraphics() {
     viewState_.roadDebugGraphicsEnabled = !viewState_.roadDebugGraphicsEnabled;
     std::cout << "Road debug graphics: " << (viewState_.roadDebugGraphicsEnabled ? "on" : "off") << std::endl;
@@ -1311,8 +1344,11 @@ void AppController::setGameSpeed(GameSpeed gameSpeed) {
 }
 
 bool AppController::modalMenuOpen() const {
-    return uiLayout_.menuVisible("escape_menu") ||
+    return gameSession_.hasApplicationWarning() ||
+        uiLayout_.menuVisible("escape_menu") ||
+        uiLayout_.menuVisible("region_escape_menu") ||
         uiLayout_.menuVisible("exit_confirm_dialog") ||
+        uiLayout_.menuVisible("quit_region_confirm_dialog") ||
         uiLayout_.menuVisible("city_switch_confirm_dialog");
 }
 
@@ -1325,8 +1361,19 @@ void AppController::clearTransientInteractions() {
 
 void AppController::toggleEscapeMenu() {
     clearTransientInteractions();
+    if (gameSession_.hasApplicationWarning()) {
+        gameSession_.dismissCurrentApplicationWarning();
+        return;
+    }
+
     if (uiLayout_.menuVisible("exit_confirm_dialog")) {
         uiLayout_.setMenuVisible("exit_confirm_dialog", false);
+        uiLayout_.setMenuVisible(gameSession_.isRegionMode() ? "region_escape_menu" : "escape_menu", true);
+        return;
+    }
+
+    if (uiLayout_.menuVisible("quit_region_confirm_dialog")) {
+        uiLayout_.setMenuVisible("quit_region_confirm_dialog", false);
         uiLayout_.setMenuVisible("escape_menu", true);
         return;
     }
@@ -1337,7 +1384,10 @@ void AppController::toggleEscapeMenu() {
         return;
     }
 
-    uiLayout_.setMenuVisible("escape_menu", !uiLayout_.menuVisible("escape_menu"));
+    const std::string menuId = gameSession_.isRegionMode() ? "region_escape_menu" : "escape_menu";
+    const std::string otherMenuId = gameSession_.isRegionMode() ? "escape_menu" : "region_escape_menu";
+    uiLayout_.setMenuVisible(otherMenuId, false);
+    uiLayout_.setMenuVisible(menuId, !uiLayout_.menuVisible(menuId));
 }
 
 void AppController::rotatePlacement(int deltaSteps) {
@@ -1475,8 +1525,13 @@ bool AppController::buildActiveRciPlan(RciPlan& plan) const {
 bool AppController::handleUiClick() {
     std::vector<std::string> menuIds;
     if (modalMenuOpen()) {
+        if (gameSession_.hasApplicationWarning()) {
+            menuIds.push_back("app_warning_dialog");
+        }
         menuIds.push_back("escape_menu");
+        menuIds.push_back("region_escape_menu");
         menuIds.push_back("exit_confirm_dialog");
+        menuIds.push_back("quit_region_confirm_dialog");
         menuIds.push_back("city_switch_confirm_dialog");
     } else if (gameSession_.isRegionMode()) {
         menuIds.push_back("region_exit");
@@ -1504,6 +1559,11 @@ bool AppController::handleUiClickForMenus(const std::vector<std::string>& menuId
 }
 
 void AppController::invokeUiAction(const std::string& action) {
+    if (action == "dismiss_app_warning") {
+        gameSession_.dismissCurrentApplicationWarning();
+        return;
+    }
+
     GameSpeed requestedGameSpeed = GameSpeed::Paused;
     if (TryGameSpeedForAction(action, requestedGameSpeed)) {
         setGameSpeed(requestedGameSpeed);
@@ -1513,8 +1573,38 @@ void AppController::invokeUiAction(const std::string& action) {
     if (action == "open_exit_confirm") {
         clearTransientInteractions();
         uiLayout_.setMenuVisible("escape_menu", false);
+        uiLayout_.setMenuVisible("region_escape_menu", false);
+        uiLayout_.setMenuVisible("quit_region_confirm_dialog", false);
         uiLayout_.setMenuVisible("city_switch_confirm_dialog", false);
+        if (gameSession_.isRegionMode() && gameSession_.activeCity() == 0) {
+            quitRequested_ = true;
+            uiLayout_.setMenuVisible("exit_confirm_dialog", false);
+            return;
+        }
         uiLayout_.setMenuVisible("exit_confirm_dialog", true);
+        return;
+    }
+
+    if (action == "save_autoslot") {
+        clearTransientInteractions();
+        syncActiveCityCameraToSession();
+        if (!gameSession_.saveAutoslot()) {
+            std::cout << "Save failed." << std::endl;
+        }
+        return;
+    }
+
+    if (action == "open_quit_region_confirm") {
+        if (!gameSession_.isCityMode()) {
+            return;
+        }
+
+        clearTransientInteractions();
+        uiLayout_.setMenuVisible("escape_menu", false);
+        uiLayout_.setMenuVisible("region_escape_menu", false);
+        uiLayout_.setMenuVisible("exit_confirm_dialog", false);
+        uiLayout_.setMenuVisible("city_switch_confirm_dialog", false);
+        uiLayout_.setMenuVisible("quit_region_confirm_dialog", true);
         return;
     }
 
@@ -1523,7 +1613,9 @@ void AppController::invokeUiAction(const std::string& action) {
         if (gameSession_.saveAutoslot()) {
             quitRequested_ = true;
             uiLayout_.setMenuVisible("escape_menu", false);
+            uiLayout_.setMenuVisible("region_escape_menu", false);
             uiLayout_.setMenuVisible("exit_confirm_dialog", false);
+            uiLayout_.setMenuVisible("quit_region_confirm_dialog", false);
             uiLayout_.setMenuVisible("city_switch_confirm_dialog", false);
         } else {
             std::cout << "Save failed; exit canceled." << std::endl;
@@ -1534,8 +1626,45 @@ void AppController::invokeUiAction(const std::string& action) {
     if (action == "exit_save_no") {
         quitRequested_ = true;
         uiLayout_.setMenuVisible("escape_menu", false);
+        uiLayout_.setMenuVisible("region_escape_menu", false);
         uiLayout_.setMenuVisible("exit_confirm_dialog", false);
+        uiLayout_.setMenuVisible("quit_region_confirm_dialog", false);
         uiLayout_.setMenuVisible("city_switch_confirm_dialog", false);
+        return;
+    }
+
+    if (action == "quit_region_save_yes") {
+        syncActiveCityCameraToSession();
+        if (gameSession_.quitCityToRegion(true)) {
+            uiLayout_.setMenuVisible("escape_menu", false);
+            uiLayout_.setMenuVisible("region_escape_menu", false);
+            uiLayout_.setMenuVisible("exit_confirm_dialog", false);
+            uiLayout_.setMenuVisible("quit_region_confirm_dialog", false);
+            uiLayout_.setMenuVisible("city_switch_confirm_dialog", false);
+            pendingRegionEnter_ = false;
+        } else {
+            uiLayout_.setMenuVisible("escape_menu", false);
+            uiLayout_.setMenuVisible("region_escape_menu", false);
+            uiLayout_.setMenuVisible("exit_confirm_dialog", false);
+            uiLayout_.setMenuVisible("quit_region_confirm_dialog", false);
+            uiLayout_.setMenuVisible("city_switch_confirm_dialog", false);
+            pendingRegionEnter_ = false;
+            std::cout << "Save failed; city was unloaded without saving." << std::endl;
+        }
+        return;
+    }
+
+    if (action == "quit_region_save_no") {
+        if (gameSession_.quitCityToRegion(false)) {
+            uiLayout_.setMenuVisible("escape_menu", false);
+            uiLayout_.setMenuVisible("region_escape_menu", false);
+            uiLayout_.setMenuVisible("exit_confirm_dialog", false);
+            uiLayout_.setMenuVisible("quit_region_confirm_dialog", false);
+            uiLayout_.setMenuVisible("city_switch_confirm_dialog", false);
+            pendingRegionEnter_ = false;
+        } else {
+            std::cout << "Region exit canceled." << std::endl;
+        }
         return;
     }
 
@@ -1598,6 +1727,18 @@ void AppController::invokeUiAction(const std::string& action) {
     if (action == "toggle_overlay_land_value") {
         clearTransientInteractions();
         toggleOverlayMode(OverlayMode::LandValue);
+        return;
+    }
+
+    if (action == "toggle_overlay_park_effect") {
+        clearTransientInteractions();
+        toggleOverlayMode(OverlayMode::ParkEffect);
+        return;
+    }
+
+    if (action == "toggle_overlay_air_pollution") {
+        clearTransientInteractions();
+        toggleOverlayMode(OverlayMode::AirPollution);
         return;
     }
 

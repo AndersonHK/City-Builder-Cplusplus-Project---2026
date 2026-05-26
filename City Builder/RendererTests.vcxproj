@@ -80,6 +80,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="InGameWindow.cpp" />
+    <ClCompile Include="Localization.cpp" />
     <ClCompile Include="RciTool.cpp" />
     <ClCompile Include="RendererAlgorithms.cpp" />
     <ClCompile Include="RendererColor.cpp" />
@@ -92,6 +93,7 @@
   <ItemGroup>
     <ClInclude Include="ChunkConfig.h" />
     <ClInclude Include="InGameWindow.h" />
+    <ClInclude Include="Localization.h" />
     <ClInclude Include="RciTool.h" />
     <ClInclude Include="RendererAlgorithms.h" />
     <ClInclude Include="RendererColor.h" />

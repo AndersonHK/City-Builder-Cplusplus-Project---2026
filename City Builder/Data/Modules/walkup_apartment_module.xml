@@ -1,7 +1,7 @@
 <module id="walkup_apartment_module" density="medium">
   <size width="2" height="3" />
-  <effects airPollution="0" landValue="6500" />
-  <render height="1.45" colorR="0.56" colorG="0.50" colorB="0.45" />
+  <effects airPollution="0" landValue="3250" />
+  <render mesh="box" height="1.45" colorR="0.56" colorG="0.50" colorB="0.45" />
   <parameters>
     <driver id="residents.low_wealth" amount="14" />
   </parameters>

@@ -70,7 +70,14 @@ std::string MakeTemporarySaveDirectory() {
 void CleanupTemporarySaveDirectory(const std::string& saveDirectory) {
     DeleteFileA((saveDirectory + "\\region.bin").c_str());
     DeleteFileA((saveDirectory + "\\city_0_0.bin").c_str());
+    DeleteFileA((saveDirectory + "\\city_0_0.preview.bin").c_str());
     RemoveDirectoryA(saveDirectory.c_str());
+}
+
+bool FileExists(const std::string& filePath) {
+    const DWORD attributes = GetFileAttributesA(filePath.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES &&
+        (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0u;
 }
 
 RuntimeOptions BuildSandboxRuntimeOptions() {
@@ -81,6 +88,7 @@ RuntimeOptions BuildSandboxRuntimeOptions() {
     options.usableL2Fraction = 0.75;
     options.mapWidth = 32;
     options.mapHeight = 32;
+    options.showNonFatalAssetWarningDialogs = false;
     return options;
 }
 
@@ -216,7 +224,15 @@ bool EqualRciLot(const RciLot& left, const RciLot& right) {
 
 bool EqualLotModuleState(const CitySaveLotModuleState& left, const CitySaveLotModuleState& right) {
     return left.moduleAssetId == right.moduleAssetId &&
-        EqualInt2(left.localOrigin, right.localOrigin);
+        EqualInt2(left.localOrigin, right.localOrigin) &&
+        left.footprintWidth == right.footprintWidth &&
+        left.footprintHeight == right.footprintHeight &&
+        left.renderOffsetX == right.renderOffsetX &&
+        left.renderOffsetY == right.renderOffsetY &&
+        left.renderWidth == right.renderWidth &&
+        left.renderHeight == right.renderHeight &&
+        left.affectsSimulation == right.affectsSimulation &&
+        left.claimsFootprint == right.claimsFootprint;
 }
 
 bool EqualLotState(const CitySaveLotState& left, const CitySaveLotState& right) {
@@ -381,6 +397,7 @@ void RunSaveLoadRoundTripTest(TestRunner& runner) {
         runner.expect(!baseline.transport.tiles.empty(), "baseline state includes authored transport tile lanes");
 
         runner.expect(session.saveAutoslot(), "sandbox autoslot saves to temporary directory");
+        runner.expect(FileExists(saveDirectory + "\\city_0_0.preview.bin"), "sandbox autoslot writes mandatory city preview cache");
         session.runtime().stop();
 
         GameSession loadedSession(options);
@@ -476,6 +493,76 @@ void RunPausedCommandAndUnzoneTest(TestRunner& runner) {
     }
 }
 
+void RunEnvironmentalDecayTest(TestRunner& runner) {
+    const RuntimeOptions options = BuildSandboxRuntimeOptions();
+
+    try {
+        GameSession session(options);
+        CitySaveState initialState = BuildCleanSandboxState();
+        initialState.tiles[SaveTileIndex(initialState, 6, 6)].airPollution = 4096;
+        initialState.tiles[SaveTileIndex(initialState, 6, 6)].parkEffect = 4096;
+
+        AddSandboxCity(session, initialState);
+        runner.expect(session.enterCity(0, 0), "environmental decay sandbox city enters");
+
+        session.runtime().setGameSpeed(GameSpeed::Play);
+        CitySaveState state;
+        const bool advancedOneTick = WaitForSandboxState(
+            session,
+            state,
+            [](const CitySaveState& candidate) {
+                return candidate.simulationTick == 18u && candidate.tiles.size() == 32u * 32u;
+            });
+        session.runtime().setGameSpeed(GameSpeed::Paused);
+        runner.expect(advancedOneTick, "environmental decay sandbox advances exactly one tick");
+
+        if (advancedOneTick) {
+            const Tile& centerTile = state.tiles[SaveTileIndex(state, 6, 6)];
+            const Tile& eastTile = state.tiles[SaveTileIndex(state, 7, 6)];
+            runner.expect(centerTile.airPollution == 3071, "air pollution uses fast spread and slow typed decay");
+            runner.expect(eastTile.airPollution == 255, "newly diffused air pollution decays by at least one");
+            runner.expect(centerTile.parkEffect == 3583, "park effect uses slower spread and quartered typed decay");
+            runner.expect(eastTile.parkEffect == 127, "newly diffused park effect decays by at least one");
+        }
+
+        session.shutdown();
+    } catch (const std::exception& error) {
+        runner.expect(false, std::string("environmental decay test threw exception: ") + error.what());
+    } catch (...) {
+        runner.expect(false, "environmental decay test threw unknown exception");
+    }
+}
+
+void RunInvalidSavedLotWarningTest(TestRunner& runner) {
+    RuntimeOptions options = BuildSandboxRuntimeOptions();
+    options.showNonFatalAssetWarningDialogs = true;
+
+    try {
+        GameSession session(options);
+        CitySaveState state = BuildCleanSandboxState();
+
+        CitySaveLotState invalidLot;
+        invalidLot.lotId = 42;
+        invalidLot.assetId = "missing_saved_lot_asset";
+        invalidLot.anchorTileX = 4;
+        invalidLot.anchorTileY = 4;
+        state.lots.push_back(invalidLot);
+
+        session.runtime().importCitySaveState(state);
+        runner.expect(session.hasApplicationWarning(), "invalid saved lot queues an in-game warning");
+        const ApplicationWarning* warning = session.currentApplicationWarning();
+        runner.expect(warning != 0 && warning->title == "City Builder Save Warning", "invalid saved lot warning has the save-warning title");
+        runner.expect(warning != 0 && warning->message.find("missing_saved_lot_asset") != std::string::npos, "invalid saved lot warning names the skipped asset");
+        session.dismissCurrentApplicationWarning();
+        runner.expect(!session.hasApplicationWarning(), "invalid saved lot warning can be dismissed without a native dialog");
+        session.shutdown();
+    } catch (const std::exception& error) {
+        runner.expect(false, std::string("invalid saved lot warning test threw exception: ") + error.what());
+    } catch (...) {
+        runner.expect(false, "invalid saved lot warning test threw unknown exception");
+    }
+}
+
 void RunDiscardInvalidatesPreviewTest(TestRunner& runner) {
     const std::string saveDirectory = MakeTemporarySaveDirectory();
     const RuntimeOptions options = BuildSandboxRuntimeOptions();
@@ -523,6 +610,8 @@ int main() {
     TestRunner runner;
     RunSaveLoadRoundTripTest(runner);
     RunPausedCommandAndUnzoneTest(runner);
+    RunEnvironmentalDecayTest(runner);
+    RunInvalidSavedLotWarningTest(runner);
     RunDiscardInvalidatesPreviewTest(runner);
     return runner.finish();
 }

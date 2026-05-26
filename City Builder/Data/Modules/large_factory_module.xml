@@ -1,7 +1,7 @@
 <module id="large_factory_module" density="high">
   <size width="4" height="4" />
-  <effects airPollution="9000" landValue="13500" />
-  <render height="1.70" colorR="0.33" colorG="0.34" colorB="0.34" />
+  <effects airPollution="1800" landValue="6750" />
+  <render mesh="box" height="1.70" colorR="0.33" colorG="0.34" colorB="0.34" />
   <parameters>
     <driver id="jobs.dirty_industry" amount="41" />
   </parameters>

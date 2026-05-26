@@ -15,9 +15,25 @@
 struct CitySaveLotModuleState {
     std::string moduleAssetId;
     Int2 localOrigin;
+    int footprintWidth;
+    int footprintHeight;
+    float renderOffsetX;
+    float renderOffsetY;
+    float renderWidth;
+    float renderHeight;
+    bool affectsSimulation;
+    bool claimsFootprint;
 
     CitySaveLotModuleState()
-        : localOrigin(0, 0) {
+        : localOrigin(0, 0),
+          footprintWidth(0),
+          footprintHeight(0),
+          renderOffsetX(0.0f),
+          renderOffsetY(0.0f),
+          renderWidth(0.0f),
+          renderHeight(0.0f),
+          affectsSimulation(true),
+          claimsFootprint(true) {
     }
 };
 

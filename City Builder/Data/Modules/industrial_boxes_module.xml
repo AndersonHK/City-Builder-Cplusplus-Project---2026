@@ -1,0 +1,5 @@
+<module id="industrial_boxes_module">
+  <size width="1" height="1" />
+  <effects airPollution="0" parkEffect="0" landValue="20" />
+  <render mesh="industrial_props" height="0.42" colorR="0.46" colorG="0.46" colorB="0.43" />
+</module>

@@ -32,11 +32,11 @@ struct CityParameterDefinition {
 
 struct CityParameterContribution {
     int parameterId;
-    float amount;
+    int amount;
 
     CityParameterContribution()
         : parameterId(-1),
-          amount(0.0f) {
+          amount(0) {
     }
 };
 

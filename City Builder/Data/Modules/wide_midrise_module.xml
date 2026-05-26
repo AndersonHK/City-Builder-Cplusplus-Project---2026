@@ -1,7 +1,7 @@
 <module id="wide_midrise_module" density="medium">
   <size width="5" height="4" />
-  <effects airPollution="0" landValue="14800" />
-  <render height="2.60" colorR="0.58" colorG="0.60" colorB="0.59" />
+  <effects airPollution="0" landValue="7400" />
+  <render mesh="box" height="2.60" colorR="0.58" colorG="0.60" colorB="0.59" />
   <parameters>
     <driver id="residents.low_wealth" amount="80" />
   </parameters>

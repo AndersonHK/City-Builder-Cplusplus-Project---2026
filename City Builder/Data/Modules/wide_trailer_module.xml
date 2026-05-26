@@ -1,7 +1,7 @@
 <module id="wide_trailer_module">
   <size width="3" height="1" />
-  <effects airPollution="0" landValue="1100" />
-  <render height="0.35" colorR="0.63" colorG="0.62" colorB="0.52" />
+  <effects airPollution="0" landValue="550" />
+  <render mesh="gabled_roof" height="0.35" colorR="0.63" colorG="0.62" colorB="0.52" />
   <parameters>
     <driver id="residents.low_wealth" amount="3" />
   </parameters>

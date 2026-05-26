@@ -1,7 +1,7 @@
 <module id="apartment_block_module" density="medium">
   <size width="4" height="5" />
-  <effects airPollution="0" landValue="13000" />
-  <render height="2.30" colorR="0.56" colorG="0.57" colorB="0.54" />
+  <effects airPollution="0" landValue="6500" />
+  <render mesh="box" height="2.30" colorR="0.56" colorG="0.57" colorB="0.54" />
   <parameters>
     <driver id="residents.low_wealth" amount="64" />
   </parameters>

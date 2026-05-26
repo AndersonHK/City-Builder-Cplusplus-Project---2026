@@ -1,8 +1,12 @@
 <module id="trailer_module" density="low">
   <size width="2" height="1" />
-  <effects airPollution="0" landValue="700" />
-  <render height="0.45" colorR="0.68" colorG="0.66" colorB="0.58" />
+  <effects airPollution="0" landValue="350" />
+  <render mesh="gabled_roof" height="0.45" colorR="0.68" colorG="0.66" colorB="0.58" />
+  <props>
+    <prop id="garden_module" x="0" y="0" footprintWidth="2" footprintHeight="1" renderWidth="2" renderHeight="1" />
+    <prop id="pathway_module" x="0" y="0" footprintWidth="2" footprintHeight="1" renderWidth="0.34" renderHeight="1" alignX="center" alignY="start" />
+  </props>
   <parameters>
-    <driver id="residents.low_wealth" amount="2" />
+    <driver id="residents.low_wealth" amount="4" />
   </parameters>
 </module>

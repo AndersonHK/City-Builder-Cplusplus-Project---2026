@@ -279,7 +279,7 @@ void RendererFillTileStateChunkPixels(const std::vector<Tile>& tiles, int mapWid
             const std::size_t sourceIndex = static_cast<std::size_t>(tileY) * static_cast<std::size_t>(mapWidth) + static_cast<std::size_t>(tileX);
             const Tile& tile = tiles[sourceIndex];
             texturePixels[writeIndex++] = RendererPackTileStateScalar(tile.airPollution);
-            texturePixels[writeIndex++] = RendererPackTileStateScalar(tile.landValue);
+            texturePixels[writeIndex++] = RendererPackTileStateScalar(tile.parkEffect);
         }
     }
 }
@@ -332,6 +332,40 @@ void RendererFillLandValueOverlayChunkValues(const std::vector<Tile>& tiles, int
         for (; tileX < chunkRect.startX + chunkRect.width; ++tileX) {
             const std::size_t sourceIndex = static_cast<std::size_t>(tileY) * static_cast<std::size_t>(mapWidth) + static_cast<std::size_t>(tileX);
             textureValues[writeIndex++] = RendererPackCappedStatToScalarPayload(tiles[sourceIndex].landValue, kSimulationStatDisplayCap);
+        }
+    }
+}
+
+void RendererFillAirPollutionOverlayChunkValues(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, std::vector<RendererScalarPayload>& textureValues) {
+    const std::size_t chunkTileCount = static_cast<std::size_t>(chunkRect.width) * static_cast<std::size_t>(chunkRect.height);
+    if (textureValues.size() != chunkTileCount) {
+        textureValues.resize(chunkTileCount, 0u);
+    }
+
+    std::size_t writeIndex = 0;
+    int tileY = chunkRect.startY;
+    for (; tileY < chunkRect.startY + chunkRect.height; ++tileY) {
+        int tileX = chunkRect.startX;
+        for (; tileX < chunkRect.startX + chunkRect.width; ++tileX) {
+            const std::size_t sourceIndex = static_cast<std::size_t>(tileY) * static_cast<std::size_t>(mapWidth) + static_cast<std::size_t>(tileX);
+            textureValues[writeIndex++] = RendererPackCappedStatToScalarPayload(tiles[sourceIndex].airPollution, kSimulationStatDisplayCap);
+        }
+    }
+}
+
+void RendererFillParkEffectOverlayChunkValues(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, std::vector<RendererScalarPayload>& textureValues) {
+    const std::size_t chunkTileCount = static_cast<std::size_t>(chunkRect.width) * static_cast<std::size_t>(chunkRect.height);
+    if (textureValues.size() != chunkTileCount) {
+        textureValues.resize(chunkTileCount, 0u);
+    }
+
+    std::size_t writeIndex = 0;
+    int tileY = chunkRect.startY;
+    for (; tileY < chunkRect.startY + chunkRect.height; ++tileY) {
+        int tileX = chunkRect.startX;
+        for (; tileX < chunkRect.startX + chunkRect.width; ++tileX) {
+            const std::size_t sourceIndex = static_cast<std::size_t>(tileY) * static_cast<std::size_t>(mapWidth) + static_cast<std::size_t>(tileX);
+            textureValues[writeIndex++] = RendererPackCappedStatToScalarPayload(tiles[sourceIndex].parkEffect, kSimulationStatDisplayCap);
         }
     }
 }

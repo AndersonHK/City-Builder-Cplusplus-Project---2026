@@ -1,5 +1,8 @@
 #include "Lot.h"
 
+#include "LotRenderSurfacePatterns.h"
+#include "LotModulePlacementGeometry.h"
+
 #include <algorithm>
 #include <limits>
 #include <map>
@@ -39,6 +42,76 @@ std::uint8_t RotateRoadDirection(std::uint8_t roadDirection, int rotationSteps) 
     }
 
     return direction;
+}
+
+void MixRenderPropHashByte(std::uint32_t& hash, std::uint8_t value) {
+    hash ^= static_cast<std::uint32_t>(value);
+    hash *= 16777619u;
+}
+
+void MixRenderPropHashInt(std::uint32_t& hash, int value) {
+    std::uint32_t bits = static_cast<std::uint32_t>(value);
+    MixRenderPropHashByte(hash, static_cast<std::uint8_t>(bits & 0xffu));
+    MixRenderPropHashByte(hash, static_cast<std::uint8_t>((bits >> 8) & 0xffu));
+    MixRenderPropHashByte(hash, static_cast<std::uint8_t>((bits >> 16) & 0xffu));
+    MixRenderPropHashByte(hash, static_cast<std::uint8_t>((bits >> 24) & 0xffu));
+}
+
+void MixRenderPropHashString(std::uint32_t& hash, const std::string& text) {
+    std::size_t characterIndex = 0;
+    for (; characterIndex < text.size(); ++characterIndex) {
+        MixRenderPropHashByte(hash, static_cast<std::uint8_t>(text[characterIndex]));
+    }
+}
+
+const LotModule* ResolveRenderPropModule(
+    const LotModulePropDefinition& prop,
+    const LotModulePlacement& placement,
+    int lotId,
+    int anchorTileX,
+    int anchorTileY,
+    int rotationSteps,
+    std::size_t propIndex) {
+    if (prop.alternatives.empty()) {
+        return prop.module;
+    }
+
+    int totalWeight = 0;
+    std::size_t alternativeIndex = 0;
+    for (; alternativeIndex < prop.alternatives.size(); ++alternativeIndex) {
+        totalWeight += std::max(0, prop.alternatives[alternativeIndex].weight);
+    }
+    if (totalWeight <= 0) {
+        return prop.module;
+    }
+
+    std::uint32_t hash = 2166136261u;
+    MixRenderPropHashString(hash, prop.moduleId);
+    if (placement.module != 0) {
+        MixRenderPropHashString(hash, placement.module->id);
+    }
+    MixRenderPropHashInt(hash, placement.instanceId);
+    MixRenderPropHashInt(hash, placement.localOrigin.x);
+    MixRenderPropHashInt(hash, placement.localOrigin.y);
+    MixRenderPropHashInt(hash, static_cast<int>(propIndex));
+    MixRenderPropHashInt(hash, lotId);
+    MixRenderPropHashInt(hash, anchorTileX);
+    MixRenderPropHashInt(hash, anchorTileY);
+    MixRenderPropHashInt(hash, rotationSteps);
+
+    int selectedWeight = static_cast<int>(hash % static_cast<std::uint32_t>(totalWeight));
+    for (alternativeIndex = 0; alternativeIndex < prop.alternatives.size(); ++alternativeIndex) {
+        selectedWeight -= std::max(0, prop.alternatives[alternativeIndex].weight);
+        if (selectedWeight < 0) {
+            if (alternativeIndex < prop.alternativeModules.size()) {
+                return prop.alternativeModules[alternativeIndex];
+            }
+
+            return prop.module;
+        }
+    }
+
+    return prop.module;
 }
 }
 
@@ -245,13 +318,30 @@ void Lot::setExplicitFootprint(const Int2& localOrigin, int width, int height, i
 }
 
 // Adds a module placement and refreshes the lot footprint caches.
-int Lot::addModule(const LotModule& module, const Int2& localOrigin, int mapWidth, int footprintWidth, int footprintHeight) {
+int Lot::addModule(
+    const LotModule& module,
+    const Int2& localOrigin,
+    int mapWidth,
+    int footprintWidth,
+    int footprintHeight,
+    float renderOffsetX,
+    float renderOffsetY,
+    float renderWidth,
+    float renderHeight,
+    bool affectsSimulation,
+    bool claimsFootprint) {
     LotModulePlacement placement;
     placement.instanceId = nextModuleInstanceId_++;
     placement.module = &module;
     placement.localOrigin = localOrigin;
     placement.footprintWidth = footprintWidth > 0 ? footprintWidth : module.width;
     placement.footprintHeight = footprintHeight > 0 ? footprintHeight : module.height;
+    placement.renderWidth = renderWidth > 0.0f ? renderWidth : static_cast<float>(module.width);
+    placement.renderHeight = renderHeight > 0.0f ? renderHeight : static_cast<float>(module.height);
+    placement.renderOffsetX = renderOffsetX;
+    placement.renderOffsetY = renderOffsetY;
+    placement.affectsSimulation = affectsSimulation;
+    placement.claimsFootprint = claimsFootprint;
     modules_.push_back(placement);
     rebuildCachedState(mapWidth);
     return placement.instanceId;
@@ -308,6 +398,9 @@ int Lot::moduleInstanceIdAtLocalTile(const Int2& localTile) const {
     std::size_t moduleIndex = 0;
     for (; moduleIndex < modules_.size(); ++moduleIndex) {
         const LotModulePlacement& placement = modules_[moduleIndex];
+        if (!placement.claimsFootprint) {
+            continue;
+        }
         const int minimumX = placement.localOrigin.x;
         const int minimumY = placement.localOrigin.y;
         const int maximumX = placement.localOrigin.x + placement.footprintWidth;
@@ -404,7 +497,7 @@ void Lot::buildRenderInstances(std::vector<LotRenderInstance>& instances) const 
         if (assetId_ == "house_lot") {
             const Int2 pedestrianAccessTile = RotateLocalTile(Int2(0, 0), rotationSteps_);
             if (occupiedOffsets_[occupiedIndex].x == pedestrianAccessTile.x && occupiedOffsets_[occupiedIndex].y == pedestrianAccessTile.y) {
-                groundInstance.surfacePattern = 1u;
+                groundInstance.surfacePattern = kLotSurfacePatternPath;
                 groundInstance.surfaceDirection = RotateRoadDirection(kRoadDirectionNorth, rotationSteps_);
             }
         }
@@ -424,11 +517,61 @@ void Lot::buildRenderInstances(std::vector<LotRenderInstance>& instances) const 
         moduleInstance.originY = anchorTileY_ + placement.localOrigin.y;
         moduleInstance.width = placement.footprintWidth;
         moduleInstance.height = placement.footprintHeight;
+        moduleInstance.renderOffsetX = placement.renderOffsetX;
+        moduleInstance.renderOffsetY = placement.renderOffsetY;
+        moduleInstance.renderWidth = placement.renderWidth;
+        moduleInstance.renderHeightOverride = placement.renderHeight;
         moduleInstance.renderHeight = placement.module->renderHeight * constructionProgress();
         moduleInstance.colorR = placement.module->colorR;
         moduleInstance.colorG = placement.module->colorG;
         moduleInstance.colorB = placement.module->colorB;
+        moduleInstance.renderMeshHandle = placement.module->renderMeshHandle;
         instances.push_back(moduleInstance);
+
+        std::size_t propIndex = 0;
+        for (; propIndex < placement.module->props.size(); ++propIndex) {
+            const LotModulePropDefinition& prop = placement.module->props[propIndex];
+            const LotModule* propModule = ResolveRenderPropModule(prop, placement, lotId_, anchorTileX_, anchorTileY_, rotationSteps_, propIndex);
+            if (propModule == 0) {
+                continue;
+            }
+
+            LotModulePlacementDefinition propPlacement;
+            propPlacement.moduleId = propModule->id;
+            propPlacement.localOrigin = Int2(
+                placement.localOrigin.x + prop.localOrigin.x,
+                placement.localOrigin.y + prop.localOrigin.y);
+            propPlacement.footprintWidth = prop.footprintWidth;
+            propPlacement.footprintHeight = prop.footprintHeight;
+            propPlacement.renderOffsetX = prop.renderOffsetX;
+            propPlacement.renderOffsetY = prop.renderOffsetY;
+            propPlacement.renderWidth = prop.renderWidth;
+            propPlacement.renderHeight = prop.renderHeight;
+            propPlacement.hasRenderOffsetX = prop.hasRenderOffsetX;
+            propPlacement.hasRenderOffsetY = prop.hasRenderOffsetY;
+            propPlacement.hasRenderWidth = prop.hasRenderWidth;
+            propPlacement.hasRenderHeight = prop.hasRenderHeight;
+            propPlacement.renderAlignX = prop.renderAlignX;
+            propPlacement.renderAlignY = prop.renderAlignY;
+
+            const LotModulePlacementGeometry propGeometry = ResolveLotModulePlacementGeometry(propPlacement, *propModule);
+            LotRenderInstance propInstance;
+            propInstance.lotId = lotId_;
+            propInstance.originX = anchorTileX_ + propGeometry.localOrigin.x;
+            propInstance.originY = anchorTileY_ + propGeometry.localOrigin.y;
+            propInstance.width = propGeometry.footprintWidth;
+            propInstance.height = propGeometry.footprintHeight;
+            propInstance.renderOffsetX = propGeometry.renderOffsetX;
+            propInstance.renderOffsetY = propGeometry.renderOffsetY;
+            propInstance.renderWidth = propGeometry.renderWidth;
+            propInstance.renderHeightOverride = propGeometry.renderHeight;
+            propInstance.renderHeight = propModule->renderHeight * constructionProgress();
+            propInstance.colorR = propModule->colorR;
+            propInstance.colorG = propModule->colorG;
+            propInstance.colorB = propModule->colorB;
+            propInstance.renderMeshHandle = propModule->renderMeshHandle;
+            instances.push_back(propInstance);
+        }
     }
 }
 
@@ -439,6 +582,9 @@ std::string Lot::moduleSummary() const {
     std::size_t moduleIndex = 0;
     for (; moduleIndex < modules_.size(); ++moduleIndex) {
         if (modules_[moduleIndex].module == 0) {
+            continue;
+        }
+        if (!modules_[moduleIndex].affectsSimulation) {
             continue;
         }
 
@@ -468,7 +614,7 @@ std::string Lot::parameterSummary(const CityParameterRegistry& registry) const {
     std::size_t contributionIndex = 0;
     for (; contributionIndex < parameterContributions_.size(); ++contributionIndex) {
         const CityParameterContribution& contribution = parameterContributions_[contributionIndex];
-        if (contribution.parameterId < 0 || contribution.parameterId >= static_cast<int>(registry.count()) || contribution.amount == 0.0f) {
+        if (contribution.parameterId < 0 || contribution.parameterId >= static_cast<int>(registry.count()) || contribution.amount == 0) {
             continue;
         }
 
@@ -660,7 +806,8 @@ void Lot::rebuildCachedState(int mapWidth) {
             continue;
         }
 
-        if (activeModuleEffects) {
+        const bool activePlacementEffects = activeModuleEffects && placement.affectsSimulation;
+        if (activePlacementEffects) {
             airPollutionEmit_ += placement.module->airPollutionEmit;
             parkEffectEmit_ += placement.module->parkEffectEmit;
             landValueEmit_ += placement.module->landValueEmit;
@@ -669,12 +816,12 @@ void Lot::rebuildCachedState(int mapWidth) {
 
         std::size_t contributionIndex = 0;
         for (; contributionIndex < placement.module->parameterContributions.size(); ++contributionIndex) {
-            if (!activeModuleEffects) {
+            if (!activePlacementEffects) {
                 continue;
             }
 
             const CityParameterContribution& moduleContribution = placement.module->parameterContributions[contributionIndex];
-            if (moduleContribution.parameterId < 0 || moduleContribution.amount == 0.0f) {
+            if (moduleContribution.parameterId < 0 || moduleContribution.amount == 0) {
                 continue;
             }
 
@@ -691,6 +838,10 @@ void Lot::rebuildCachedState(int mapWidth) {
             if (!merged) {
                 parameterContributions_.push_back(moduleContribution);
             }
+        }
+
+        if (!placement.claimsFootprint) {
+            continue;
         }
 
         const float moduleWeight = static_cast<float>(placement.footprintWidth * placement.footprintHeight);
@@ -738,6 +889,13 @@ void Lot::rebuildCachedState(int mapWidth) {
         colorR_ = weightedColorR / totalWeight;
         colorG_ = weightedColorG / totalWeight;
         colorB_ = weightedColorB / totalWeight;
+    }
+
+    if (minX == std::numeric_limits<int>::max()) {
+        minX = 0;
+        minY = 0;
+        maxX = 0;
+        maxY = 0;
     }
 
     minimumOccupiedOffset_ = Int2(minX, minY);

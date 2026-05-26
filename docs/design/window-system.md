@@ -27,8 +27,8 @@ Use this guide when changing `InGameWindow`, `UiWidgets`, UI XML under `Data/UI`
 - Button hit testing is controller-owned through resolved screen-space rectangles. Button actions are simple strings mapped by `AppController`, keeping UI XML declarative.
 - Buttons may declare a named `icon`; the renderer draws supported icons as bitmap quad glyphs and falls back to button text for unknown or absent icons.
 - The city date widget adds four icon-only speed buttons through the UI layout: paused, play, fast, and fast-forward.
-- The region view has a top-left `Exit` menu button that opens the same save-before-exit dialog as the centered escape menu.
-- The centered escape menu, save-before-exit dialog, and save-before-leaving-city dialog are ordinary hidden UI menus. `AppController` toggles their visibility from the `escape_menu`, `open_exit_confirm`, `exit_save_yes`, `exit_save_no`, `city_switch_save_yes`, and `city_switch_save_no` actions. The city-switch dialog is only used when the clicked region city would replace a different dirty cached city.
+- The region view has a top-left `Exit to Desktop` menu button. It closes immediately when no active city is assigned, and opens the same save-before-exit dialog as the centered region escape menu when an active cached city exists from the F3 region-view path.
+- The centered escape menus, save-before-exit dialog, quit-to-region dialog, and save-before-leaving-city dialog are ordinary hidden UI menus. `AppController` toggles their visibility from the `escape_menu`, `region_escape_menu`, `open_exit_confirm`, `open_quit_region_confirm`, `exit_save_yes`, `exit_save_no`, `quit_region_save_yes`, `quit_region_save_no`, `city_switch_save_yes`, and `city_switch_save_no` actions. The city-switch dialog is only used when the clicked region city would replace a different dirty cached city.
 - RCI zone-tool buttons are instantiated at startup from XML-defined zones in `Data/RCI/rci_tools.xml` and inserted into the `rci_tools` child menu under the Tools menu. RCI desirability overlay buttons are instantiated from XML-defined RCI types and inserted into the `rci_desirability_overlays` child menu under the Overlays menu.
 - Static overlay buttons live in the bottom-right Overlays menu. The RCI tile overlay colors parcel/zoning tiles and hides RCI buildings so their parcels remain inspectable while active. RCI desirability overlays are type-specific tint overlays generated from RCI type definitions.
 - RCI button actions select XML-backed RCI zone tools; RCI type overlay actions select XML-backed desirability overlays. The RCI catalog owns zoning colors, parcel sizing, density curves, demand ids, and desirability labels so menus stay concerned only with presentation and intent.
@@ -91,6 +91,7 @@ Supported `<button>` attributes:
 
 - `id`: button identifier.
 - `text`: visible button label.
+- `textStringId` / `stringId`: locale string id for visible button text. Use this for every visible button label; `text` is only a development fallback.
 - `icon`: optional named icon rendered instead of text when supported. Current gameplay icons are `pause`, `play`, `fast`, and `fastForward`.
 - `action`: controller action string.
 - `x`, `y`, `width`, `height`: optional overrides relative to the menu.
@@ -101,6 +102,7 @@ Supported `<button>` attributes:
 - Keep window XML data under `Data/UI` so the existing post-build data copy carries it beside the executable.
 - Keep UI rendering presentation-only. Simulation and save systems should expose text/data through view state or snapshots, not know about windows.
 - Keep button actions as view/controller intent. Gameplay changes still enter `SimulationRuntime` through queued commands.
+- Keep visible button labels localized with `textStringId`; icon-only buttons may leave `text` empty.
 - Keep physical key bindings out of menu/window XML; use `AppConfig` for hotkeys and keep UI XML about layout plus action names.
 - Keep the XML parser tolerant for UI layout files, but do not silently change gameplay asset validation in `AssetLoader`.
 - Preserve the fallback query window so debug inspection still works when UI XML is absent during development.
@@ -124,11 +126,12 @@ Supported `<button>` attributes:
 - Toggle the bottom-left `Tools` button and confirm the side menu hides, shows, and does not block world clicks while hidden.
 - Open the Tools RCI child menu and confirm it expands centered to the right of the RCI button with one generated button per XML-defined zone plus Unzone.
 - Open the bottom-right Overlays menu, then the RCI Desire child menu, and confirm it expands centered to the left with one generated button per XML-defined RCI type.
-- In region mode, click the top-left `Exit` button and confirm the centered save-before-exit dialog shows `Yes` and `No`.
+- In region mode with no active city assigned, click the top-left `Exit to Desktop` button and confirm the app closes without prompting. After F3 returns to region with an active cached city, click `Exit to Desktop` and confirm the centered save-before-exit dialog shows `Yes` and `No`.
 - Return to region after editing a city, double-click the same city, and confirm no save-before-leaving-city dialog appears. Then double-click another city and confirm the centered save-before-leaving-city dialog can save or discard the cached city before loading the selected city.
 - Select each tool button and confirm active-tool highlighting follows bulldoze, road, query, zoning, and unzone tools.
 - Click the date widget speed buttons and confirm active highlighting follows paused, play, fast, and fast-forward.
-- Press `Esc`, click `Exit`, and confirm the centered save-before-exit dialog shows `Yes` and `No` choices.
+- Press `Esc`, click `Exit to Region`, and confirm the centered quit-to-region dialog shows `Yes` and `No` choices. `Yes` saves and unloads the active city before returning to region mode; `No` discards the active city runtime state and reloads the region city metadata from disk/default.
+- Press `Esc`, click `Exit to Desktop`, and confirm the centered save-before-exit dialog shows `Yes` and `No` choices.
 
 ## Related Guides
 - `docs/design/renderer.md` owns UI draw ordering, shader mode `6`, dynamic UI quad upload, and zoning overlay draw ordering.

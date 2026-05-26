@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 
+class LocalizationCatalog;
+
 struct UiColor {
     float r;
     float g;
@@ -192,6 +194,7 @@ public:
     UiLayout();
 
     bool loadFromXmlFile(const std::string& filePath);
+    bool loadFromXmlFile(const std::string& filePath, const LocalizationCatalog* localization);
     const std::vector<UiMenu>& menus() const;
     void setMenuVisible(const std::string& menuId, bool visible);
     void toggleMenu(const std::string& menuId);

@@ -1,7 +1,7 @@
 <module id="residential_tower_podium_module" density="high">
   <size width="4" height="4" />
-  <effects airPollution="0" landValue="23500" />
-  <render height="5.70" colorR="0.64" colorG="0.68" colorB="0.70" />
+  <effects airPollution="0" landValue="11750" />
+  <render mesh="box" height="5.70" colorR="0.64" colorG="0.68" colorB="0.70" />
   <parameters>
     <driver id="residents.low_wealth" amount="96" />
   </parameters>

@@ -35,6 +35,8 @@ enum class OverlayMode {
     None,
     TrafficCapacity,
     LandValue,
+    ParkEffect,
+    AirPollution,
     Rci,
     RciDesirability
 };
@@ -194,6 +196,8 @@ private:
     void toggleRciDesirabilityOverlay(const RciType& rciType);
     void toggleTrafficOverlay();
     void toggleLandValueOverlay();
+    void toggleParkEffectOverlay();
+    void toggleAirPollutionOverlay();
     void toggleRoadDebugGraphics();
     void setGameSpeed(GameSpeed gameSpeed);
     bool modalMenuOpen() const;

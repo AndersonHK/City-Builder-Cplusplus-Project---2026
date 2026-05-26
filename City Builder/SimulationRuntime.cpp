@@ -2,6 +2,8 @@
 
 #include "AssetLoader.h"
 #include "CrashLogger.h"
+#include "LotAutoLayoutResolver.h"
+#include "LotModulePlacementGeometry.h"
 #include "RendererPayload.h"
 #include "RuntimePaths.h"
 #include "RoadTemplateDefinition.h"
@@ -12,7 +14,13 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <set>
+#include <sstream>
 #include <stdexcept>
+
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
 
 namespace {
 // Converts a steady-clock span to microseconds for lightweight profiling.
@@ -31,6 +39,62 @@ const int kRciRoadFacingNorth = 0;
 const int kRciRoadFacingSouth = 1;
 const int kRciRoadFacingWest = 2;
 const int kRciRoadFacingEast = 3;
+
+std::string ToLowerAsciiLocal(const std::string& value) {
+    std::string lowered = value;
+    std::size_t characterIndex = 0;
+    for (; characterIndex < lowered.size(); ++characterIndex) {
+        if (lowered[characterIndex] >= 'A' && lowered[characterIndex] <= 'Z') {
+            lowered[characterIndex] = static_cast<char>(lowered[characterIndex] - 'A' + 'a');
+        }
+    }
+    return lowered;
+}
+
+bool IsNoneModuleAlternativeId(const std::string& moduleId) {
+    const std::string normalized = ToLowerAsciiLocal(moduleId);
+    return normalized == "none" || normalized == "empty" || normalized == "null" || normalized == "skip";
+}
+const std::size_t kInvalidLotReportLimit = 8u;
+
+int ApplyEnvironmentalDecay(int value, int decayRate) {
+    if (value == 0) {
+        return 0;
+    }
+
+    const int magnitude = std::abs(value);
+    const int decayStep = std::max(1, magnitude / decayRate);
+    if (value > 0) {
+        return std::max(0, value - decayStep);
+    }
+
+    return std::min(0, value + decayStep);
+}
+
+int RoundToNearestInt(float value) {
+    return static_cast<int>(std::floor(value + 0.5f));
+}
+
+float RciCapacityScaleForDesirability(int desirability) {
+    const float normalized = static_cast<float>(std::max(0, std::min(kRciDesirabilityDisplayCap, desirability))) /
+        static_cast<float>(kRciDesirabilityDisplayCap);
+    if (normalized <= 0.4f) {
+        return std::max(0.0f, normalized * 1.25f);
+    }
+    if (normalized < 0.6f) {
+        return 0.5f + ((normalized - 0.4f) / 0.2f) * 0.5f;
+    }
+    return 1.0f;
+}
+
+int RciActualCapacityFromDesirability(int maximumCapacity, int desirability) {
+    if (maximumCapacity <= 0) {
+        return 0;
+    }
+
+    const int actualCapacity = RoundToNearestInt(static_cast<float>(maximumCapacity) * RciCapacityScaleForDesirability(desirability));
+    return std::max(0, std::min(maximumCapacity, actualCapacity));
+}
 
 std::uint64_t RciRedevelopmentGraceTicks() {
     return SimulationTime::daysToTicks(static_cast<std::uint64_t>(kRciRedevelopmentGraceDays));
@@ -365,6 +429,27 @@ void RotatedRectangleDimensions(const Int2& localOrigin, int width, int height, 
     rotatedWidth = maximum.x - minimum.x + 1;
     rotatedHeight = maximum.y - minimum.y + 1;
 }
+
+std::string JoinTruncatedReports(const std::vector<std::string>& reports, const std::string& source) {
+    std::ostringstream message;
+    message << reports.size() << " " << source << " could not load and were removed from runtime memory.";
+    const std::size_t reportLimit = std::min(kInvalidLotReportLimit, reports.size());
+    std::size_t reportIndex = 0;
+    for (; reportIndex < reportLimit; ++reportIndex) {
+        message << "\n- " << reports[reportIndex];
+    }
+    if (reports.size() > reportLimit) {
+        message << "\n- ... and " << (reports.size() - reportLimit) << " more";
+    }
+    return message.str();
+}
+
+void ShowNonFatalAssetWarning(const std::string& title, const std::string& message, const RuntimeOptions& runtimeOptions) {
+    LogWarning(title, message);
+    if (runtimeOptions.showNonFatalAssetWarningDialogs && runtimeOptions.nonFatalAssetWarningHandler) {
+        runtimeOptions.nonFatalAssetWarningHandler(title, message);
+    }
+}
 }
 
 // Allocates the triple-buffered world and derives chunk/work scheduling config.
@@ -385,6 +470,8 @@ SimulationRuntime::SimulationRuntime(const RuntimeOptions& runtimeOptions)
       cityPopulation_(0),
       rciConstructorAttemptsPerTick_(5),
       rciConstructorOverbuildMultiplier_(1.2f),
+      rciConstructorMergeCapacityDiscount_(0.2f),
+      rciConstructorRedevelopmentCapacityIncrease_(0.2f),
       rciBaselineLandValue_(0),
       commuteRevision_(0),
       commutesDirty_(true),
@@ -866,6 +953,8 @@ TileQueryResult SimulationRuntime::queryTile(int tileX, int tileY) const {
                 queryResult.residentsLowWealthTotal = publishedLotInfo->residentsLowWealthTotal;
                 queryResult.jobsLowWealthCurrent = publishedLotInfo->jobsLowWealthCurrent;
                 queryResult.jobsLowWealthTotal = publishedLotInfo->jobsLowWealthTotal;
+                queryResult.rciCapacityCurrent = publishedLotInfo->rciCapacityCurrent;
+                queryResult.rciCapacityMaximum = publishedLotInfo->rciCapacityMaximum;
                 queryResult.complaintSummary = publishedLotInfo->complaintSummary;
                 queryResult.commuteRouteSegments = publishedLotInfo->commuteRouteSegments;
                 if (!publishedLotInfo->isEmpty && publishedLotInfo->zoningType != TileZoningNone) {
@@ -963,6 +1052,14 @@ CitySaveState SimulationRuntime::exportCitySaveState() const {
             CitySaveLotModuleState moduleSaveState;
             moduleSaveState.moduleAssetId = modules[moduleIndex].module->id;
             moduleSaveState.localOrigin = modules[moduleIndex].localOrigin;
+            moduleSaveState.footprintWidth = modules[moduleIndex].footprintWidth;
+            moduleSaveState.footprintHeight = modules[moduleIndex].footprintHeight;
+            moduleSaveState.renderOffsetX = modules[moduleIndex].renderOffsetX;
+            moduleSaveState.renderOffsetY = modules[moduleIndex].renderOffsetY;
+            moduleSaveState.renderWidth = modules[moduleIndex].renderWidth;
+            moduleSaveState.renderHeight = modules[moduleIndex].renderHeight;
+            moduleSaveState.affectsSimulation = modules[moduleIndex].affectsSimulation;
+            moduleSaveState.claimsFootprint = modules[moduleIndex].claimsFootprint;
             lotSaveState.modules.push_back(moduleSaveState);
         }
 
@@ -973,7 +1070,7 @@ CitySaveState SimulationRuntime::exportCitySaveState() const {
     return saveState;
 }
 
-void SimulationRuntime::importCitySaveState(const CitySaveState& saveState) {
+void SimulationRuntime::importCitySaveState(const CitySaveState& saveState, bool reportInvalidSavedLots) {
     CrashScope crashScope("SimulationRuntime::importCitySaveState");
     std::lock_guard<std::mutex> liveStateLock(liveStateMutex_);
     const std::size_t totalTileCount = static_cast<std::size_t>(mapWidth_) * static_cast<std::size_t>(mapHeight_);
@@ -994,13 +1091,19 @@ void SimulationRuntime::importCitySaveState(const CitySaveState& saveState) {
     nextLotId_ = std::max(1, saveState.nextLotId);
     simulationTick_ = saveState.simulationTick;
 
+    std::vector<std::string> invalidSavedLotReports;
     std::size_t savedLotIndex = 0;
     for (; savedLotIndex < saveState.lots.size(); ++savedLotIndex) {
         const CitySaveLotState& lotSaveState = saveState.lots[savedLotIndex];
         const LotAsset* lotAsset = findLotAssetById(lotSaveState.assetId);
+        const std::string fallbackLotLabel = lotSaveState.assetId.empty()
+            ? ("lot id " + std::to_string(lotSaveState.lotId))
+            : lotSaveState.assetId;
         if (lotAsset == 0) {
+            invalidSavedLotReports.push_back(fallbackLotLabel + ": missing lot asset");
             continue;
         }
+        const std::string lotLabel = lotAsset->name.empty() ? fallbackLotLabel : lotAsset->name;
 
         Lot lot(lotSaveState.lotId, lotSaveState.assetId, lotSaveState.anchorTileX, lotSaveState.anchorTileY, lotSaveState.rotationSteps);
         if (lotAsset->footprintWidth > 0 && lotAsset->footprintHeight > 0) {
@@ -1014,19 +1117,68 @@ void SimulationRuntime::importCitySaveState(const CitySaveState& saveState) {
                 mapWidth_);
         }
 
+        bool hasInvalidModule = false;
         std::size_t moduleIndex = 0;
         for (; moduleIndex < lotSaveState.modules.size(); ++moduleIndex) {
             const LotModule* moduleAsset = findModuleAssetById(lotSaveState.modules[moduleIndex].moduleAssetId);
-            if (moduleAsset != 0) {
-                int rotatedModuleWidth = 0;
-                int rotatedModuleHeight = 0;
-                RotatedRectangleDimensions(Int2(0, 0), moduleAsset->width, moduleAsset->height, lotSaveState.rotationSteps, rotatedModuleWidth, rotatedModuleHeight);
-                lot.addModule(*moduleAsset, lotSaveState.modules[moduleIndex].localOrigin, mapWidth_, rotatedModuleWidth, rotatedModuleHeight);
+            if (moduleAsset == 0) {
+                invalidSavedLotReports.push_back(lotLabel + ": missing module " + lotSaveState.modules[moduleIndex].moduleAssetId);
+                hasInvalidModule = true;
+                break;
             }
+
+            int rotatedModuleWidth = 0;
+            int rotatedModuleHeight = 0;
+            float rotatedRenderOffsetX = 0.0f;
+            float rotatedRenderOffsetY = 0.0f;
+            float rotatedRenderWidth = 0.0f;
+            float rotatedRenderHeight = 0.0f;
+            if (lotSaveState.modules[moduleIndex].footprintWidth > 0 &&
+                lotSaveState.modules[moduleIndex].footprintHeight > 0 &&
+                lotSaveState.modules[moduleIndex].renderWidth > 0.0f &&
+                lotSaveState.modules[moduleIndex].renderHeight > 0.0f) {
+                rotatedModuleWidth = lotSaveState.modules[moduleIndex].footprintWidth;
+                rotatedModuleHeight = lotSaveState.modules[moduleIndex].footprintHeight;
+                rotatedRenderOffsetX = lotSaveState.modules[moduleIndex].renderOffsetX;
+                rotatedRenderOffsetY = lotSaveState.modules[moduleIndex].renderOffsetY;
+                rotatedRenderWidth = lotSaveState.modules[moduleIndex].renderWidth;
+                rotatedRenderHeight = lotSaveState.modules[moduleIndex].renderHeight;
+            } else if (moduleIndex < lotAsset->initialModules.size()) {
+                const LotModulePlacementGeometry unrotatedGeometry = ResolveLotModulePlacementGeometry(lotAsset->initialModules[moduleIndex], *moduleAsset);
+                const LotModulePlacementGeometry rotatedGeometry = RotateLotModulePlacementGeometry(unrotatedGeometry, lotSaveState.rotationSteps);
+                rotatedModuleWidth = rotatedGeometry.footprintWidth;
+                rotatedModuleHeight = rotatedGeometry.footprintHeight;
+                rotatedRenderOffsetX = rotatedGeometry.renderOffsetX;
+                rotatedRenderOffsetY = rotatedGeometry.renderOffsetY;
+                rotatedRenderWidth = rotatedGeometry.renderWidth;
+                rotatedRenderHeight = rotatedGeometry.renderHeight;
+            } else {
+                RotatedRectangleDimensions(Int2(0, 0), moduleAsset->width, moduleAsset->height, lotSaveState.rotationSteps, rotatedModuleWidth, rotatedModuleHeight);
+            }
+            lot.addModule(
+                *moduleAsset,
+                lotSaveState.modules[moduleIndex].localOrigin,
+                mapWidth_,
+                rotatedModuleWidth,
+                rotatedModuleHeight,
+                rotatedRenderOffsetX,
+                rotatedRenderOffsetY,
+                rotatedRenderWidth,
+                rotatedRenderHeight,
+                lotSaveState.modules[moduleIndex].affectsSimulation,
+                lotSaveState.modules[moduleIndex].claimsFootprint);
+        }
+        if (hasInvalidModule) {
+            continue;
+        }
+        if (lot.modules().empty()) {
+            invalidSavedLotReports.push_back(lotLabel + ": no modules");
+            continue;
         }
         lot.setConstructionState(lotSaveState.constructionTotalTicks, lotSaveState.constructionRemainingTicks, mapWidth_);
 
         bool isInsideMap = true;
+        bool overlapsExistingLot = false;
         const std::vector<int>& occupiedTileIndices = lot.occupiedTileIndices();
         std::size_t occupiedIndex = 0;
         for (; occupiedIndex < occupiedTileIndices.size(); ++occupiedIndex) {
@@ -1035,15 +1187,30 @@ void SimulationRuntime::importCitySaveState(const CitySaveState& saveState) {
                 isInsideMap = false;
                 break;
             }
+            if (lotOccupancy_[static_cast<std::size_t>(tileLinearIndex)] != kInvalidLotId) {
+                overlapsExistingLot = true;
+                break;
+            }
         }
 
         if (!isInsideMap) {
+            invalidSavedLotReports.push_back(lotLabel + ": outside map bounds");
+            continue;
+        }
+        if (overlapsExistingLot) {
+            invalidSavedLotReports.push_back(lotLabel + ": overlaps another saved lot");
             continue;
         }
 
         lots_.push_back(lot);
         setLotOccupancy(lot.id(), lots_.back().occupiedTileIndices());
         nextLotId_ = std::max(nextLotId_, lot.id() + 1);
+    }
+    if (!invalidSavedLotReports.empty() && reportInvalidSavedLots) {
+        ShowNonFatalAssetWarning(
+            "City Builder Save Warning",
+            JoinTruncatedReports(invalidSavedLotReports, "saved lots"),
+            runtimeOptions_);
     }
 
     oldCityParameters_.assign(cityParameterRegistry_.count(), 0.0f);
@@ -1097,7 +1264,7 @@ void SimulationRuntime::importCitySaveState(const CitySaveState& saveState) {
     commutesDirty_ = true;
     forcedCommuteLotIds_.clear();
     commuteRebalanceCursor_ = 0u;
-    runCommuteAssignment();
+    runCommuteAssignment(tileBuffers_[simulationReadBufferIndex_]);
     refreshPublishedLotSnapshot(tileBuffers_[simulationReadBufferIndex_]);
     refreshPublishedZoningLotSnapshot(tileBuffers_[simulationReadBufferIndex_]);
     refreshPublishedRoadSnapshot(tileBuffers_[simulationReadBufferIndex_]);
@@ -1117,6 +1284,41 @@ void SimulationRuntime::importCitySaveState(const CitySaveState& saveState) {
     updatesPerSecond_.store(0);
 }
 
+bool SimulationRuntime::selectRciConstructorLotAssetForDiagnostics(
+    std::uint16_t zoningType,
+    const std::string& rciTypeId,
+    int width,
+    int height,
+    float demandBudget,
+    float maxDensityPerTile,
+    std::uint8_t frontDirection,
+    std::uint32_t variationSeed,
+    std::string& lotAssetId,
+    int& rotationSteps,
+    int& capacity) const {
+    lotAssetId.clear();
+    rotationSteps = 0;
+    capacity = 0;
+
+    const LotAsset* lotAsset = findRciConstructorLotAsset(
+        zoningType,
+        rciTypeId,
+        width,
+        height,
+        demandBudget,
+        maxDensityPerTile,
+        frontDirection,
+        variationSeed,
+        rotationSteps,
+        capacity);
+    if (lotAsset == 0) {
+        return false;
+    }
+
+    lotAssetId = lotAsset->id;
+    return true;
+}
+
 // Pins the current published buffer for renderer-side read-only access.
 PublishedWorldSnapshot SimulationRuntime::acquirePublishedSnapshot() {
     PublishedWorldSnapshot snapshot;
@@ -1131,6 +1333,7 @@ PublishedWorldSnapshot SimulationRuntime::acquirePublishedSnapshot() {
     snapshot.roads = &tileBuffers_[publishedBufferIndex_].publishedRoads;
     snapshot.groundRoadRenderState = &tileBuffers_[publishedBufferIndex_].publishedGroundRoadRenderState;
     snapshot.tileOverlayState = &tileBuffers_[publishedBufferIndex_].publishedTileOverlayState;
+    snapshot.renderMeshBindings = &renderMeshBindings_;
     snapshot.groundRoadChunkRevisions = &tileBuffers_[publishedBufferIndex_].publishedGroundRoadChunkRevisions;
     snapshot.elevatedRoadChunkRevisions = &tileBuffers_[publishedBufferIndex_].publishedElevatedRoadChunkRevisions;
     snapshot.tileOverlayChunkRevisions = &tileBuffers_[publishedBufferIndex_].publishedTileOverlayChunkRevisions;
@@ -1242,6 +1445,12 @@ void SimulationRuntime::loadAssets() {
 
     moduleAssets_ = loadedAssets.modules;
     lotAssets_ = loadedAssets.lots;
+    renderMeshBindings_ = loadedAssets.renderMeshBindings;
+    if (!loadedAssets.invalidLotReports.empty()) {
+        LogWarning(
+            "City Builder Asset Warning",
+            JoinTruncatedReports(loadedAssets.invalidLotReports, "lot assets"));
+    }
     rciGrowthRules_ = loadedAssets.rciGrowthRules;
     rciDesirabilityRules_ = loadedAssets.rciDesirabilityRules;
     initialCityDemands_ = loadedAssets.initialDemands;
@@ -1250,6 +1459,8 @@ void SimulationRuntime::loadAssets() {
     }
     rciConstructorAttemptsPerTick_ = std::max(1, loadedAssets.rciConstructorAttemptsPerTick);
     rciConstructorOverbuildMultiplier_ = std::max(0.0f, loadedAssets.rciConstructorOverbuildMultiplier);
+    rciConstructorMergeCapacityDiscount_ = std::max(0.0f, std::min(0.95f, loadedAssets.rciConstructorMergeCapacityDiscount));
+    rciConstructorRedevelopmentCapacityIncrease_ = std::max(0.0f, std::min(4.0f, loadedAssets.rciConstructorRedevelopmentCapacityIncrease));
     rciBaselineLandValue_ = std::max(0, std::min(loadedAssets.rciBaselineLandValue, kLandValueDisplayCap));
     const std::string rciToolsPath = RuntimeDataPath("RCI\\rci_tools.xml");
     if (!rciTools_.loadFromXmlFile(rciToolsPath)) {
@@ -1279,6 +1490,24 @@ void SimulationRuntime::loadAssets() {
     std::size_t moduleIndex = 0;
     for (; moduleIndex < moduleAssets_.size(); ++moduleIndex) {
         moduleAssetIndexById_[moduleAssets_[moduleIndex].id] = moduleIndex;
+    }
+    for (moduleIndex = 0; moduleIndex < moduleAssets_.size(); ++moduleIndex) {
+        LotModule& module = moduleAssets_[moduleIndex];
+        std::size_t propIndex = 0;
+        for (; propIndex < module.props.size(); ++propIndex) {
+            LotModulePropDefinition& prop = module.props[propIndex];
+            prop.module = findModuleAssetById(prop.moduleId);
+            prop.alternativeModules.clear();
+            std::size_t alternativeIndex = 0;
+            for (; alternativeIndex < prop.alternatives.size(); ++alternativeIndex) {
+                if (IsNoneModuleAlternativeId(prop.alternatives[alternativeIndex].moduleId)) {
+                    prop.alternativeModules.push_back(0);
+                    continue;
+                }
+
+                prop.alternativeModules.push_back(findModuleAssetById(prop.alternatives[alternativeIndex].moduleId));
+            }
+        }
     }
 
     lotAssetIndexById_.clear();
@@ -1427,7 +1656,7 @@ void SimulationRuntime::publishPausedCommandFrame() {
     commuteWriteBuffer.tiles = tileBuffers_[simulationReadBufferIndex_].tiles;
 
     const std::chrono::steady_clock::time_point lotEffectsStart = std::chrono::steady_clock::now();
-    runCommuteAssignment();
+    runCommuteAssignment(commuteWriteBuffer);
     lotEffectsMicros_.store(DurationMicros(lotEffectsStart, std::chrono::steady_clock::now()));
 
     publishStart = std::chrono::steady_clock::now();
@@ -1468,7 +1697,7 @@ void SimulationRuntime::simulationLoop() {
 
             const std::chrono::steady_clock::time_point lotEffectsStart = std::chrono::steady_clock::now();
             applyLotEffects(tileBuffers_[simulationWriteBufferIndex_].tiles);
-            runCommuteAssignment();
+            runCommuteAssignment(tileBuffers_[simulationWriteBufferIndex_]);
             runRciConstructor(tileBuffers_[simulationWriteBufferIndex_]);
             lotEffectsMicros_.store(DurationMicros(lotEffectsStart, std::chrono::steady_clock::now()));
 
@@ -1670,30 +1899,30 @@ void SimulationRuntime::runNeighborChunk(const ChunkRect& chunkRect) {
 
             if (tileX < mapWidth_ - 1) {
                 const Tile& neighborTile = readTiles[tileIndex(tileX + 1, tileY)];
-                airPollutionDelta += (neighborTile.airPollution - sourceTile.airPollution) / kPollutionSpreadRate;
-                parkEffectDelta += (neighborTile.parkEffect - sourceTile.parkEffect) / kPollutionSpreadRate;
-                landValueDelta += (neighborTile.landValue - sourceTile.landValue) / kPollutionSpreadRate;
+                airPollutionDelta += (neighborTile.airPollution - sourceTile.airPollution) / kAirPollutionSpreadRate;
+                parkEffectDelta += (neighborTile.parkEffect - sourceTile.parkEffect) / kParkEffectSpreadRate;
+                landValueDelta += (neighborTile.landValue - sourceTile.landValue) / kLandValueSpreadRate;
             }
 
             if (tileX > 0) {
                 const Tile& neighborTile = readTiles[tileIndex(tileX - 1, tileY)];
-                airPollutionDelta += (neighborTile.airPollution - sourceTile.airPollution) / kPollutionSpreadRate;
-                parkEffectDelta += (neighborTile.parkEffect - sourceTile.parkEffect) / kPollutionSpreadRate;
-                landValueDelta += (neighborTile.landValue - sourceTile.landValue) / kPollutionSpreadRate;
+                airPollutionDelta += (neighborTile.airPollution - sourceTile.airPollution) / kAirPollutionSpreadRate;
+                parkEffectDelta += (neighborTile.parkEffect - sourceTile.parkEffect) / kParkEffectSpreadRate;
+                landValueDelta += (neighborTile.landValue - sourceTile.landValue) / kLandValueSpreadRate;
             }
 
             if (tileY < mapHeight_ - 1) {
                 const Tile& neighborTile = readTiles[tileIndex(tileX, tileY + 1)];
-                airPollutionDelta += (neighborTile.airPollution - sourceTile.airPollution) / kPollutionSpreadRate;
-                parkEffectDelta += (neighborTile.parkEffect - sourceTile.parkEffect) / kPollutionSpreadRate;
-                landValueDelta += (neighborTile.landValue - sourceTile.landValue) / kPollutionSpreadRate;
+                airPollutionDelta += (neighborTile.airPollution - sourceTile.airPollution) / kAirPollutionSpreadRate;
+                parkEffectDelta += (neighborTile.parkEffect - sourceTile.parkEffect) / kParkEffectSpreadRate;
+                landValueDelta += (neighborTile.landValue - sourceTile.landValue) / kLandValueSpreadRate;
             }
 
             if (tileY > 0) {
                 const Tile& neighborTile = readTiles[tileIndex(tileX, tileY - 1)];
-                airPollutionDelta += (neighborTile.airPollution - sourceTile.airPollution) / kPollutionSpreadRate;
-                parkEffectDelta += (neighborTile.parkEffect - sourceTile.parkEffect) / kPollutionSpreadRate;
-                landValueDelta += (neighborTile.landValue - sourceTile.landValue) / kPollutionSpreadRate;
+                airPollutionDelta += (neighborTile.airPollution - sourceTile.airPollution) / kAirPollutionSpreadRate;
+                parkEffectDelta += (neighborTile.parkEffect - sourceTile.parkEffect) / kParkEffectSpreadRate;
+                landValueDelta += (neighborTile.landValue - sourceTile.landValue) / kLandValueSpreadRate;
             }
 
             Tile nextTile = sourceTile;
@@ -1719,18 +1948,12 @@ void SimulationRuntime::runLocalChunk(const ChunkRect& chunkRect) {
         for (; tileX < chunkRect.startX + chunkRect.width; ++tileX) {
             Tile& tile = writeTiles[tileIndex(tileX, tileY)];
             tile.landValue = std::max(kLandValueDisplayMinimum, std::min(tile.landValue, kLandValueDisplayCap));
-
-            if (tile.airPollution > 0) {
-                --tile.airPollution;
-            } else if (tile.airPollution < 0) {
-                ++tile.airPollution;
-            }
-
-            if (tile.parkEffect > 0) {
-                --tile.parkEffect;
-            } else if (tile.parkEffect < 0) {
-                ++tile.parkEffect;
-            }
+            tile.airPollution = ApplyEnvironmentalDecay(
+                tile.airPollution,
+                kAirPollutionDecayRate);
+            tile.parkEffect = ApplyEnvironmentalDecay(
+                tile.parkEffect,
+                kParkEffectDecayRate);
         }
     }
 }
@@ -1850,7 +2073,7 @@ void SimulationRuntime::applyLotEffects(std::vector<Tile>& writeTiles) {
     }
 }
 
-void SimulationRuntime::rebuildCityParameters() {
+void SimulationRuntime::rebuildCityParameters(const TileBuffer& writeBuffer) {
     const std::size_t parameterCount = cityParameterRegistry_.count();
     nextCityParameters_.assign(parameterCount, 0.0f);
     if (cityParameterDeltaBuffers_.empty()) {
@@ -1865,12 +2088,20 @@ void SimulationRuntime::rebuildCityParameters() {
     std::size_t lotIndex = 0;
     for (; lotIndex < lots_.size(); ++lotIndex) {
         std::vector<float>& deltaBuffer = cityParameterDeltaBuffers_[lotIndex % cityParameterDeltaBuffers_.size()];
-        const std::vector<CityParameterContribution>& contributions = lots_[lotIndex].parameterContributions();
+        const Lot& lot = lots_[lotIndex];
+        const LotAsset* lotAsset = findLotAssetById(lot.assetId());
+        const std::uint16_t lotZoningType = lotAsset == 0 ? TileZoningNone : zoningTypeForLotInBuffer(lot, writeBuffer, lotAsset->zoningType);
+        const bool scalesByDesirability = lotAsset != 0 && IsRciZoningType(lotZoningType);
+        const int desirability = scalesByDesirability ? rciDesirabilityForCandidate(lot, *lotAsset, writeBuffer) : kRciDesirabilityDisplayCap;
+        const std::vector<CityParameterContribution>& contributions = lot.parameterContributions();
         std::size_t contributionIndex = 0;
         for (; contributionIndex < contributions.size(); ++contributionIndex) {
             const CityParameterContribution& contribution = contributions[contributionIndex];
             if (contribution.parameterId >= 0 && contribution.parameterId < static_cast<int>(parameterCount)) {
-                deltaBuffer[contribution.parameterId] += contribution.amount;
+                const int amount = scalesByDesirability
+                    ? RciActualCapacityFromDesirability(contribution.amount, desirability)
+                    : contribution.amount;
+                deltaBuffer[contribution.parameterId] += static_cast<float>(amount);
             }
         }
     }
@@ -1983,8 +2214,8 @@ void SimulationRuntime::removeCommuteLoadsForLot(const Lot& lot) {
     ++commuteRevision_;
 }
 
-void SimulationRuntime::runCommuteAssignment() {
-    rebuildCityParameters();
+void SimulationRuntime::runCommuteAssignment(const TileBuffer& writeBuffer) {
+    rebuildCityParameters(writeBuffer);
 
     enum class CommuteCostClass {
         Invalid = 0,
@@ -2048,7 +2279,7 @@ void SimulationRuntime::runCommuteAssignment() {
             collectLotAccessNodes(lot, *lotAsset, allowedModeMask, accessNodes);
         }
 
-        const int residentDemand = static_cast<int>(lotParameterAmount(lot, cityParameterRegistry_.residentsLowWealthId()) + 0.5f);
+        const int residentDemand = lotActualParameterAmount(lot, lotAsset, cityParameterRegistry_.residentsLowWealthId(), writeBuffer);
         const int previousResidentDemand = lot.lowWealthResidentsTotal();
         const int previousCommuteDemand = lot.commuteDemand();
         lot.setLowWealthResidentsTotal(residentDemand);
@@ -2074,7 +2305,7 @@ void SimulationRuntime::runCommuteAssignment() {
             queueCommuteRecalculationForLot(lot.id());
         }
 
-        const int lowWealthJobCapacity = static_cast<int>(lotDerivedParameterAmount(lot, cityParameterRegistry_.jobsLowWealthId()) + 0.5f);
+        const int lowWealthJobCapacity = lotActualDerivedParameterAmount(lot, lotAsset, cityParameterRegistry_.jobsLowWealthId(), writeBuffer);
         const int previousJobCapacity = lot.lowWealthJobsTotal();
         lot.setLowWealthJobsTotal(lowWealthJobCapacity);
         lot.setLowWealthJobsRoadAccess(lowWealthJobCapacity <= 0 || !accessNodes.empty());
@@ -2653,6 +2884,14 @@ void SimulationRuntime::refreshPublishedLotSnapshot(TileBuffer& completedBuffer)
         publishedLotInfo.residentsLowWealthTotal = lots_[lotIndex].lowWealthResidentsTotal();
         publishedLotInfo.jobsLowWealthCurrent = lots_[lotIndex].lowWealthJobsFilled();
         publishedLotInfo.jobsLowWealthTotal = lots_[lotIndex].lowWealthJobsTotal();
+        if (lotAsset != 0 && !publishedLotInfo.isEmpty && IsRciZoningType(publishedLotInfo.zoningType)) {
+            const std::string lotRciTypeId = lotAsset->rciTypeId.empty()
+                ? DefaultRciTypeIdForZoningType(publishedLotInfo.zoningType)
+                : lotAsset->rciTypeId;
+            const int capacityParameterId = rciDemandParameterId(lotRciTypeId);
+            publishedLotInfo.rciCapacityMaximum = rciCapacityForLot(lots_[lotIndex], lotRciTypeId);
+            publishedLotInfo.rciCapacityCurrent = lotActualParameterAmount(lots_[lotIndex], lotAsset, capacityParameterId, completedBuffer);
+        }
         publishedLotInfo.complaintSummary = lots_[lotIndex].complaintSummary();
         completedBuffer.publishedLotInfos.push_back(publishedLotInfo);
         const std::size_t firstRenderInstanceIndex = completedBuffer.publishedLots.size();
@@ -2799,6 +3038,57 @@ const LotModule* SimulationRuntime::findModuleAssetById(const std::string& modul
     return &moduleAssets_[iterator->second];
 }
 
+const LotModule* SimulationRuntime::resolveModulePlacement(const LotAsset& lotAsset, const LotModulePlacementDefinition& placement, std::size_t placementIndex, int anchorTileX, int anchorTileY, int rotationSteps, int lotId) const {
+    if (placement.alternatives.empty()) {
+        return findModuleAssetById(placement.moduleId);
+    }
+
+    int totalWeight = 0;
+    std::size_t alternativeIndex = 0;
+    for (; alternativeIndex < placement.alternatives.size(); ++alternativeIndex) {
+        totalWeight += std::max(0, placement.alternatives[alternativeIndex].weight);
+    }
+    if (totalWeight <= 0) {
+        return findModuleAssetById(placement.moduleId);
+    }
+
+    std::uint32_t hash = 2166136261u;
+    const auto mixByte = [&hash](std::uint8_t value) {
+        hash ^= static_cast<std::uint32_t>(value);
+        hash *= 16777619u;
+    };
+    const auto mixInt = [&mixByte](int value) {
+        std::uint32_t bits = static_cast<std::uint32_t>(value);
+        mixByte(static_cast<std::uint8_t>(bits & 0xffu));
+        mixByte(static_cast<std::uint8_t>((bits >> 8) & 0xffu));
+        mixByte(static_cast<std::uint8_t>((bits >> 16) & 0xffu));
+        mixByte(static_cast<std::uint8_t>((bits >> 24) & 0xffu));
+    };
+    std::size_t characterIndex = 0;
+    for (; characterIndex < lotAsset.id.size(); ++characterIndex) {
+        mixByte(static_cast<std::uint8_t>(lotAsset.id[characterIndex]));
+    }
+    mixInt(static_cast<int>(placementIndex));
+    mixInt(anchorTileX);
+    mixInt(anchorTileY);
+    mixInt(rotationSteps);
+    mixInt(lotId);
+
+    int selectedWeight = static_cast<int>(hash % static_cast<std::uint32_t>(totalWeight));
+    for (alternativeIndex = 0; alternativeIndex < placement.alternatives.size(); ++alternativeIndex) {
+        selectedWeight -= std::max(0, placement.alternatives[alternativeIndex].weight);
+        if (selectedWeight < 0) {
+            if (IsNoneModuleAlternativeId(placement.alternatives[alternativeIndex].moduleId)) {
+                return 0;
+            }
+            const LotModule* moduleAsset = findModuleAssetById(placement.alternatives[alternativeIndex].moduleId);
+            return moduleAsset == 0 ? findModuleAssetById(placement.moduleId) : moduleAsset;
+        }
+    }
+
+    return findModuleAssetById(placement.moduleId);
+}
+
 // Finds a mutable live lot by runtime id.
 Lot* SimulationRuntime::findLotById(int lotId) {
     std::size_t lotIndex = 0;
@@ -2844,33 +3134,388 @@ std::uint16_t SimulationRuntime::zoningTypeForLotInBuffer(const Lot& lot, const 
 // Builds a lot from an archetype so committed placement and ghost previews share geometry.
 bool SimulationRuntime::buildLotCandidate(const LotAsset& lotAsset, int clickedTileX, int clickedTileY, int rotationSteps, int lotId, Lot& candidateLot) const {
     const int normalizedRotation = NormalizeRotationSteps(rotationSteps);
+    int parcelWidth = 0;
+    int parcelHeight = 0;
+    RotatedRectangleDimensions(Int2(0, 0), lotAsset.footprintWidth, lotAsset.footprintHeight, normalizedRotation, parcelWidth, parcelHeight);
+    return buildLotCandidateForParcel(lotAsset, clickedTileX, clickedTileY, normalizedRotation, lotId, parcelWidth, parcelHeight, candidateLot);
+}
+
+bool SimulationRuntime::buildLotCandidateForParcel(const LotAsset& lotAsset, int clickedTileX, int clickedTileY, int rotationSteps, int lotId, int parcelWidth, int parcelHeight, Lot& candidateLot) const {
+    const int normalizedRotation = NormalizeRotationSteps(rotationSteps);
+    const int unrotatedWidth = (normalizedRotation % 2) == 0 ? parcelWidth : parcelHeight;
+    const int unrotatedHeight = (normalizedRotation % 2) == 0 ? parcelHeight : parcelWidth;
+    if (unrotatedWidth <= 0 || unrotatedHeight <= 0) {
+        return false;
+    }
+
     candidateLot = Lot(lotId, lotAsset.id, clickedTileX, clickedTileY, normalizedRotation);
 
     Int2 footprintMinimum;
     Int2 footprintMaximum;
-    RotatedRectangleBounds(lotAsset.footprintOrigin, lotAsset.footprintWidth, lotAsset.footprintHeight, normalizedRotation, footprintMinimum, footprintMaximum);
+    const int footprintWidth = lotAsset.autoLayout.empty() ? lotAsset.footprintWidth : unrotatedWidth;
+    const int footprintHeight = lotAsset.autoLayout.empty() ? lotAsset.footprintHeight : unrotatedHeight;
+    RotatedRectangleBounds(lotAsset.footprintOrigin, footprintWidth, footprintHeight, normalizedRotation, footprintMinimum, footprintMaximum);
     candidateLot.setExplicitFootprint(
         footprintMinimum,
         footprintMaximum.x - footprintMinimum.x + 1,
         footprintMaximum.y - footprintMinimum.y + 1,
         mapWidth_);
 
+    if (!lotAsset.autoLayout.empty()) {
+        LotAutoPrimaryGeometry primary;
+        return populateAutoLayoutLot(lotAsset, unrotatedWidth, unrotatedHeight, clickedTileX, clickedTileY, normalizedRotation, lotId, candidateLot, primary);
+    }
+
     std::size_t placementIndex = 0;
     for (; placementIndex < lotAsset.initialModules.size(); ++placementIndex) {
-        const LotModule* moduleAsset = findModuleAssetById(lotAsset.initialModules[placementIndex].moduleId);
+        const LotModulePlacementDefinition& placement = lotAsset.initialModules[placementIndex];
+        const LotModule* moduleAsset = resolveModulePlacement(lotAsset, placement, placementIndex, clickedTileX, clickedTileY, normalizedRotation, lotId);
         if (moduleAsset == 0) {
             return false;
         }
 
-        const Int2 rotatedModuleOrigin = RotatedRectangleMinimum(
-            lotAsset.initialModules[placementIndex].localOrigin,
-            moduleAsset->width,
-            moduleAsset->height,
-            normalizedRotation);
-        int rotatedModuleWidth = 0;
-        int rotatedModuleHeight = 0;
-        RotatedRectangleDimensions(Int2(0, 0), moduleAsset->width, moduleAsset->height, normalizedRotation, rotatedModuleWidth, rotatedModuleHeight);
-        candidateLot.addModule(*moduleAsset, rotatedModuleOrigin, mapWidth_, rotatedModuleWidth, rotatedModuleHeight);
+        const LotModulePlacementGeometry unrotatedGeometry = ResolveLotModulePlacementGeometry(placement, *moduleAsset);
+        const LotModulePlacementGeometry rotatedGeometry = RotateLotModulePlacementGeometry(unrotatedGeometry, normalizedRotation);
+        candidateLot.addModule(
+            *moduleAsset,
+            rotatedGeometry.localOrigin,
+            mapWidth_,
+            rotatedGeometry.footprintWidth,
+            rotatedGeometry.footprintHeight,
+            rotatedGeometry.renderOffsetX,
+            rotatedGeometry.renderOffsetY,
+            rotatedGeometry.renderWidth,
+            rotatedGeometry.renderHeight,
+            placement.affectsSimulation,
+            placement.claimsFootprint);
+    }
+
+    return true;
+}
+
+bool SimulationRuntime::populateAutoLayoutLot(const LotAsset& lotAsset, int lotWidth, int lotHeight, int anchorTileX, int anchorTileY, int rotationSteps, int lotId, Lot& candidateLot, LotAutoPrimaryGeometry& primary) const {
+    std::vector<std::uint8_t> claimedTiles(static_cast<std::size_t>(lotWidth * lotHeight), 0u);
+    std::size_t placementSeedIndex = 0u;
+
+    struct PlacedAutoLayoutModule {
+        const LotModule* module;
+        LotModulePlacementDefinition placement;
+        LotModulePlacementGeometry geometry;
+    };
+    std::vector<PlacedAutoLayoutModule> placedModules;
+
+    const auto geometryFitsLot = [lotWidth, lotHeight](const LotModulePlacementGeometry& geometry) -> bool {
+        if (geometry.localOrigin.x < 0 ||
+            geometry.localOrigin.y < 0 ||
+            geometry.localOrigin.x + geometry.footprintWidth > lotWidth ||
+            geometry.localOrigin.y + geometry.footprintHeight > lotHeight) {
+            return false;
+        }
+
+        return true;
+    };
+
+    const auto claimGeometry = [&claimedTiles, &geometryFitsLot, lotWidth](const LotModulePlacementGeometry& geometry) -> bool {
+        if (!geometryFitsLot(geometry)) {
+            return false;
+        }
+
+        int tileY = 0;
+        for (; tileY < geometry.footprintHeight; ++tileY) {
+            int tileX = 0;
+            for (; tileX < geometry.footprintWidth; ++tileX) {
+                const int localX = geometry.localOrigin.x + tileX;
+                const int localY = geometry.localOrigin.y + tileY;
+                const std::size_t tileIndex = static_cast<std::size_t>(localY * lotWidth + localX);
+                if (tileIndex >= claimedTiles.size() || claimedTiles[tileIndex] != 0u) {
+                    return false;
+                }
+            }
+        }
+
+        for (tileY = 0; tileY < geometry.footprintHeight; ++tileY) {
+            int tileX = 0;
+            for (; tileX < geometry.footprintWidth; ++tileX) {
+                const int localX = geometry.localOrigin.x + tileX;
+                const int localY = geometry.localOrigin.y + tileY;
+                claimedTiles[static_cast<std::size_t>(localY * lotWidth + localX)] = 1u;
+            }
+        }
+
+        return true;
+    };
+
+    const auto addPlacement = [&](const LotModulePlacementDefinition& placement, const LotModule& module) {
+        const LotModulePlacementGeometry unrotatedGeometry = ResolveLotModulePlacementGeometry(placement, module);
+        const LotModulePlacementGeometry rotatedGeometry = RotateLotModulePlacementGeometry(unrotatedGeometry, rotationSteps);
+        candidateLot.addModule(
+            module,
+            rotatedGeometry.localOrigin,
+            mapWidth_,
+            rotatedGeometry.footprintWidth,
+            rotatedGeometry.footprintHeight,
+            rotatedGeometry.renderOffsetX,
+            rotatedGeometry.renderOffsetY,
+            rotatedGeometry.renderWidth,
+            rotatedGeometry.renderHeight,
+            placement.affectsSimulation,
+            placement.claimsFootprint);
+
+        PlacedAutoLayoutModule placedModule;
+        placedModule.module = &module;
+        placedModule.placement = placement;
+        placedModule.geometry = unrotatedGeometry;
+        placedModules.push_back(placedModule);
+    };
+
+    std::size_t ruleIndex = 0;
+    for (; ruleIndex < lotAsset.autoLayout.moduleRules.size(); ++ruleIndex) {
+        const LotAutoModuleRule& rule = lotAsset.autoLayout.moduleRules[ruleIndex];
+        if (!LotAutoSizeConditionMatches(rule.condition, lotWidth, lotHeight) ||
+            (rule.isPrimary && primary.hasPrimary) ||
+            !LotAutoPrimaryRequirementMatches(rule.primaryModuleIds, primary)) {
+            continue;
+        }
+
+        const LotModule* primaryModule = findModuleAssetById(rule.moduleId);
+        if (primaryModule == 0) {
+            return false;
+        }
+
+        LotModulePlacementDefinition placement = BuildLotAutoModulePlacementDefinition(rule, *primaryModule, lotWidth, lotHeight, primary);
+        const LotModule* module = resolveModulePlacement(lotAsset, placement, placementSeedIndex++, anchorTileX, anchorTileY, rotationSteps, lotId);
+        if (module == 0) {
+            if (rule.required) {
+                return false;
+            }
+            continue;
+        }
+
+        placement = BuildLotAutoModulePlacementDefinition(rule, *module, lotWidth, lotHeight, primary);
+        const LotModulePlacementGeometry geometry = ResolveLotModulePlacementGeometry(placement, *module);
+        const bool placed = LotModulePlacementGeometryVisualFits(geometry) &&
+            (rule.claimsFootprint ? claimGeometry(geometry) : geometryFitsLot(geometry));
+        if (!placed) {
+            if (rule.required) {
+                return false;
+            }
+            continue;
+        }
+
+        addPlacement(placement, *module);
+        if (rule.isPrimary) {
+            primary.hasPrimary = true;
+            primary.moduleId = module->id;
+            primary.localOrigin = geometry.localOrigin;
+            primary.footprintWidth = geometry.footprintWidth;
+            primary.footprintHeight = geometry.footprintHeight;
+        }
+    }
+
+    if (!primary.hasPrimary) {
+        return false;
+    }
+
+    std::size_t lineIndex = 0;
+    for (; lineIndex < lotAsset.autoLayout.lineRules.size(); ++lineIndex) {
+        const LotAutoLineRule& rule = lotAsset.autoLayout.lineRules[lineIndex];
+        if (!LotAutoSizeConditionMatches(rule.condition, lotWidth, lotHeight) ||
+            !LotAutoPrimaryRequirementMatches(rule.primaryModuleIds, primary)) {
+            continue;
+        }
+
+        const LotModule* module = findModuleAssetById(rule.moduleId);
+        if (module == 0 || module->width != 1 || module->height != 1) {
+            return false;
+        }
+
+        const int x = ResolveLotAutoCoordinateReference(rule.xReference, lotWidth, 1, primary.localOrigin.x, primary.footprintWidth, primary.hasPrimary) + rule.xOffset;
+        const int startY = ResolveLotAutoCoordinateReference(rule.startYReference, lotHeight, 1, primary.localOrigin.y, primary.footprintHeight, primary.hasPrimary) + rule.startYOffset;
+        const int endY = ResolveLotAutoCoordinateReference(rule.endYReference, lotHeight, 1, primary.localOrigin.y, primary.footprintHeight, primary.hasPrimary) + rule.endYOffset;
+        if (endY < startY) {
+            if (rule.required) {
+                return false;
+            }
+            continue;
+        }
+
+        bool placedAnyLineTile = false;
+        int y = startY;
+        for (; y <= endY; ++y) {
+            LotModulePlacementDefinition placement;
+            placement.moduleId = rule.moduleId;
+            placement.localOrigin = Int2(x, y);
+            placement.footprintWidth = 1;
+            placement.footprintHeight = 1;
+            placement.renderOffsetX = rule.renderOffsetX;
+            placement.renderOffsetY = rule.renderOffsetY;
+            placement.renderWidth = rule.renderWidth;
+            placement.renderHeight = rule.renderHeight;
+            placement.hasRenderOffsetX = rule.hasRenderOffsetX;
+            placement.hasRenderOffsetY = rule.hasRenderOffsetY;
+            placement.hasRenderWidth = rule.hasRenderWidth;
+            placement.hasRenderHeight = rule.hasRenderHeight;
+            placement.renderAlignX = rule.renderAlignX;
+            placement.renderAlignY = rule.renderAlignY;
+            placement.affectsSimulation = rule.affectsSimulation;
+            placement.claimsFootprint = rule.claimsFootprint;
+            placement.alternatives = rule.alternatives;
+            const LotModule* selectedModule = resolveModulePlacement(lotAsset, placement, placementSeedIndex++, anchorTileX, anchorTileY, rotationSteps, lotId);
+            if (selectedModule == 0) {
+                if (rule.required) {
+                    return false;
+                }
+                continue;
+            }
+
+            const LotModulePlacementGeometry geometry = ResolveLotModulePlacementGeometry(placement, *selectedModule);
+            const bool placed = LotModulePlacementGeometryVisualFits(geometry) &&
+                (rule.claimsFootprint ? claimGeometry(geometry) : geometryFitsLot(geometry));
+            if (!placed) {
+                if (rule.required) {
+                    return false;
+                }
+                continue;
+            }
+
+            addPlacement(placement, *selectedModule);
+            placedAnyLineTile = true;
+        }
+
+        if (rule.required && !placedAnyLineTile) {
+            return false;
+        }
+    }
+
+    std::size_t fillIndex = 0;
+    for (; fillIndex < lotAsset.autoLayout.fillRules.size(); ++fillIndex) {
+        const LotAutoFillRule& rule = lotAsset.autoLayout.fillRules[fillIndex];
+        if (!LotAutoSizeConditionMatches(rule.condition, lotWidth, lotHeight) ||
+            !LotAutoPrimaryRequirementMatches(rule.primaryModuleIds, primary)) {
+            continue;
+        }
+
+        std::size_t tileIndex = 0;
+        for (; tileIndex < claimedTiles.size(); ++tileIndex) {
+            if (claimedTiles[tileIndex] != 0u) {
+                continue;
+            }
+
+            const LotModule* module = findModuleAssetById(rule.moduleId);
+            if (module == 0 || module->width != 1 || module->height != 1) {
+                return false;
+            }
+
+            const int localX = static_cast<int>(tileIndex % static_cast<std::size_t>(lotWidth));
+            const int localY = static_cast<int>(tileIndex / static_cast<std::size_t>(lotWidth));
+            LotModulePlacementDefinition placement;
+            placement.moduleId = rule.moduleId;
+            placement.localOrigin = Int2(localX, localY);
+            placement.affectsSimulation = rule.affectsSimulation;
+            placement.claimsFootprint = rule.claimsFootprint;
+            placement.alternatives = rule.alternatives;
+            const LotModule* selectedModule = resolveModulePlacement(lotAsset, placement, placementSeedIndex++, anchorTileX, anchorTileY, rotationSteps, lotId);
+            if (selectedModule == 0) {
+                if (rule.claimsFootprint) {
+                    return false;
+                }
+                continue;
+            }
+
+            const LotModulePlacementGeometry geometry = ResolveLotModulePlacementGeometry(placement, *selectedModule);
+            const bool placed = rule.claimsFootprint ? claimGeometry(geometry) : geometryFitsLot(geometry);
+            if (!placed) {
+                return false;
+            }
+
+            addPlacement(placement, *selectedModule);
+        }
+    }
+
+    struct BoundaryEdgeDefinition {
+        int side;
+        bool matches;
+        float offsetX;
+        float offsetY;
+        float width;
+        float height;
+    };
+
+    std::set<std::string> emittedBoundaryEdgeKeys;
+    std::size_t edgeIndex = 0;
+    for (; edgeIndex < lotAsset.autoLayout.edgeRules.size(); ++edgeIndex) {
+        const LotAutoEdgeRule& rule = lotAsset.autoLayout.edgeRules[edgeIndex];
+        if (!LotAutoSizeConditionMatches(rule.condition, lotWidth, lotHeight) ||
+            !LotAutoPrimaryRequirementMatches(rule.primaryModuleIds, primary)) {
+            continue;
+        }
+
+        const LotModule* edgeModule = findModuleAssetById(rule.moduleId);
+        if (edgeModule == 0 || edgeModule->width != 1 || edgeModule->height != 1) {
+            return false;
+        }
+
+        std::size_t placedIndex = 0;
+        for (; placedIndex < placedModules.size(); ++placedIndex) {
+            const PlacedAutoLayoutModule& placedModule = placedModules[placedIndex];
+            if (placedModule.module == 0 || placedModule.module->id != rule.sourceModuleId) {
+                continue;
+            }
+
+            int tileY = 0;
+            for (; tileY < placedModule.geometry.footprintHeight; ++tileY) {
+                int tileX = 0;
+                for (; tileX < placedModule.geometry.footprintWidth; ++tileX) {
+                    const int localX = placedModule.geometry.localOrigin.x + tileX;
+                    const int localY = placedModule.geometry.localOrigin.y + tileY;
+                    const BoundaryEdgeDefinition edgeDefinitions[] = {
+                        {0, localY == 0, 0.0f, 0.0f, 1.0f, 0.08f},
+                        {1, localY == lotHeight - 1, 0.0f, 0.92f, 1.0f, 0.08f},
+                        {2, localX == 0, 0.0f, 0.0f, 0.08f, 1.0f},
+                        {3, localX == lotWidth - 1, 0.92f, 0.0f, 0.08f, 1.0f}
+                    };
+
+                    std::size_t edgeDefinitionIndex = 0;
+                    for (; edgeDefinitionIndex < sizeof(edgeDefinitions) / sizeof(edgeDefinitions[0]); ++edgeDefinitionIndex) {
+                        const BoundaryEdgeDefinition& edgeDefinition = edgeDefinitions[edgeDefinitionIndex];
+                        if (!edgeDefinition.matches) {
+                            continue;
+                        }
+
+                        std::ostringstream edgeKey;
+                        edgeKey << edgeIndex << ":" << localX << ":" << localY << ":" << edgeDefinition.side;
+                        if (emittedBoundaryEdgeKeys.find(edgeKey.str()) != emittedBoundaryEdgeKeys.end()) {
+                            continue;
+                        }
+                        emittedBoundaryEdgeKeys.insert(edgeKey.str());
+
+                        LotModulePlacementDefinition placement;
+                        placement.moduleId = rule.moduleId;
+                        placement.localOrigin = Int2(localX, localY);
+                        placement.footprintWidth = 1;
+                        placement.footprintHeight = 1;
+                        placement.renderOffsetX = edgeDefinition.offsetX;
+                        placement.renderOffsetY = edgeDefinition.offsetY;
+                        placement.renderWidth = edgeDefinition.width;
+                        placement.renderHeight = edgeDefinition.height;
+                        placement.hasRenderOffsetX = true;
+                        placement.hasRenderOffsetY = true;
+                        placement.hasRenderWidth = true;
+                        placement.hasRenderHeight = true;
+                        placement.affectsSimulation = rule.affectsSimulation;
+                        placement.claimsFootprint = rule.claimsFootprint;
+                        addPlacement(placement, *edgeModule);
+                    }
+                }
+            }
+        }
+    }
+
+    std::size_t tileIndex = 0;
+    for (; tileIndex < claimedTiles.size(); ++tileIndex) {
+        if (claimedTiles[tileIndex] == 0u) {
+            return false;
+        }
     }
 
     return true;
@@ -2992,7 +3637,7 @@ bool SimulationRuntime::tryConstructOneRciLot(std::uint16_t zoningType, const st
             const std::size_t sourceIndex = (startSourceIndex + checkedSourceCount) % sources.size();
             ++attempts;
             sourceCursor = rciConstructorCursorForSource(sources[sourceIndex]);
-            float constructedCapacity = 0.0f;
+            int constructedCapacity = 0;
             if (!tryConstructRciDevelopmentFromSource(zoningType, rciTypeId, sourceIndex, sources, remainingBudget, writeBuffer, constructedCapacity)) {
                 continue;
             }
@@ -3064,8 +3709,8 @@ std::size_t SimulationRuntime::rciConstructorStartIndex(const RciConstructorSour
     return 0u;
 }
 
-bool SimulationRuntime::tryConstructRciDevelopmentFromSource(std::uint16_t zoningType, const std::string& rciTypeId, std::size_t seedSourceIndex, const std::vector<RciDevelopmentSource>& sources, float demandBudget, TileBuffer& writeBuffer, float& constructedCapacity) {
-    constructedCapacity = 0.0f;
+bool SimulationRuntime::tryConstructRciDevelopmentFromSource(std::uint16_t zoningType, const std::string& rciTypeId, std::size_t seedSourceIndex, const std::vector<RciDevelopmentSource>& sources, float demandBudget, TileBuffer& writeBuffer, int& constructedCapacity) {
+    constructedCapacity = 0;
     if (seedSourceIndex >= sources.size() || demandBudget <= 0.0f) {
         return false;
     }
@@ -3122,8 +3767,8 @@ bool SimulationRuntime::tryConstructRciDevelopmentFromSource(std::uint16_t zonin
                     const int candidateArea = candidate.rect.width() * candidate.rect.height();
                     const int bestArea = bestCandidate.rect.width() * bestCandidate.rect.height();
                     if (!bestCandidate.isValid ||
-                        candidate.capacity > bestCandidate.capacity + kCapacityEpsilon ||
-                        (std::fabs(candidate.capacity - bestCandidate.capacity) <= kCapacityEpsilon &&
+                        candidate.selectionCapacity > bestCandidate.selectionCapacity + kCapacityEpsilon ||
+                        (std::fabs(candidate.selectionCapacity - bestCandidate.selectionCapacity) <= kCapacityEpsilon &&
                             (candidate.netGrowth > bestCandidate.netGrowth + kCapacityEpsilon ||
                                 (std::fabs(candidate.netGrowth - bestCandidate.netGrowth) <= kCapacityEpsilon &&
                                     (candidateArea < bestArea ||
@@ -3160,7 +3805,7 @@ std::vector<SimulationRuntime::RciDevelopmentSource> SimulationRuntime::collectR
         source.isBuilt = false;
         source.sourceIndex = zoningLotIndex;
         source.lotId = kInvalidLotId;
-        source.capacity = 0.0f;
+        source.capacity = 0;
         source.frontDirection = zoningLot.frontDirection;
         sources.push_back(source);
     }
@@ -3192,7 +3837,7 @@ std::vector<SimulationRuntime::RciDevelopmentSource> SimulationRuntime::collectR
         source.isBuilt = true;
         source.sourceIndex = lotIndex;
         source.lotId = lot.id();
-        source.capacity = rciCapacityForLotAsset(*lotAsset, zoningType);
+        source.capacity = rciCapacityForLot(lot, lotRciTypeId);
         source.frontDirection = RotateRoadDirection(lotAsset->hasFrontDirection ? lotAsset->frontDirection : kRoadDirectionNorth, lot.rotationSteps());
         if (source.rect.isValid()) {
             sources.push_back(source);
@@ -3346,7 +3991,7 @@ bool SimulationRuntime::evaluateRciConstructionCandidate(std::uint16_t zoningTyp
         }
 
         int standaloneRotationSteps = 0;
-        float standaloneCapacity = 0.0f;
+        int standaloneCapacity = 0;
         const LotAsset* standaloneAsset = findRciConstructorLotAsset(
             zoningType,
             rciTypeId,
@@ -3379,23 +4024,31 @@ bool SimulationRuntime::evaluateRciConstructionCandidate(std::uint16_t zoningTyp
         return false;
     }
 
-    const bool requiresCapacityImprovement = candidate.consumedBuiltCapacity > 0.0f || candidate.sourceIndices.size() > 1u;
+    const bool requiresCapacityImprovement = candidate.consumedBuiltCapacity > 0 || candidate.sourceIndices.size() > 1u;
+    candidate.selectionCapacity = static_cast<float>(candidate.capacity);
+    if (candidate.sourceIndices.size() > 1u) {
+        candidate.selectionCapacity *= 1.0f - rciConstructorMergeCapacityDiscount_;
+    }
     if (requiresCapacityImprovement &&
-        candidate.capacity <= candidate.consumedBuiltCapacity + candidate.standaloneEmptyCapacity + 0.001f) {
+        candidate.selectionCapacity <= static_cast<float>(candidate.consumedBuiltCapacity + candidate.standaloneEmptyCapacity) + 0.001f) {
         return false;
+    }
+    if (candidate.consumedBuiltCapacity > 0) {
+        const float requiredRedevelopmentCapacity = static_cast<float>(candidate.consumedBuiltCapacity) * (1.0f + rciConstructorRedevelopmentCapacityIncrease_);
+        if (static_cast<float>(candidate.capacity) + 0.001f < requiredRedevelopmentCapacity) {
+            return false;
+        }
     }
 
+    const int unrotatedWidth = (NormalizeRotationSteps(candidate.rotationSteps) % 2) == 0 ? candidateRect.width() : candidateRect.height();
+    const int unrotatedHeight = (NormalizeRotationSteps(candidate.rotationSteps) % 2) == 0 ? candidateRect.height() : candidateRect.width();
     Int2 footprintMinimum;
     Int2 footprintMaximum;
-    RotatedRectangleBounds(candidate.lotAsset->footprintOrigin, candidate.lotAsset->footprintWidth, candidate.lotAsset->footprintHeight, candidate.rotationSteps, footprintMinimum, footprintMaximum);
-    if (footprintMaximum.x - footprintMinimum.x + 1 != candidateRect.width() ||
-        footprintMaximum.y - footprintMinimum.y + 1 != candidateRect.height()) {
-        return false;
-    }
+    RotatedRectangleBounds(candidate.lotAsset->footprintOrigin, unrotatedWidth, unrotatedHeight, candidate.rotationSteps, footprintMinimum, footprintMaximum);
 
     const int anchorTileX = candidateRect.minTileX - footprintMinimum.x;
     const int anchorTileY = candidateRect.minTileY - footprintMinimum.y;
-    if (!buildLotCandidate(*candidate.lotAsset, anchorTileX, anchorTileY, candidate.rotationSteps, nextLotId_, candidate.lot)) {
+    if (!buildLotCandidateForParcel(*candidate.lotAsset, anchorTileX, anchorTileY, candidate.rotationSteps, nextLotId_, candidateRect.width(), candidateRect.height(), candidate.lot)) {
         return false;
     }
 
@@ -3417,7 +4070,7 @@ bool SimulationRuntime::evaluateRciConstructionCandidate(std::uint16_t zoningTyp
     }
 
     candidate.rect = candidateRect;
-    candidate.netGrowth = std::max(0.0f, candidate.capacity - candidate.consumedBuiltCapacity);
+    candidate.netGrowth = std::max(0, candidate.capacity - candidate.consumedBuiltCapacity);
     candidate.isValid = true;
     return true;
 }
@@ -3540,9 +4193,9 @@ bool SimulationRuntime::rciCandidateTilesAreDevelopable(std::uint16_t zoningType
     return true;
 }
 
-const LotAsset* SimulationRuntime::findRciConstructorLotAsset(std::uint16_t zoningType, const std::string& rciTypeId, int width, int height, float demandBudget, float maxDensityPerTile, std::uint8_t frontDirection, std::uint32_t variationSeed, int& rotationSteps, float& capacity) const {
+const LotAsset* SimulationRuntime::findRciConstructorLotAsset(std::uint16_t zoningType, const std::string& rciTypeId, int width, int height, float demandBudget, float maxDensityPerTile, std::uint8_t frontDirection, std::uint32_t variationSeed, int& rotationSteps, int& capacity) const {
     rotationSteps = 0;
-    capacity = 0.0f;
+    capacity = 0;
     if (rciTypeId.empty() || width <= 0 || height <= 0 || demandBudget <= 0.0f || maxDensityPerTile <= 0.0f) {
         return 0;
     }
@@ -3560,32 +4213,28 @@ const LotAsset* SimulationRuntime::findRciConstructorLotAsset(std::uint16_t zoni
 
         int candidateRotationSteps = 0;
         for (; candidateRotationSteps < 4; ++candidateRotationSteps) {
-            int rotatedWidth = 0;
-            int rotatedHeight = 0;
-            RotatedRectangleDimensions(Int2(0, 0), lotAsset.footprintWidth, lotAsset.footprintHeight, candidateRotationSteps, rotatedWidth, rotatedHeight);
-            if (rotatedWidth != width || rotatedHeight != height) {
-                continue;
-            }
-
             const std::uint8_t assetFrontDirection = lotAsset.hasFrontDirection ? lotAsset.frontDirection : kRoadDirectionNorth;
             if (RotateRoadDirection(assetFrontDirection, candidateRotationSteps) != frontDirection) {
                 continue;
             }
-
-            const float candidateCapacity = rciCapacityForLotAsset(lotAsset, zoningType);
-            if (candidateCapacity <= 0.0f ||
-                candidateCapacity > demandBudget + 0.001f ||
-                candidateCapacity > densityCapacityLimit + 0.001f) {
+            if (!lotTemplateSupportsParcelSize(lotAsset, width, height, candidateRotationSteps)) {
                 continue;
             }
 
-            if (bestMatches.empty() || candidateCapacity > capacity + 0.001f) {
+            const int candidateCapacity = rciCapacityForLotAsset(lotAsset, zoningType, width, height, candidateRotationSteps);
+            if (candidateCapacity <= 0 ||
+                static_cast<float>(candidateCapacity) > demandBudget + 0.001f ||
+                static_cast<float>(candidateCapacity) > densityCapacityLimit + 0.001f) {
+                continue;
+            }
+
+            if (bestMatches.empty() || candidateCapacity > capacity) {
                 bestMatches.clear();
                 bestRotations.clear();
                 bestMatches.push_back(&lotAsset);
                 bestRotations.push_back(candidateRotationSteps);
                 capacity = candidateCapacity;
-            } else if (std::fabs(candidateCapacity - capacity) <= 0.001f) {
+            } else if (candidateCapacity == capacity) {
                 bestMatches.push_back(&lotAsset);
                 bestRotations.push_back(candidateRotationSteps);
             }
@@ -3599,6 +4248,20 @@ const LotAsset* SimulationRuntime::findRciConstructorLotAsset(std::uint16_t zoni
     const std::size_t selectedIndex = static_cast<std::size_t>(variationSeed % static_cast<std::uint32_t>(bestMatches.size()));
     rotationSteps = bestRotations[selectedIndex];
     return bestMatches[selectedIndex];
+}
+
+bool SimulationRuntime::lotTemplateSupportsParcelSize(const LotAsset& lotAsset, int width, int depth, int rotationSteps) const {
+    int minWidth = lotAsset.compatibility.minWidth;
+    int maxWidth = lotAsset.compatibility.maxWidth;
+    int minDepth = lotAsset.compatibility.minDepth;
+    int maxDepth = lotAsset.compatibility.maxDepth;
+    if ((NormalizeRotationSteps(rotationSteps) % 2) != 0) {
+        std::swap(minWidth, minDepth);
+        std::swap(maxWidth, maxDepth);
+    }
+
+    return width >= minWidth && width <= maxWidth &&
+        depth >= minDepth && depth <= maxDepth;
 }
 
 const RciTool* SimulationRuntime::findRciToolByZoningType(std::uint16_t zoningType) const {
@@ -3622,14 +4285,14 @@ bool SimulationRuntime::hasRciConstructorLotAsset(std::uint16_t zoningType, int 
         }
 
         int rotationSteps = 0;
-        float capacity = 0.0f;
+        int capacity = 0;
         if (findRciConstructorLotAsset(zoningType, rciTypes[typeIndex].id(), width, height, 1000000000.0f, 1000000.0f, frontDirection, 0u, rotationSteps, capacity) != 0) {
             return true;
         }
     }
 
     int rotationSteps = 0;
-    float capacity = 0.0f;
+    int capacity = 0;
     return findRciConstructorLotAsset(zoningType, DefaultRciTypeIdForZoningType(zoningType), width, height, 1000000000.0f, 1000000.0f, frontDirection, 0u, rotationSteps, capacity) != 0;
 }
 
@@ -3727,8 +4390,8 @@ std::string SimulationRuntime::rciLandValueLevelForLot(const PublishedLotInfo& p
     }
 
     const float cityMaxDensityPerTile = rciMaxDensityPerTile(publishedLotInfo.zoningType);
-    const float capacity = rciCapacityForLotAsset(lotAsset, publishedLotInfo.zoningType);
-    if (cityMaxDensityPerTile <= 0.0f || capacity <= 0.0f) {
+    const int capacity = rciCapacityForLotAsset(lotAsset, publishedLotInfo.zoningType, publishedLotInfo.footprintWidth, publishedLotInfo.footprintHeight, 0);
+    if (cityMaxDensityPerTile <= 0.0f || capacity <= 0) {
         return std::string();
     }
 
@@ -3744,7 +4407,7 @@ std::string SimulationRuntime::rciLandValueLevelForLot(const PublishedLotInfo& p
         return std::string();
     }
 
-    const float densityPerTile = capacity / static_cast<float>(footprintArea);
+    const float densityPerTile = static_cast<float>(capacity) / static_cast<float>(footprintArea);
     const float starterFloor = RciStarterDensityFloor(publishedLotInfo.zoningType);
     float requiredLandValue = 0.0f;
     if (densityPerTile > starterFloor) {
@@ -4284,8 +4947,8 @@ float SimulationRuntime::rciDemandForRciType(const std::string& rciTypeId) const
     return demandParameterId < 0 ? 0.0f : std::max(0.0f, initialDemand(demandParameterId) - parameterValue(demandParameterId));
 }
 
-float SimulationRuntime::rciPendingConstructionCapacity(const std::string& rciTypeId) const {
-    float capacity = 0.0f;
+int SimulationRuntime::rciPendingConstructionCapacity(const std::string& rciTypeId) const {
+    int capacity = 0;
     const TileBuffer& readBuffer = tileBuffers_[simulationReadBufferIndex_];
     std::size_t lotIndex = 0;
     for (; lotIndex < lots_.size(); ++lotIndex) {
@@ -4303,20 +4966,34 @@ float SimulationRuntime::rciPendingConstructionCapacity(const std::string& rciTy
             continue;
         }
 
-        capacity += rciCapacityForLotAsset(*lotAsset, lotZoningType);
+        capacity += rciCapacityForLot(lot, lotRciTypeId);
     }
 
     return capacity;
 }
 
-float SimulationRuntime::rciCapacityForLotAsset(const LotAsset& lotAsset, std::uint16_t zoningType) const {
+int SimulationRuntime::rciCapacityForLotAsset(const LotAsset& lotAsset, std::uint16_t zoningType) const {
+    return rciCapacityForLotAsset(lotAsset, zoningType, lotAsset.footprintWidth, lotAsset.footprintHeight, 0);
+}
+
+int SimulationRuntime::rciCapacityForLotAsset(const LotAsset& lotAsset, std::uint16_t zoningType, int width, int height, int rotationSteps) const {
+    if (!lotAsset.autoLayout.empty()) {
+        Lot candidateLot;
+        if (!buildLotCandidateForParcel(lotAsset, 0, 0, rotationSteps, kInvalidLotId, width, height, candidateLot)) {
+            return 0;
+        }
+
+        const std::string resolvedRciTypeId = lotAsset.rciTypeId.empty() ? DefaultRciTypeIdForZoningType(zoningType) : lotAsset.rciTypeId;
+        return rciCapacityForLot(candidateLot, resolvedRciTypeId);
+    }
+
     const std::string rciTypeId = lotAsset.rciTypeId.empty() ? DefaultRciTypeIdForZoningType(zoningType) : lotAsset.rciTypeId;
     const int parameterId = rciDemandParameterId(rciTypeId);
     if (parameterId < 0) {
-        return 0.0f;
+        return 0;
     }
 
-    float capacity = 0.0f;
+    int capacity = 0;
     std::size_t placementIndex = 0;
     for (; placementIndex < lotAsset.initialModules.size(); ++placementIndex) {
         const LotModule* moduleAsset = findModuleAssetById(lotAsset.initialModules[placementIndex].moduleId);
@@ -4330,6 +5007,24 @@ float SimulationRuntime::rciCapacityForLotAsset(const LotAsset& lotAsset, std::u
             if (contribution.parameterId == parameterId) {
                 capacity += contribution.amount;
             }
+        }
+    }
+
+    return capacity;
+}
+
+int SimulationRuntime::rciCapacityForLot(const Lot& lot, const std::string& rciTypeId) const {
+    const int parameterId = rciDemandParameterId(rciTypeId);
+    if (parameterId < 0) {
+        return 0;
+    }
+
+    int capacity = 0;
+    const std::vector<CityParameterContribution>& contributions = lot.parameterContributions();
+    std::size_t contributionIndex = 0;
+    for (; contributionIndex < contributions.size(); ++contributionIndex) {
+        if (contributions[contributionIndex].parameterId == parameterId) {
+            capacity += contributions[contributionIndex].amount;
         }
     }
 
@@ -4424,7 +5119,16 @@ bool SimulationRuntime::tryAddModuleAtTile(const LotModule& moduleAsset, int cli
     int rotatedModuleWidth = 0;
     int rotatedModuleHeight = 0;
     RotatedRectangleDimensions(Int2(0, 0), moduleAsset.width, moduleAsset.height, targetLot->rotationSteps(), rotatedModuleWidth, rotatedModuleHeight);
-    targetLot->addModule(moduleAsset, localOrigin, mapWidth_, rotatedModuleWidth, rotatedModuleHeight);
+    targetLot->addModule(
+        moduleAsset,
+        localOrigin,
+        mapWidth_,
+        rotatedModuleWidth,
+        rotatedModuleHeight,
+        0.0f,
+        0.0f,
+        static_cast<float>(rotatedModuleWidth),
+        static_cast<float>(rotatedModuleHeight));
 
     std::vector<int> newlyOccupiedTiles;
     const std::vector<int>& occupiedTileIndices = targetLot->occupiedTileIndices();
@@ -5022,12 +5726,12 @@ void SimulationRuntime::setLotOccupancy(int lotId, const std::vector<int>& tileI
     }
 }
 
-float SimulationRuntime::lotParameterAmount(const Lot& lot, int parameterId) const {
+int SimulationRuntime::lotParameterAmount(const Lot& lot, int parameterId) const {
     if (parameterId < 0) {
-        return 0.0f;
+        return 0;
     }
 
-    float amount = 0.0f;
+    int amount = 0;
     const std::vector<CityParameterContribution>& contributions = lot.parameterContributions();
     std::size_t contributionIndex = 0;
     for (; contributionIndex < contributions.size(); ++contributionIndex) {
@@ -5039,8 +5743,8 @@ float SimulationRuntime::lotParameterAmount(const Lot& lot, int parameterId) con
     return amount;
 }
 
-float SimulationRuntime::lotDerivedParameterAmount(const Lot& lot, int parameterId) const {
-    float amount = lotParameterAmount(lot, parameterId);
+int SimulationRuntime::lotDerivedParameterAmount(const Lot& lot, int parameterId) const {
+    float amount = static_cast<float>(lotParameterAmount(lot, parameterId));
     const std::vector<CityParameterContribution>& contributions = lot.parameterContributions();
     std::size_t contributionIndex = 0;
     for (; contributionIndex < contributions.size(); ++contributionIndex) {
@@ -5054,12 +5758,62 @@ float SimulationRuntime::lotDerivedParameterAmount(const Lot& lot, int parameter
         for (; impactIndex < definition.impacts.size(); ++impactIndex) {
             const CityParameterImpact& impact = definition.impacts[impactIndex];
             if (impact.targetParameterId == parameterId) {
-                amount += contribution.amount * impact.multiplier;
+                amount += static_cast<float>(contribution.amount) * impact.multiplier;
             }
         }
     }
 
-    return amount;
+    return RoundToNearestInt(amount);
+}
+
+int SimulationRuntime::lotActualParameterAmount(const Lot& lot, const LotAsset* lotAsset, int parameterId, const TileBuffer& writeBuffer) const {
+    const int maximumAmount = lotParameterAmount(lot, parameterId);
+    if (maximumAmount <= 0 || lotAsset == 0) {
+        return maximumAmount;
+    }
+
+    const std::uint16_t lotZoningType = zoningTypeForLotInBuffer(lot, writeBuffer, lotAsset->zoningType);
+    if (!IsRciZoningType(lotZoningType)) {
+        return maximumAmount;
+    }
+
+    return RciActualCapacityFromDesirability(maximumAmount, rciDesirabilityForCandidate(lot, *lotAsset, writeBuffer));
+}
+
+int SimulationRuntime::lotActualDerivedParameterAmount(const Lot& lot, const LotAsset* lotAsset, int parameterId, const TileBuffer& writeBuffer) const {
+    if (parameterId < 0) {
+        return 0;
+    }
+
+    const bool scalesByDesirability = lotAsset != 0 && IsRciZoningType(zoningTypeForLotInBuffer(lot, writeBuffer, lotAsset->zoningType));
+    const int desirability = scalesByDesirability ? rciDesirabilityForCandidate(lot, *lotAsset, writeBuffer) : kRciDesirabilityDisplayCap;
+    float amount = 0.0f;
+    const std::vector<CityParameterContribution>& contributions = lot.parameterContributions();
+    std::size_t contributionIndex = 0;
+    for (; contributionIndex < contributions.size(); ++contributionIndex) {
+        const CityParameterContribution& contribution = contributions[contributionIndex];
+        if (contribution.parameterId < 0 || contribution.parameterId >= static_cast<int>(cityParameterRegistry_.count())) {
+            continue;
+        }
+
+        const int contributionAmount = scalesByDesirability
+            ? RciActualCapacityFromDesirability(contribution.amount, desirability)
+            : contribution.amount;
+        if (contribution.parameterId == parameterId) {
+            amount += static_cast<float>(contributionAmount);
+        }
+
+        const CityParameterDefinition& definition = cityParameterRegistry_.definition(contribution.parameterId);
+        std::size_t impactIndex = 0;
+        for (; impactIndex < definition.impacts.size(); ++impactIndex) {
+            const CityParameterImpact& impact = definition.impacts[impactIndex];
+            if (impact.targetParameterId == parameterId) {
+                amount += static_cast<float>(contributionAmount) * impact.multiplier;
+            }
+        }
+    }
+
+    return RoundToNearestInt(amount);
 }
 
 void SimulationRuntime::collectLotAccessNodes(const Lot& lot, const LotAsset& lotAsset, std::uint8_t allowedModeMask, std::vector<std::uint32_t>& accessNodes) const {
@@ -5077,7 +5831,16 @@ void SimulationRuntime::collectLotAccessNodes(const Lot& lot, const LotAsset& lo
             continue;
         }
 
-        const Int2 rotatedLocalTile = RotateLocalTile(accessDefinition.localTile, lot.rotationSteps());
+        Int2 localTile = accessDefinition.localTile;
+        if (accessDefinition.isDynamic) {
+            const int normalizedRotation = NormalizeRotationSteps(lot.rotationSteps());
+            const int unrotatedWidth = (normalizedRotation % 2) == 0 ? lot.footprintWidth() : lot.footprintHeight();
+            const int unrotatedHeight = (normalizedRotation % 2) == 0 ? lot.footprintHeight() : lot.footprintWidth();
+            LotAutoPrimaryGeometry primary;
+            localTile = ResolveLotAutoAccessTile(accessDefinition, unrotatedWidth, unrotatedHeight, primary);
+        }
+
+        const Int2 rotatedLocalTile = RotateLocalTile(localTile, lot.rotationSteps());
         const std::uint8_t rotatedDirection = RotateRoadDirection(accessDefinition.direction, lot.rotationSteps());
         const int buildingTileX = lot.anchorTileX() + rotatedLocalTile.x;
         const int buildingTileY = lot.anchorTileY() + rotatedLocalTile.y;

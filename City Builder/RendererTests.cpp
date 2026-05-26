@@ -201,13 +201,13 @@ void TestTileStatePacking(TestRunner& runner) {
 void TestTileStateChunkPacking(TestRunner& runner) {
     std::vector<Tile> tiles(16);
     tiles[5].airPollution = kSimulationStatDisplayCap;
-    tiles[5].landValue = -kSimulationStatDisplayCap;
+    tiles[5].parkEffect = -kSimulationStatDisplayCap;
     tiles[6].airPollution = kSimulationStatDisplayCap / 2;
-    tiles[6].landValue = 0;
+    tiles[6].parkEffect = 0;
     tiles[9].airPollution = -kSimulationStatDisplayCap / 2;
-    tiles[9].landValue = kSimulationStatDisplayCap;
+    tiles[9].parkEffect = kSimulationStatDisplayCap;
     tiles[10].airPollution = 0;
-    tiles[10].landValue = kSimulationStatDisplayCap / 2;
+    tiles[10].parkEffect = kSimulationStatDisplayCap / 2;
 
     ChunkRect chunk;
     chunk.startX = 1;
@@ -219,7 +219,7 @@ void TestTileStateChunkPacking(TestRunner& runner) {
     RendererFillTileStateChunkPixels(tiles, 4, chunk, pixels);
 
     runner.expect(pixels.size() == 8u, "tile-state chunk writes two channels per tile");
-    runner.expect(pixels[0] == kRendererSignedScalarPayloadMaxValue && pixels[1] == kRendererSignedScalarPayloadMinValue, "first chunk tile packs pollution and land value");
+    runner.expect(pixels[0] == kRendererSignedScalarPayloadMaxValue && pixels[1] == kRendererSignedScalarPayloadMinValue, "first chunk tile packs pollution and park effect");
     runner.expect(pixels[2] == ((kRendererSignedScalarPayloadMaxValue + 1) / 2) && pixels[3] == 0, "second chunk tile preserves row-major order");
     runner.expect(pixels[4] == -((kRendererSignedScalarPayloadMaxValue + 1) / 2) && pixels[5] == kRendererSignedScalarPayloadMaxValue, "third chunk tile packs negative half-scale values");
     runner.expect(pixels[6] == 0 && pixels[7] == ((kRendererSignedScalarPayloadMaxValue + 1) / 2), "fourth chunk tile completes row-major packing");
@@ -269,8 +269,11 @@ void TestOverlayGradientDirections(TestRunner& runner) {
     runner.expect(RendererOverlayGradientDirectionForSemantic(RendererOverlaySemantic::TrafficCapacity) == RendererOverlayGradientDirection::GoodToBad, "traffic utilization rises from good to bad");
     runner.expect(RendererOverlayGradientDirectionForSemantic(RendererOverlaySemantic::AirPollution) == RendererOverlayGradientDirection::GoodToBad, "air pollution rises from good to bad");
     runner.expect(RendererOverlayGradientDirectionForSemantic(RendererOverlaySemantic::LandValue) == RendererOverlayGradientDirection::BadToGood, "land value rises from bad to good");
+    runner.expect(RendererOverlayGradientDirectionForSemantic(RendererOverlaySemantic::ParkEffect) == RendererOverlayGradientDirection::BadToGood, "park effect rises from bad to good");
     runner.expect(RendererOverlayGradientDirectionForSemantic(RendererOverlaySemantic::RciDesirability) == RendererOverlayGradientDirection::BadToGood, "RCI desirability rises from bad to good");
     runner.expect(RendererOverlaySemanticIndex(RendererOverlaySemantic::TrafficCapacity) == 0, "traffic semantic index remains shader-compatible");
+    runner.expect(RendererOverlaySemanticIndex(RendererOverlaySemantic::AirPollution) == 3, "air pollution semantic index remains shader-compatible");
+    runner.expect(RendererOverlaySemanticIndex(RendererOverlaySemantic::ParkEffect) == 4, "park effect semantic index remains shader-compatible");
     runner.expect(RendererOverlayGradientDirectionIndex(RendererOverlayGradientDirection::BadToGood) == 1, "bad-to-good direction index remains shader-compatible");
 }
 
@@ -317,6 +320,52 @@ void TestLandValueOverlayChunkPacking(TestRunner& runner) {
     runner.expect(values[1] == RendererPackCappedStatToScalarPayload(kLandValueDisplayCap / 2, kSimulationStatDisplayCap), "half-cap land value renders at the gradient midpoint");
     runner.expect(values[2] == kRendererScalarPayloadMaxValue, "land value cap renders at the top of the gradient");
     runner.expect(values[3] == kRendererScalarPayloadMaxValue, "land value above the cap remains at the top of the gradient");
+}
+
+void TestAirPollutionOverlayChunkPacking(TestRunner& runner) {
+    std::vector<Tile> tiles(16);
+    tiles[5].airPollution = 0;
+    tiles[6].airPollution = kSimulationStatDisplayCap / 2;
+    tiles[9].airPollution = kSimulationStatDisplayCap;
+    tiles[10].airPollution = kSimulationStatDisplayCap * 2;
+
+    ChunkRect chunk;
+    chunk.startX = 1;
+    chunk.startY = 1;
+    chunk.width = 2;
+    chunk.height = 2;
+
+    std::vector<RendererScalarPayload> values;
+    RendererFillAirPollutionOverlayChunkValues(tiles, 4, chunk, values);
+
+    runner.expect(values.size() == 4u, "air pollution overlay writes one scalar value per tile");
+    runner.expect(values[0] == 0u, "zero air pollution renders at the bottom of the gradient");
+    runner.expect(values[1] == RendererPackCappedStatToScalarPayload(kSimulationStatDisplayCap / 2, kSimulationStatDisplayCap), "half-cap air pollution renders at the gradient midpoint");
+    runner.expect(values[2] == kRendererScalarPayloadMaxValue, "air pollution cap renders at the top of the gradient");
+    runner.expect(values[3] == kRendererScalarPayloadMaxValue, "air pollution above the cap remains at the top of the gradient");
+}
+
+void TestParkEffectOverlayChunkPacking(TestRunner& runner) {
+    std::vector<Tile> tiles(16);
+    tiles[5].parkEffect = 0;
+    tiles[6].parkEffect = kSimulationStatDisplayCap / 2;
+    tiles[9].parkEffect = kSimulationStatDisplayCap;
+    tiles[10].parkEffect = kSimulationStatDisplayCap * 2;
+
+    ChunkRect chunk;
+    chunk.startX = 1;
+    chunk.startY = 1;
+    chunk.width = 2;
+    chunk.height = 2;
+
+    std::vector<RendererScalarPayload> values;
+    RendererFillParkEffectOverlayChunkValues(tiles, 4, chunk, values);
+
+    runner.expect(values.size() == 4u, "park effect overlay writes one scalar value per tile");
+    runner.expect(values[0] == 0u, "zero park effect renders at the bottom of the gradient");
+    runner.expect(values[1] == RendererPackCappedStatToScalarPayload(kSimulationStatDisplayCap / 2, kSimulationStatDisplayCap), "half-cap park effect renders at the gradient midpoint");
+    runner.expect(values[2] == kRendererScalarPayloadMaxValue, "park effect cap renders at the top of the gradient");
+    runner.expect(values[3] == kRendererScalarPayloadMaxValue, "park effect above the cap remains at the top of the gradient");
 }
 
 void TestRendererColorContract(TestRunner& runner) {
@@ -392,15 +441,15 @@ void TestUtf8Decoder(TestRunner& runner) {
 
 void TestSimulationDateCalculation(TestRunner& runner) {
     SimulationDateSettings dateSettings;
-    runner.expect(SimulationTime::ticksPerDay() == 2u, "simulation days are two ticks long");
-    runner.expect(SimulationTime::daysToTicks(31u) == 62u, "logical days convert to ticks");
-    runner.expect(SimulationTime::tickToDay(63u) == 31u, "tick converts back to whole elapsed day");
+    runner.expect(SimulationTime::ticksPerDay() == 4u, "simulation days are four ticks long");
+    runner.expect(SimulationTime::daysToTicks(31u) == 124u, "logical days convert to ticks");
+    runner.expect(SimulationTime::tickToDay(127u) == 31u, "tick converts back to whole elapsed day");
 
     SimulationDate startDate = CalculateSimulationDate(0u);
     runner.expect(startDate.year == 1900 && startDate.month == 1 && startDate.day == 1, "tick zero starts on January 1 1900");
 
     SimulationDate firstHalfTickDate = CalculateSimulationDate(1u);
-    runner.expect(firstHalfTickDate.year == 1900 && firstHalfTickDate.month == 1 && firstHalfTickDate.day == 1, "first tick stays on January 1 with two ticks per day");
+    runner.expect(firstHalfTickDate.year == 1900 && firstHalfTickDate.month == 1 && firstHalfTickDate.day == 1, "first tick stays on January 1 with four ticks per day");
 
     SimulationDate februaryDate = CalculateSimulationDate(SimulationTime::daysToTicks(31u));
     runner.expect(februaryDate.year == 1900 && februaryDate.month == 2 && februaryDate.day == 1, "day 31 advances to February 1 1900");
@@ -510,6 +559,7 @@ void TestUiMenuQuadsAndHitTesting(TestRunner& runner) {
             << "<menu id=\"side_overlays\" parentMenu=\"overlay_toggle\" parentButton=\"toggle_overlays\" stack=\"away\" direction=\"up\" anchor=\"bottomRight\" x=\"0\" bottom=\"72\" width=\"132\" buttonWidth=\"132\" buttonHeight=\"38\" spacing=\"8\" visible=\"true\">"
             << "<button id=\"overlay_traffic\" text=\"Traffic\" action=\"toggle_overlay_traffic\" />"
             << "<button id=\"overlay_land_value\" text=\"Land Value\" action=\"toggle_overlay_land_value\" />"
+            << "<button id=\"overlay_air_pollution\" text=\"Air Poll.\" action=\"toggle_overlay_air_pollution\" />"
             << "<button id=\"overlay_rci\" text=\"RCI\" action=\"toggle_overlay_rci\" />"
             << "<button id=\"overlay_rci_desirability_menu\" text=\"RCI Desire\" action=\"toggle_rci_overlay_menu\" />"
             << "</menu>"
@@ -547,7 +597,8 @@ void TestUiMenuQuadsAndHitTesting(TestRunner& runner) {
     runner.expect(layout.hitTestAction(24.0, 664.0, 1024, 768, action) && action == "toggle_rci_tool_menu", "side-menu exposes RCI submenu button");
     layout.setMenuVisible("rci_tools", true);
     runner.expect(layout.hitTestAction(172.0, 733.0, 1024, 768, action) && action == "select_rci_unzone", "RCI child menu exposes unzone button");
-    runner.expect(layout.hitTestAction(900.0, 530.0, 1024, 768, action) && action == "toggle_overlay_traffic", "overlay menu hit tests from the bottom-right");
+    runner.expect(layout.hitTestAction(900.0, 484.0, 1024, 768, action) && action == "toggle_overlay_traffic", "overlay menu hit tests from the bottom-right");
+    runner.expect(layout.hitTestAction(900.0, 576.0, 1024, 768, action) && action == "toggle_overlay_air_pollution", "air pollution overlay button hit tests from the bottom-right");
     runner.expect(layout.hitTestAction(900.0, 740.0, 1024, 768, action) && action == "toggle_overlay_menu", "bottom-right overlay menu toggle remains clickable");
 
     std::vector<UiQuadInstanceData> quads = RendererBuildUiMenuQuads(layout, 1024, 768, "select_road_street");
@@ -836,6 +887,8 @@ int main() {
     TestOverlayGradientDirections(runner);
     TestZoningOverlayChunkPacking(runner);
     TestLandValueOverlayChunkPacking(runner);
+    TestAirPollutionOverlayChunkPacking(runner);
+    TestParkEffectOverlayChunkPacking(runner);
     TestRendererColorContract(runner);
     TestVulkanSwapchainFormatPreference(runner);
     TestUtf8Decoder(runner);

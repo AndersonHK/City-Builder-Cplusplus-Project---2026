@@ -31,5 +31,7 @@ void LogInfo(const std::string& scope, const std::string& message);
 void LogWarning(const std::string& scope, const std::string& message);
 void LogError(const std::string& scope, const std::string& message);
 void LogException(const std::string& scope, const std::exception& error);
+void SetApplicationDialogOwner(void* nativeWindowHandle);
+void ClearApplicationDialogOwner(void* nativeWindowHandle);
 int LogCrashAndShowWindow(const std::string& scope, const std::string& message);
 int LogCrashAndShowWindow(const std::string& scope, const std::exception& error);

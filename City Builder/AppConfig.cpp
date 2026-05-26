@@ -101,6 +101,8 @@ bool ParseKeyCode(const std::string& text, int& keyCode) {
     // AppController compares these directly with GLFW callback keys, so avoid
     // inventing a separate app key enum until input grows beyond keyboard keys.
     static const std::pair<const char*, int> namedKeys[] = {
+        {"UNKNOWN", GLFW_KEY_UNKNOWN},
+        {"NONE", GLFW_KEY_UNKNOWN},
         {"SPACE", GLFW_KEY_SPACE},
         {"APOSTROPHE", GLFW_KEY_APOSTROPHE},
         {"QUOTE", GLFW_KEY_APOSTROPHE},
@@ -230,6 +232,10 @@ void ApplyHotkey(HotkeyConfig& hotkeys, const std::string& key, const std::strin
         hotkeys.toggleTrafficOverlay = keyCode;
     } else if (key == "toggle_land_value_overlay") {
         hotkeys.toggleLandValueOverlay = keyCode;
+    } else if (key == "toggle_park_effect_overlay") {
+        hotkeys.toggleParkEffectOverlay = keyCode;
+    } else if (key == "toggle_air_pollution_overlay") {
+        hotkeys.toggleAirPollutionOverlay = keyCode;
     } else if (key == "add_park_module") {
         hotkeys.addParkModule = keyCode;
     } else if (key == "remove_module") {
@@ -277,6 +283,8 @@ HotkeyConfig::HotkeyConfig()
       roadHighway('H'),
       toggleTrafficOverlay('T'),
       toggleLandValueOverlay('L'),
+      toggleParkEffectOverlay(GLFW_KEY_UNKNOWN),
+      toggleAirPollutionOverlay(GLFW_KEY_UNKNOWN),
       addParkModule('M'),
       removeModule('Y'),
       bulldozer('B'),

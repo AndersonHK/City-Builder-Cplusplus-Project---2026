@@ -63,15 +63,15 @@ Default keyboard bindings, startup fullscreen mode, preferred windowed resolutio
 - RCI zoning buttons: drag a rectangle to zone vacant tiles or existing RCI lots. By default the RCI tool previews and commits lots plus surrounding local roads; hold `Shift` for lots only, or hold `Ctrl` for a plain area fill. New parcel lots require an unoccupied footprint, and plain area zoning still tries to fit empty parcels onto any unparcelled RCI tiles, preferring road-facing parcels when roads are already available.
 - Bottom-right `Overlays` button: show or hide traffic, land value, RCI zoning, and RCI desirability overlay controls. The nested RCI desirability menu is generated from XML-defined RCI types.
 - Unzone button: drag a rectangle to clear only the selected tile zoning and rebuild affected empty RCI parcel boundaries without bulldozing buildings, roads, adjacent parcel tiles, or zoning beneath live lots.
-- Region mode starts first; the top-left `Exit` button opens the same save-before-exit dialog as `Esc` -> `Exit`.
+- Region mode starts first; the top-left `Exit to Desktop` button closes immediately unless an active city is still assigned from viewing the region with `F3`, in which case it opens the save-before-exit dialog.
 - Double-click a city preview to enter that city. If a dirty active city is cached from a previous city visit, the region view asks whether to save it before replacing it; choosing `No` discards that cached state, invalidates its dirty preview, and reloads from the city save. Double-clicking that same cached city returns to it directly from memory.
 - City mode shows the current simulation date at top left and the active city's population at top right
 - Date widget icon buttons set speed to paused, play (one tick per second), fast (render/simulation lockstep), or fast-forward (uncapped)
-- `Esc`: open the centered game menu; `Exit` asks whether to save before closing the game
+- `Esc`: open the centered game menu. In city mode, `Save` uses the same autoslot save as `F1`, `Exit to Region` asks whether to save before unloading the active city and returning to region mode, and `Exit to Desktop` asks whether to save before closing the game.
 - Region mode shows total region population at top right
 - `F1`: save the current region autoslot
 - `F2`: load the region autoslot; in city mode, reload the current city in place
-- `F3`: exit the active city back to region mode
+- `F3`: view region mode while keeping the active city cached for quick re-entry
 
 ## Build
 Primary target: `x64 Release`

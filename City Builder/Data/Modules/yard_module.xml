@@ -1,0 +1,8 @@
+<module id="yard_module">
+  <size width="1" height="1" />
+  <effects airPollution="0" parkEffect="0" landValue="0" />
+  <render mesh="flat_surface" height="0.08" colorR="0.30" colorG="0.58" colorB="0.24" />
+  <props>
+    <prop id="garden_tree_module" x="0" y="0" alternatives="none:3,garden_tree_module:1" />
+  </props>
+</module>

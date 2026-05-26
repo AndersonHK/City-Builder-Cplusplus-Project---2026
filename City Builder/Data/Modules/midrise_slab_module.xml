@@ -1,7 +1,7 @@
 <module id="midrise_slab_module" density="medium">
   <size width="3" height="5" />
-  <effects airPollution="0" landValue="12600" />
-  <render height="2.35" colorR="0.57" colorG="0.59" colorB="0.57" />
+  <effects airPollution="0" landValue="6300" />
+  <render mesh="box" height="2.35" colorR="0.57" colorG="0.59" colorB="0.57" />
   <parameters>
     <driver id="residents.low_wealth" amount="48" />
   </parameters>

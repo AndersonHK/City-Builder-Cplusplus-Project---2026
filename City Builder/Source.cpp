@@ -1,6 +1,7 @@
 #include <cstdlib>
 #include <exception>
 #include <iostream>
+#include <string>
 
 #include "AppController.h"
 #include "AppConfig.h"

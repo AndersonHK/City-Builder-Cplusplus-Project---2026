@@ -10,7 +10,8 @@ enum class RendererOverlaySemantic : std::uint8_t {
     TrafficCapacity = 0,
     LandValue = 1,
     RciDesirability = 2,
-    AirPollution = 3
+    AirPollution = 3,
+    ParkEffect = 4
 };
 
 // Overlay gradients are semantic. Red means bad, green means good; this enum
@@ -57,6 +58,7 @@ constexpr RendererOverlayGradientDirection RendererOverlayGradientDirectionForSe
     switch (semantic) {
     case RendererOverlaySemantic::LandValue:
     case RendererOverlaySemantic::RciDesirability:
+    case RendererOverlaySemantic::ParkEffect:
         return RendererOverlayGradientDirection::BadToGood;
     case RendererOverlaySemantic::TrafficCapacity:
     case RendererOverlaySemantic::AirPollution:
@@ -68,6 +70,8 @@ constexpr RendererOverlayGradientDirection RendererOverlayGradientDirectionForSe
 static_assert(RendererOverlaySemanticIndex(RendererOverlaySemantic::TrafficCapacity) == 0, "Traffic overlay semantic index must match the shader.");
 static_assert(RendererOverlaySemanticIndex(RendererOverlaySemantic::LandValue) == 1, "Land-value overlay semantic index must match the shader.");
 static_assert(RendererOverlaySemanticIndex(RendererOverlaySemantic::RciDesirability) == 2, "RCI desirability overlay semantic index must match the shader.");
+static_assert(RendererOverlaySemanticIndex(RendererOverlaySemantic::AirPollution) == 3, "Air-pollution overlay semantic index must match the shader.");
+static_assert(RendererOverlaySemanticIndex(RendererOverlaySemantic::ParkEffect) == 4, "Park-effect overlay semantic index must match the shader.");
 static_assert(RendererOverlayGradientDirectionIndex(RendererOverlayGradientDirection::GoodToBad) == 0, "Good-to-bad overlay direction must match the shader.");
 static_assert(RendererOverlayGradientDirectionIndex(RendererOverlayGradientDirection::BadToGood) == 1, "Bad-to-good overlay direction must match the shader.");
 

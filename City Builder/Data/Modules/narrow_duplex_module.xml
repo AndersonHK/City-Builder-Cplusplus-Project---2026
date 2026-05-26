@@ -1,7 +1,7 @@
 <module id="narrow_duplex_module" density="low">
   <size width="2" height="3" />
-  <effects airPollution="0" landValue="3200" />
-  <render height="0.82" colorR="0.58" colorG="0.42" colorB="0.34" />
+  <effects airPollution="0" landValue="1600" />
+  <render mesh="gabled_roof" height="0.82" colorR="0.58" colorG="0.42" colorB="0.34" />
   <parameters>
     <driver id="residents.low_wealth" amount="8" />
   </parameters>
