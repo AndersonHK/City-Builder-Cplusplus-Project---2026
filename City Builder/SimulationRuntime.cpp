@@ -457,6 +457,7 @@ SimulationRuntime::SimulationRuntime(const RuntimeOptions& runtimeOptions)
     : runtimeOptions_(runtimeOptions),
       mapWidth_(std::max(1, runtimeOptions.mapWidth)),
       mapHeight_(std::max(1, runtimeOptions.mapHeight)),
+      livePreviewValidationWaiters_(0),
       simulationReadBufferIndex_(0),
       simulationWriteBufferIndex_(1),
       publishedBufferIndex_(0),
@@ -574,6 +575,7 @@ void SimulationRuntime::stop() {
         renderCv_.notify_all();
     }
     speedCv_.notify_all();
+    livePreviewValidationCv_.notify_all();
 
     {
         std::lock_guard<std::mutex> workerLock(workerMutex_);
@@ -833,7 +835,7 @@ bool SimulationRuntime::buildLotPreviewInstances(const std::string& lotAssetId, 
     const int minimumY = candidateLot.minimumTileY();
     const int maximumX = minimumX + candidateLot.footprintWidth() - 1;
     const int maximumY = minimumY + candidateLot.footprintHeight() - 1;
-    std::lock_guard<std::mutex> liveStateLock(liveStateMutex_);
+    std::unique_lock<std::mutex> liveStateLock = acquireLiveStateForPreviewValidation();
     isPlacementValid = isTileInsideMap(minimumX, minimumY) &&
         isTileInsideMap(maximumX, maximumY) &&
         canPlaceLot(candidateLot);
@@ -848,11 +850,15 @@ bool SimulationRuntime::canPlaceRoadStroke(const RoadStrokeCommand& roadStrokeCo
         return false;
     }
 
-    std::lock_guard<std::mutex> liveStateLock(liveStateMutex_);
+    std::unique_lock<std::mutex> liveStateLock = acquireLiveStateForPreviewValidation();
     return transportNetwork_.canPlaceRoadStroke(roadStrokeCommand, lotOccupancy_, kInvalidLotId);
 }
 
 bool SimulationRuntime::buildRciPlan(const RciTool& tool, int startTileX, int startTileY, int endTileX, int endTileY, RciPlanMode mode, RciPlan& plan) const {
+    return buildRciPlanWithLiveStateLock(tool, startTileX, startTileY, endTileX, endTileY, mode, plan);
+}
+
+bool SimulationRuntime::buildRciPlanWithLiveStateLock(const RciTool& tool, int startTileX, int startTileY, int endTileX, int endTileY, RciPlanMode mode, RciPlan& plan) const {
     plan = RciPlan();
     const RciRect bounds = NormalizeRciBounds(startTileX, startTileY, endTileX, endTileY, mapWidth_, mapHeight_);
     if (!bounds.isValid()) {
@@ -870,7 +876,7 @@ bool SimulationRuntime::buildRciPlan(const RciTool& tool, int startTileX, int st
     context.groundRoadAxisMasks.assign(totalTiles, 0u);
 
     {
-        std::lock_guard<std::mutex> liveStateLock(liveStateMutex_);
+        std::unique_lock<std::mutex> liveStateLock = acquireLiveStateForPreviewValidation();
         const TileBuffer& readBuffer = tileBuffers_[simulationReadBufferIndex_];
         const std::vector<ResolvedRoadCell>& resolvedRoads = transportNetwork_.resolvedCells();
         std::size_t tileIndexValue = 0u;
@@ -1636,8 +1642,38 @@ bool SimulationRuntime::hasPendingCommands() const {
     return !pendingCommands_.empty();
 }
 
+std::unique_lock<std::mutex> SimulationRuntime::acquireLiveStateForPreviewValidation() const {
+    {
+        std::lock_guard<std::mutex> previewValidationLock(livePreviewValidationMutex_);
+        ++livePreviewValidationWaiters_;
+    }
+    livePreviewValidationCv_.notify_all();
+
+    std::unique_lock<std::mutex> liveStateLock(liveStateMutex_);
+
+    {
+        std::lock_guard<std::mutex> previewValidationLock(livePreviewValidationMutex_);
+        --livePreviewValidationWaiters_;
+    }
+    livePreviewValidationCv_.notify_all();
+    return liveStateLock;
+}
+
+void SimulationRuntime::waitForPreviewValidationPriority() const {
+    if (livePreviewValidationWaiters_.load() <= 0) {
+        return;
+    }
+
+    std::unique_lock<std::mutex> previewValidationLock(livePreviewValidationMutex_);
+    livePreviewValidationCv_.wait(previewValidationLock, [this]() {
+        return !keepRunning_.load() ||
+            livePreviewValidationWaiters_.load() <= 0;
+    });
+}
+
 void SimulationRuntime::publishPausedCommandFrame() {
     CrashScope crashScope("SimulationRuntime::publishPausedCommandFrame");
+    waitForPreviewValidationPriority();
     std::lock_guard<std::mutex> liveStateLock(liveStateMutex_);
     copyChunkRevisionsForWriteBuffer();
     TileBuffer& writeBuffer = tileBuffers_[simulationWriteBufferIndex_];
@@ -1682,6 +1718,7 @@ void SimulationRuntime::simulationLoop() {
             continue;
         }
 
+        waitForPreviewValidationPriority();
         {
             std::lock_guard<std::mutex> liveStateLock(liveStateMutex_);
             copyChunkRevisionsForWriteBuffer();

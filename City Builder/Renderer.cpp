@@ -376,6 +376,187 @@ struct RoadPreviewCell {
     }
 };
 
+struct RoadPreviewValidationKey {
+    bool active;
+    Int2 startTile;
+    Int2 cornerTile;
+    Int2 endTile;
+    RoadTemplateKind templateKind;
+    RoadFamily family;
+    TransportLayerId layer;
+    RoadStrokeOperation operation;
+    RoadTrafficSide trafficSide;
+    RoadDirectionMode directionMode;
+    int laneCount;
+    std::uint16_t templateId;
+    std::uint8_t templateFootprint;
+    std::uint64_t validationRevision;
+
+    RoadPreviewValidationKey()
+        : active(false),
+          templateKind(RoadTemplateKind::Street),
+          family(RoadFamily::None),
+          layer(TransportLayerId::Ground),
+          operation(RoadStrokeOperation::Place),
+          trafficSide(RoadTrafficSide::RightHand),
+          directionMode(RoadDirectionMode::TwoWay),
+          laneCount(0),
+          templateId(0),
+          templateFootprint(0),
+          validationRevision(0) {
+    }
+};
+
+struct RciPreviewValidationKey {
+    bool active;
+    int activeTool;
+    int startTileX;
+    int startTileY;
+    int currentTileX;
+    int currentTileY;
+    std::uint16_t zoningType;
+    std::string dragToolId;
+    std::string activeRciToolId;
+    bool shiftModifierDown;
+    bool controlModifierDown;
+    std::uint64_t validationRevision;
+
+    RciPreviewValidationKey()
+        : active(false),
+          activeTool(0),
+          startTileX(0),
+          startTileY(0),
+          currentTileX(0),
+          currentTileY(0),
+          zoningType(TileZoningNone),
+          shiftModifierDown(false),
+          controlModifierDown(false),
+          validationRevision(0) {
+    }
+};
+
+struct LotPreviewValidationKey {
+    bool active;
+    std::string assetId;
+    int tileX;
+    int tileY;
+    int rotationSteps;
+    std::uint64_t validationRevision;
+
+    LotPreviewValidationKey()
+        : active(false),
+          tileX(0),
+          tileY(0),
+          rotationSteps(0),
+          validationRevision(0) {
+    }
+};
+
+std::uint64_t MixPreviewValidationRevision(std::uint64_t seed, std::uint64_t value) {
+    return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2));
+}
+
+std::uint64_t BuildPreviewValidationRevision(std::uint64_t renderStateRevision, std::uint64_t lotRevision, std::uint64_t zoningLotRevision, std::uint64_t roadRevision) {
+    std::uint64_t revision = MixPreviewValidationRevision(0u, renderStateRevision);
+    revision = MixPreviewValidationRevision(revision, lotRevision);
+    revision = MixPreviewValidationRevision(revision, zoningLotRevision);
+    revision = MixPreviewValidationRevision(revision, roadRevision);
+    return revision;
+}
+
+bool IsRciZoningTool(ActiveTool activeTool) {
+    return activeTool == ActiveTool::ZoneRci ||
+        activeTool == ActiveTool::ZoneUnzone;
+}
+
+RoadPreviewValidationKey BuildRoadPreviewValidationKey(const RoadStrokeCommand& roadStrokeCommand, std::uint64_t validationRevision) {
+    RoadPreviewValidationKey key;
+    key.active = true;
+    key.startTile = roadStrokeCommand.startTile;
+    key.cornerTile = roadStrokeCommand.cornerTile;
+    key.endTile = roadStrokeCommand.endTile;
+    key.templateKind = roadStrokeCommand.templateKind;
+    key.family = roadStrokeCommand.family;
+    key.layer = roadStrokeCommand.layer;
+    key.operation = roadStrokeCommand.operation;
+    key.trafficSide = roadStrokeCommand.roadTemplate.trafficSide;
+    key.directionMode = roadStrokeCommand.roadTemplate.directionMode;
+    key.laneCount = roadStrokeCommand.roadTemplate.laneCount;
+    key.templateId = roadStrokeCommand.roadTemplate.identity.id;
+    key.templateFootprint = roadStrokeCommand.roadTemplate.identity.footprint;
+    key.validationRevision = validationRevision;
+    return key;
+}
+
+RciPreviewValidationKey BuildRciPreviewValidationKey(const ViewState& viewState, std::uint64_t validationRevision) {
+    RciPreviewValidationKey key;
+    key.active = viewState.zoneDragActive && IsRciZoningTool(viewState.activeTool);
+    key.activeTool = static_cast<int>(viewState.activeTool);
+    key.startTileX = viewState.zoneDragStartX;
+    key.startTileY = viewState.zoneDragStartY;
+    key.currentTileX = viewState.zoneDragCurrentX;
+    key.currentTileY = viewState.zoneDragCurrentY;
+    key.zoningType = viewState.zoneDragType;
+    key.dragToolId = viewState.zoneDragToolId;
+    key.activeRciToolId = viewState.activeRciToolId;
+    key.shiftModifierDown = viewState.shiftModifierDown;
+    key.controlModifierDown = viewState.controlModifierDown;
+    key.validationRevision = validationRevision;
+    return key;
+}
+
+LotPreviewValidationKey BuildLotPreviewValidationKey(const std::string& assetId, int tileX, int tileY, int rotationSteps, std::uint64_t validationRevision) {
+    LotPreviewValidationKey key;
+    key.active = true;
+    key.assetId = assetId;
+    key.tileX = tileX;
+    key.tileY = tileY;
+    key.rotationSteps = rotationSteps;
+    key.validationRevision = validationRevision;
+    return key;
+}
+
+bool SameRoadPreviewValidationKey(const RoadPreviewValidationKey& left, const RoadPreviewValidationKey& right) {
+    return left.active == right.active &&
+        left.startTile == right.startTile &&
+        left.cornerTile == right.cornerTile &&
+        left.endTile == right.endTile &&
+        left.templateKind == right.templateKind &&
+        left.family == right.family &&
+        left.layer == right.layer &&
+        left.operation == right.operation &&
+        left.trafficSide == right.trafficSide &&
+        left.directionMode == right.directionMode &&
+        left.laneCount == right.laneCount &&
+        left.templateId == right.templateId &&
+        left.templateFootprint == right.templateFootprint &&
+        left.validationRevision == right.validationRevision;
+}
+
+bool SameRciPreviewValidationKey(const RciPreviewValidationKey& left, const RciPreviewValidationKey& right) {
+    return left.active == right.active &&
+        left.activeTool == right.activeTool &&
+        left.startTileX == right.startTileX &&
+        left.startTileY == right.startTileY &&
+        left.currentTileX == right.currentTileX &&
+        left.currentTileY == right.currentTileY &&
+        left.zoningType == right.zoningType &&
+        left.dragToolId == right.dragToolId &&
+        left.activeRciToolId == right.activeRciToolId &&
+        left.shiftModifierDown == right.shiftModifierDown &&
+        left.controlModifierDown == right.controlModifierDown &&
+        left.validationRevision == right.validationRevision;
+}
+
+bool SameLotPreviewValidationKey(const LotPreviewValidationKey& left, const LotPreviewValidationKey& right) {
+    return left.active == right.active &&
+        left.assetId == right.assetId &&
+        left.tileX == right.tileX &&
+        left.tileY == right.tileY &&
+        left.rotationSteps == right.rotationSteps &&
+        left.validationRevision == right.validationRevision;
+}
+
 struct TileChunkRenderCache {
     ChunkRect chunkRect;
     Aabb worldBounds;
@@ -3259,6 +3440,22 @@ int Renderer::run() {
     bool roadGhostPlacementValid = true;
     float roadGhostAlphaScale = kRoadGhostAlpha;
     bool lotGhostPlacementValid = true;
+    std::uint64_t lastPreviewValidationRevision = BuildPreviewValidationRevision(gameSession_.renderStateRevision(), 0u, 0u, 0u);
+    RoadPreviewValidationKey cachedRoadGhostValidationKey;
+    bool hasCachedRoadGhostValidation = false;
+    bool cachedRoadGhostPlacementValid = true;
+    std::vector<RoadInstanceData> cachedRoadGhostInstances;
+    RciPreviewValidationKey cachedRciGhostValidationKey;
+    bool hasCachedRciGhostValidation = false;
+    RciPlan cachedRciGhostPlan;
+    bool hasCachedRciGhostPlan = false;
+    bool cachedRciRoadGhostPlacementValid = true;
+    std::vector<RoadInstanceData> cachedRciRoadGhostInstances;
+    LotPreviewValidationKey cachedLotGhostValidationKey;
+    bool hasCachedLotGhostValidation = false;
+    bool cachedLotGhostPlacementValid = true;
+    bool cachedLotGhostHasRenderInstances = false;
+    std::vector<LotRenderInstance> cachedLotGhostRenderInstances;
 
     auto drawRegionPreviewLoadingScreen = [&] (const std::string& label, float progress) {
         LoadingStatus regionLoadingStatus;
@@ -3349,6 +3546,18 @@ int Renderer::run() {
         zoningLotOverlayInstances.clear();
         roadGhostInstances.clear();
         routeArrowInstances.clear();
+        hasCachedRoadGhostValidation = false;
+        cachedRoadGhostPlacementValid = true;
+        cachedRoadGhostInstances.clear();
+        hasCachedRciGhostValidation = false;
+        cachedRciGhostPlan = RciPlan();
+        hasCachedRciGhostPlan = false;
+        cachedRciRoadGhostPlacementValid = true;
+        cachedRciRoadGhostInstances.clear();
+        hasCachedLotGhostValidation = false;
+        cachedLotGhostPlacementValid = true;
+        cachedLotGhostHasRenderInstances = false;
+        cachedLotGhostRenderInstances.clear();
     };
 
     auto renderCityPreview = [&] (const CitySaveState& citySaveState, std::vector<std::uint8_t>& previewPixels) -> bool {
@@ -3735,10 +3944,42 @@ int Renderer::run() {
         RendererFrameMetrics frameMetrics;
         frameMetrics.totalChunkCount = static_cast<int>(chunkCaches.size());
 
-        const PublishedWorldSnapshot snapshot = simulationRuntime.acquirePublishedSnapshot();
+        const std::uint64_t previewValidationRevision = lastPreviewValidationRevision;
+        const ViewState previewViewState = appController_.viewState();
 
         RciPlan rciGhostPlan;
-        const bool hasRciGhostPlan = appController_.rciPreviewPlan(rciGhostPlan);
+        bool hasRciGhostPlan = false;
+        const RciPreviewValidationKey rciGhostValidationKey = BuildRciPreviewValidationKey(previewViewState, previewValidationRevision);
+        if (rciGhostValidationKey.active) {
+            if (!hasCachedRciGhostValidation || !SameRciPreviewValidationKey(cachedRciGhostValidationKey, rciGhostValidationKey)) {
+                cachedRciGhostValidationKey = rciGhostValidationKey;
+                cachedRciGhostPlan = RciPlan();
+                cachedRciRoadGhostInstances.clear();
+                cachedRciRoadGhostPlacementValid = true;
+                hasCachedRciGhostPlan = appController_.rciPreviewPlan(cachedRciGhostPlan);
+                if (hasCachedRciGhostPlan) {
+                    std::size_t roadPlanIndex = 0;
+                    for (; roadPlanIndex < cachedRciGhostPlan.roadPlans.size(); ++roadPlanIndex) {
+                        const RoadStrokeCommand rciRoadStroke = BuildRciRoadStrokeCommand(cachedRciGhostPlan.roadPlans[roadPlanIndex]);
+                        std::vector<RoadInstanceData> rciRoadInstances = BuildRoadPreviewInstances(rciRoadStroke, simulationRuntime.mapWidth(), simulationRuntime.mapHeight());
+                        cachedRciRoadGhostInstances.insert(cachedRciRoadGhostInstances.end(), rciRoadInstances.begin(), rciRoadInstances.end());
+                        cachedRciRoadGhostPlacementValid = simulationRuntime.canPlaceRoadStroke(rciRoadStroke) && cachedRciRoadGhostPlacementValid;
+                    }
+                }
+                hasCachedRciGhostValidation = true;
+            }
+
+            if (hasCachedRciGhostPlan) {
+                rciGhostPlan = cachedRciGhostPlan;
+                hasRciGhostPlan = true;
+            }
+        } else {
+            hasCachedRciGhostValidation = false;
+            cachedRciGhostPlan = RciPlan();
+            hasCachedRciGhostPlan = false;
+            cachedRciRoadGhostPlacementValid = true;
+            cachedRciRoadGhostInstances.clear();
+        }
         int zonePreviewMinTileX = 0;
         int zonePreviewMinTileY = 0;
         int zonePreviewMaxTileX = 0;
@@ -3753,25 +3994,35 @@ int Renderer::run() {
 
         RoadStrokeCommand roadGhostCommand;
         const bool hasRoadGhostCommand = appController_.roadPreviewStroke(roadGhostCommand);
-        if (hasRoadGhostCommand || (hasRciGhostPlan && !rciGhostPlan.roadPlans.empty())) {
+        if (hasRoadGhostCommand) {
+            const RoadPreviewValidationKey roadGhostValidationKey = BuildRoadPreviewValidationKey(roadGhostCommand, previewValidationRevision);
+            if (!hasCachedRoadGhostValidation || !SameRoadPreviewValidationKey(cachedRoadGhostValidationKey, roadGhostValidationKey)) {
+                cachedRoadGhostValidationKey = roadGhostValidationKey;
+                cachedRoadGhostInstances = BuildRoadPreviewInstances(roadGhostCommand, simulationRuntime.mapWidth(), simulationRuntime.mapHeight());
+                cachedRoadGhostPlacementValid = simulationRuntime.canPlaceRoadStroke(roadGhostCommand);
+                hasCachedRoadGhostValidation = true;
+            }
+        } else {
+            hasCachedRoadGhostValidation = false;
+            cachedRoadGhostPlacementValid = true;
+            cachedRoadGhostInstances.clear();
+        }
+
+        if (hasRoadGhostCommand || (hasRciGhostPlan && !cachedRciRoadGhostInstances.empty())) {
             const std::chrono::steady_clock::time_point roadGhostUploadStart = std::chrono::steady_clock::now();
             roadGhostInstances.clear();
             roadGhostPlacementValid = true;
             roadGhostAlphaScale = hasRoadGhostCommand ? kRoadGhostAlpha : 0.50f;
             if (hasRoadGhostCommand) {
-                roadGhostInstances = BuildRoadPreviewInstances(roadGhostCommand, simulationRuntime.mapWidth(), simulationRuntime.mapHeight());
-                roadGhostPlacementValid = simulationRuntime.canPlaceRoadStroke(roadGhostCommand);
+                roadGhostInstances.insert(roadGhostInstances.end(), cachedRoadGhostInstances.begin(), cachedRoadGhostInstances.end());
+                roadGhostPlacementValid = cachedRoadGhostPlacementValid;
             }
 
             if (hasRciGhostPlan) {
-                std::size_t roadPlanIndex = 0;
-                for (; roadPlanIndex < rciGhostPlan.roadPlans.size(); ++roadPlanIndex) {
-                    const RoadStrokeCommand rciRoadStroke = BuildRciRoadStrokeCommand(rciGhostPlan.roadPlans[roadPlanIndex]);
-                    std::vector<RoadInstanceData> rciRoadInstances = BuildRoadPreviewInstances(rciRoadStroke, simulationRuntime.mapWidth(), simulationRuntime.mapHeight());
-                    roadGhostInstances.insert(roadGhostInstances.end(), rciRoadInstances.begin(), rciRoadInstances.end());
-                    roadGhostPlacementValid = simulationRuntime.canPlaceRoadStroke(rciRoadStroke) && roadGhostPlacementValid;
-                }
+                roadGhostInstances.insert(roadGhostInstances.end(), cachedRciRoadGhostInstances.begin(), cachedRciRoadGhostInstances.end());
+                roadGhostPlacementValid = cachedRciRoadGhostPlacementValid && roadGhostPlacementValid;
             }
+
             glBindBuffer(GL_ARRAY_BUFFER, roadGhostInstanceBufferId);
             glBufferData(
                 GL_ARRAY_BUFFER,
@@ -3790,24 +4041,60 @@ int Renderer::run() {
         int lotGhostTileX = 0;
         int lotGhostTileY = 0;
         int lotGhostRotationSteps = 0;
-        if (appController_.lotPreviewRequest(lotGhostAssetId, lotGhostTileX, lotGhostTileY, lotGhostRotationSteps)) {
-            const std::chrono::steady_clock::time_point lotGhostUploadStart = std::chrono::steady_clock::now();
-            std::vector<LotRenderInstance> lotGhostRenderInstances;
+        const std::vector<LotRenderInstance>* lotGhostRenderInstances = 0;
+        bool hasLotGhostRenderInstances = false;
+        std::chrono::steady_clock::time_point lotGhostUploadStart;
+        const bool hasLotGhostRequest = appController_.lotPreviewRequest(lotGhostAssetId, lotGhostTileX, lotGhostTileY, lotGhostRotationSteps);
+        if (hasLotGhostRequest) {
+            lotGhostUploadStart = std::chrono::steady_clock::now();
             lotGhostInstances.clear();
             lotGhostMeshBatches.clear();
-            if (simulationRuntime.buildLotPreviewInstances(lotGhostAssetId, lotGhostTileX, lotGhostTileY, lotGhostRotationSteps, lotGhostRenderInstances, lotGhostPlacementValid)) {
+
+            const LotPreviewValidationKey lotGhostValidationKey = BuildLotPreviewValidationKey(lotGhostAssetId, lotGhostTileX, lotGhostTileY, lotGhostRotationSteps, previewValidationRevision);
+            if (!hasCachedLotGhostValidation || !SameLotPreviewValidationKey(cachedLotGhostValidationKey, lotGhostValidationKey)) {
+                cachedLotGhostValidationKey = lotGhostValidationKey;
+                cachedLotGhostRenderInstances.clear();
+                cachedLotGhostPlacementValid = false;
+                cachedLotGhostHasRenderInstances = simulationRuntime.buildLotPreviewInstances(lotGhostAssetId, lotGhostTileX, lotGhostTileY, lotGhostRotationSteps, cachedLotGhostRenderInstances, cachedLotGhostPlacementValid);
+                if (!cachedLotGhostHasRenderInstances) {
+                    cachedLotGhostPlacementValid = false;
+                }
+                hasCachedLotGhostValidation = true;
+            }
+
+            lotGhostPlacementValid = cachedLotGhostPlacementValid;
+            if (cachedLotGhostHasRenderInstances) {
+                lotGhostRenderInstances = &cachedLotGhostRenderInstances;
+                hasLotGhostRenderInstances = true;
+            }
+        } else {
+            hasCachedLotGhostValidation = false;
+            cachedLotGhostPlacementValid = true;
+            cachedLotGhostHasRenderInstances = false;
+            cachedLotGhostRenderInstances.clear();
+            lotGhostInstances.clear();
+            lotGhostMeshBatches.clear();
+            lotGhostPlacementValid = true;
+        }
+
+        const PublishedWorldSnapshot snapshot = simulationRuntime.acquirePublishedSnapshot();
+        lastPreviewValidationRevision = BuildPreviewValidationRevision(renderStateRevision, snapshot.lotRevision, snapshot.zoningLotRevision, snapshot.roadRevision);
+
+        if (hasLotGhostRequest) {
+            if (hasLotGhostRenderInstances && lotGhostRenderInstances != 0) {
                 const std::map<std::uint16_t, GeneratedMeshRange> meshRanges = generatedLotMeshesLoaded
                     ? BuildRuntimeMeshRanges(generatedMeshCatalog, snapshot.renderMeshBindings)
                     : std::map<std::uint16_t, GeneratedMeshRange>();
-                if (!generatedLotMeshesLoaded || !BuildGeneratedLotInstances(lotGhostRenderInstances, meshRanges, false, lotGhostInstances, lotGhostMeshBatches)) {
+                if (!generatedLotMeshesLoaded || !BuildGeneratedLotInstances(*lotGhostRenderInstances, meshRanges, false, lotGhostInstances, lotGhostMeshBatches)) {
                     std::size_t lotGhostIndex = 0;
-                    for (; lotGhostIndex < lotGhostRenderInstances.size(); ++lotGhostIndex) {
-                        lotGhostInstances.push_back(BuildLotInstance(lotGhostRenderInstances[lotGhostIndex]));
+                    for (; lotGhostIndex < lotGhostRenderInstances->size(); ++lotGhostIndex) {
+                        lotGhostInstances.push_back(BuildLotInstance((*lotGhostRenderInstances)[lotGhostIndex]));
                     }
                     lotGhostMeshBatches.clear();
                 }
             } else {
-                lotGhostPlacementValid = false;
+                lotGhostInstances.clear();
+                lotGhostMeshBatches.clear();
             }
             glBindBuffer(GL_ARRAY_BUFFER, lotGhostInstanceBufferId);
             glBufferData(
@@ -3817,10 +4104,6 @@ int Renderer::run() {
                 GL_DYNAMIC_DRAW);
             frameMetrics.lotGhostUploadMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - lotGhostUploadStart).count();
             frameMetrics.lotGhostInstanceCount = static_cast<int>(lotGhostInstances.size());
-        } else {
-            lotGhostInstances.clear();
-            lotGhostMeshBatches.clear();
-            lotGhostPlacementValid = true;
         }
 
         if (viewState.queryRouteRevision != lastUploadedQueryRouteRevision) {

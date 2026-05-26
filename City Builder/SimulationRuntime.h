@@ -449,6 +449,9 @@ private:
     bool waitForTickPermission(GameSpeed& activeGameSpeed, std::chrono::steady_clock::time_point& nextPlayTick, bool& commandOnlyFrame);
     bool hasPendingCommands() const;
     void publishPausedCommandFrame();
+    std::unique_lock<std::mutex> acquireLiveStateForPreviewValidation() const;
+    void waitForPreviewValidationPriority() const;
+    bool buildRciPlanWithLiveStateLock(const RciTool& tool, int startTileX, int startTileY, int endTileX, int endTileY, RciPlanMode mode, RciPlan& plan) const;
     void startWorkers();
     void stopWorkers();
     void workerMain();
@@ -589,6 +592,9 @@ private:
     // Guards mutable simulation state read outside the simulation thread, such
     // as placement previews and save/load export/import.
     mutable std::mutex liveStateMutex_;
+    mutable std::mutex livePreviewValidationMutex_;
+    mutable std::condition_variable livePreviewValidationCv_;
+    mutable std::atomic<int> livePreviewValidationWaiters_;
 
     std::vector<TileBuffer> tileBuffers_;
     int simulationReadBufferIndex_;
