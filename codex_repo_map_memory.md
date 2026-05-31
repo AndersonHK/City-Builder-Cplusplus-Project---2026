@@ -39,7 +39,7 @@ Workspace: repository root
   - morning/evening old/new traffic load states stored separately from base topology
   - sparse touched movement/transfer load commits
   - sparse transfer edges
-  - A* pathfinding with reusable scratch arrays
+  - uniform-cost/Dijkstra pathfinding with reusable scratch arrays; planned split between single-pass nearest-destination demand fill and point-to-point bidirectional A* route repair
   - traffic overlay payload generation from worst morning/evening utilization
 - `City Builder/TransportNetworkTests.vcxproj`
   - standalone non-graphics transport topology tests

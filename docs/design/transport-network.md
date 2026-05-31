@@ -20,9 +20,9 @@ Use this guide when changing road placement, lane topology, road render data, or
 - `Road` owns template construction and brush expansion. It converts the current tool inputs into clipped per-tile lane placements.
 - `TransportTile` owns the authored lanes on one tile/layer and validates local merge/replay rules. Save state stores these authored tile lanes, not stroke objects.
 - `RoadRenderState` owns base glyph, arrow glyph, lane graphic mask, and divider packing. `RoadAtlas` generates the finite road-tile atlas used by the renderer.
-- `TransportCostMap` owns dense outgoing directional costs, capacities, building access, sparse transfer edges, morning/evening traffic load states, A* scratch reuse, and traffic-overlay generation.
+- `TransportCostMap` owns dense outgoing directional costs, capacities, building access, sparse transfer edges, morning/evening traffic load states, reusable uniform-cost search scratch, and traffic-overlay generation.
 - `TransportNetwork` owns layer storage, lot-occupancy rejection, dirty tile neighborhoods, chunk revisions, resolved-cell publication, affected-tile cost-map rebuilding, traffic-overlay publication, and packed ground-road bytes.
-- `Data/TransportNetwork/congestion.xml` owns the utilization-to-speed-multiplier table used when old load turns base lane travel time into congested A* cost.
+- `Data/TransportNetwork/congestion.xml` owns the utilization-to-speed-multiplier table used when old load turns base lane travel time into congested routing cost.
 - `Data/TransportNetwork/lane_capacities.xml` owns static lane capacities for slow, medium, fast, and pedestrian lanes.
 
 ## Lane Rules
@@ -44,14 +44,17 @@ Use this guide when changing road placement, lane topology, road render data, or
 - Ground local sidewalks expose adjacent building access for pedestrian and car spawning. Highways, elevated lanes, underground lanes, and through-only lanes do not expose adjacent building access by default.
 
 ## Pathfinding And Traffic Loads
-- Cost-map nodes use `tile + totalTiles * (mode + modeCount * layer)` so A* can use compact scratch arrays.
+- Cost-map nodes use `tile + totalTiles * (mode + modeCount * layer)` so routing can use compact scratch arrays.
 - The cost map stores eight outgoing direction slots. Current road lanes populate cardinal directions; diagonal slots are reserved for future connectors.
-- A* expands movement edges within one layer/mode and sparse transfer edges for mode/layer changes. There is no implicit connection between overlapping layers.
-- A* seeds each candidate start node with a mode start cost before movement: car starts currently add 60 seconds, while pedestrian starts add 0. This represents parking/unparking overhead and makes short walking trips competitive.
+- Current `TransportCostMap::findPath` is uniform-cost search/Dijkstra, not true A*: heap priority is accumulated cost only, with no geometric heuristic.
+- The current search expands movement edges within one layer/mode and sparse transfer edges for mode/layer changes. There is no implicit connection between overlapping layers.
+- The current search seeds each candidate start node with a mode start cost before movement: car starts currently add 60 seconds, while pedestrian starts add 0. This represents parking/unparking overhead and makes short walking trips competitive.
 - Congestion reads immutable committed load for the requested commute time, converts `oldLoad / capacity` through the XML speed table, and writes reassigned traffic into that commute time's touched new-load edges. Morning and evening loads are parallel states over one stable base cost/capacity graph.
 - Route tie-breaking uses tiny deterministic jitter from the route seed so equivalent alternatives can distribute statistically over repeated sampled updates.
-- Commute assignment routes low-wealth residential demand to compatible low-wealth job destinations as a round trip. A destination is valid only when the morning home-to-job path and evening job-to-home path both succeed within the 600-second maximum commute cost.
+- Commute assignment has two flat-graph pathfinding shapes. Source demand fill should be one outward nearest-goal Dijkstra from the selected source access nodes that keeps collecting reached compatible destinations until source demand can be satisfied or no route remains within the maximum commute cost; after that single exploration, assign the accepted destination routes as one batch. It should not re-explore from the source once per accepted destination. Route repair is point-to-point: a known accepted source/destination pair is checked or recalculated directly.
+- Commute assignment routes low-wealth residential demand to compatible low-wealth job destinations as a round trip. A destination is valid only when the morning home-to-job path and evening job-to-home path both succeed within the maximum commute window.
 - Each route stores morning and evening path results, coalesced segments, and medium-retry flags. Short directions are preserved and clear their retry flag. Medium directions are rerouted only for the offending commute time; invalid, long, or already-retried medium directions force destination reassignment.
+- The next flat-routing slice should first make nearest-goal demand fill collect all needed destinations in one Dijkstra pass, then split the API into nearest-goal demand fill and point-to-point route repair, then make point-to-point repair true bidirectional A* with reverse adjacency and an admissible lower-bound heuristic.
 - Simulation ticks alternate commute times through `SimulationTime::ticksPerDay() == 2`: morning on the first tick of a logical day and evening on the second. Gameplay durations should be authored in logical days where possible, then converted to runtime ticks at load/setup boundaries.
 - Querying a lot can publish coalesced morning commute route segments; rendering turns those tile/layer/mode/direction segments into mode-colored arrows above roads, buildings, and overlays. Querying a road tile summarizes morning and evening commuters that pass through that tile's lanes and draws those selected segments as route arrows.
 - Runtime commute assignment preserves valid accepted round-trip routes instead of clearing every lot after ordinary building edits. Removed or invalid source/destination routes are forced back through assignment, and otherwise a deterministic rolling queue rebalances about 1 percent of source lots per tick so all source lots are visited over roughly 100 ticks without random repeats.
@@ -130,6 +133,6 @@ A car intersection node is a resolved car junction with at least three cardinal 
 
 ## Related Guides
 - `README.md` indexes the project and controls.
-- `docs/design/transport-routing-scalability-plan.md` owns the persistent route scratch, sparse load delta, lazy route budgeting, later chunk-owned topology cache, and destination-field plan for making commute work scale with active network size.
+- `docs/design/transport-routing-scalability-plan.md` owns the flat routing roadmap: single-pass nearest-destination Dijkstra for demand fill, point-to-point bidirectional A* for route repair, later flat route-splitting/budgeting, and future hierarchical-routing research.
 - `docs/design/renderer.md` covers packed road-state texture upload, generated road atlases, and elevated-road instance consumption.
 - `docs/design/simulation-threading.md` covers command application and snapshot publication.

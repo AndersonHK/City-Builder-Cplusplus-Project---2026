@@ -1,6 +1,6 @@
 # Transport Routing Scalability Plan
 
-Use this guide when changing commute routing scalability, traffic load storage, route budgeting, or future network-sized topology caches.
+Use this guide when changing commute routing scalability, traffic load storage, flat route-search behavior, route budgeting, or future hierarchical routing/topology caches.
 
 ## Implemented Checkpoint - May 2026
 - Option A is implemented: `SimulationRuntime` keeps persistent `TransportPathScratch` for commute routing, so ordinary route searches no longer allocate map-sized scratch.
@@ -80,7 +80,7 @@ scratch bytes ~= N_dense * 26
 base cost cells ~= N_dense * sizeof(TransportCostCell)
 ```
 
-The A* loop itself expands from start nodes through outgoing active edges; it does not scan every dense node per path. Dense storage still hurts through memory footprint, cache locality, and the size of per-worker scratch once routing becomes parallel.
+The current uniform-cost loop expands from start nodes through outgoing active edges; it does not scan every dense node per path. Dense storage still hurts through memory footprint, cache locality, and the size of per-worker scratch once routing becomes parallel.
 
 ### Per-path search
 `TransportCostMap::findPath` is Dijkstra-like today: heap priority is accumulated cost only, with no geometric heuristic. Per search:
@@ -116,13 +116,15 @@ selected sources this tick =
 current q = 1 percent of source lots per tick
 ```
 
-For selected sources that keep existing short valid routes, CPU still touches old and new path loads because the source route list is cleared, old loads are subtracted, the maintained route is re-added, and loads are applied again. For selected sources that need new assignment, the current morning request rebuilds a goal-node vector by scanning all open destinations:
+For selected sources that keep existing short valid routes, CPU still touches old and new path loads because the source route list is cleared, old loads are subtracted, the maintained route is re-added, and loads are applied again. For selected sources that need new assignment, the current morning loop rebuilds a goal-node vector by scanning all open destinations once per accepted route attempt. Slice 1 should replace that repeated root exploration with one source-root nearest-destination Dijkstra that collects enough reachable candidates, then batch-assigns route records:
 
 ```text
-new morning request setup ~= O(D + G)
-new accepted route ~= 1 morning path + 1 evening path
+current repeated morning request setup ~= O(accepted destinations * (D + G))
+slice-1 morning setup ~= O(D + G) once per selected source
+new accepted route ~= stored morning path + 1 evening validation/repair path
 failed destination ~= another morning path, usually another evening path, then exclusion
-source with k accepted destination splits ~= about 2k path searches plus failures
+current source with k accepted destination splits ~= about 2k path searches plus failures
+slice-1 source with k accepted destination splits ~= 1 morning Dijkstra plus evening point-to-point validations
 ```
 
 So the ordinary selected-source pathfinding trend is approximately:
@@ -136,7 +138,7 @@ tick cost ~= O(all lots for source/destination/access refresh)
           + O(touched overlay tiles * L * M * directions * commuteTimes)
 ```
 
-The dangerous term is `selected sources * D` for goal-list rebuilding. If source and destination lots both scale with city area and `q` stays constant, this term trends toward `O(A^2)` per tick even when the actual nearest destination is nearby. The A* work can also trend toward `O(A^2 log A)` per tick in worst cases, because `selected sources` scales with area and a single search can visit most of the connected active graph.
+The dangerous term is `selected sources * accepted destination count * D` for repeated goal-list rebuilding and repeated root exploration. If source and destination lots both scale with city area and `q` stays constant, this term trends toward `O(A^2)` per tick even when the actual nearest destinations are found early. The flat search work can also trend toward `O(A^2 log A)` per tick in worst cases, because `selected sources` scales with area and a single source-root search can visit most of the connected active graph.
 
 ### Topology-change invalidation
 Road edits now rebuild cost-map and overlay data only for dirty affected tiles, but invalidation still has broad scans:
@@ -149,7 +151,7 @@ forced queue dedupe today ~= O(number of queued forced lots) per enqueue
 destination back-reference queueing today ~= O(R) per affected destination lot
 ```
 
-The last two lines matter for large road removals. `queueCommuteRecalculationForLot` uses a vector search for dedupe, and `queueCommuteSourcesForDestination` scans all routes to find sources assigned to one destination. If many lots or routes are touched by a highway deletion, the scheduling work can become expensive before any A* search starts.
+The last two lines matter for large road removals. `queueCommuteRecalculationForLot` uses a vector search for dedupe, and `queueCommuteSourcesForDestination` scans all routes to find sources assigned to one destination. If many lots or routes are touched by a highway deletion, the scheduling work can become expensive before any path search starts.
 
 Once forced lots are queued, the current selection policy processes all forced sources in the same tick. This is the freeze risk the next design should remove.
 
@@ -199,22 +201,60 @@ At `T = 24`, a hard forced-source budget drains like this:
 
 This table is intentionally blunt: a source budget that feels smooth for a `1024` city will not keep a fully developed `4096` city responsive after a whole-network invalidation unless the budget rises, the invalidation is more selective, or routing becomes much cheaper per source. It also argues for a visible "commute repair backlog" counter during disruptive edits.
 
+## Roadmap Split
+The next routing work should be divided into two parts. Part 1 stays flat and non-hierarchical. Part 2 is a separate hierarchical-routing research and architecture slice. Do not mix destination buckets, chunk portals, station fields, or sparse topology caches into the first slice unless profiling after Part 1 proves the flat graph is still the limiting shape.
+
+### Part 1: Flat Routing Slice
+Keep the current dense `(tile, layer, mode)` topology and sparse morning/evening load states. This slice is complete when these three changes are done:
+
+1. **Single-pass nearest-destination Dijkstra.** For one selected source lot, run one outward uniform-cost/Dijkstra search from the source access nodes. As compatible destination access nodes are popped in increasing cost order, reconstruct/store those candidate paths and accumulate reachable destination capacity. Stop when enough candidate capacity can plausibly satisfy the source demand, or when the frontier is exhausted or exceeds the maximum commute cost. Then validate/assign the accepted round-trip destination routes as one deterministic batch. Do not restart from the source once per accepted destination.
+2. **Split route APIs by intent.** The flat graph has two different jobs and should expose them separately: nearest-destination demand fill and point-to-point route repair.
+3. **Bidirectional A* for point-to-point repair.** Implement the point-to-point API with bidirectional A* over the same directed costs, congestion reads, transfer edges, and mode start rules. It needs reverse movement and transfer adjacency, an admissible lower-bound heuristic based on the fastest uncongested movement, and a correct stop condition for directed graphs. The nearest-destination demand-fill search can remain unidirectional Dijkstra because it is intentionally exploring outward to discover the closest usable destinations.
+
+If a building has `300` unemployed workers, the nearest-destination search should discover enough reachable destinations for those workers in one outward pass where possible, then create route records after the candidate set is known. If reachable capacity before the max-cost cutoff is only `180`, create routes for that `180` and leave the remainder unsatisfied.
+
+Round-trip validation still matters. A practical first implementation can collect morning candidates in one outward pass, then validate evening paths for candidates in morning-cost order using the point-to-point repair API. If evening validation rejects too many candidates, the nearest-destination search should be resumable or should collect enough extra candidate capacity during the first pass so it still avoids repeatedly re-exploring from the source.
+
+### Later Flat-Graph Optimizations
+After the three-item slice above, keep flat-graph improvements separate from hierarchy:
+
+- **Route splitting with virtual local load.** For large source lots, split demand into a small deterministic number of route batches. During one source assignment, layer a temporary local load delta over previous committed load so early batches can make a fast avenue more expensive and nearby parallel roads can become competitive. Commit accepted batches together through the existing sparse load pipeline.
+- **Deterministic route budgets.** Forced and routine route repair should eventually use fixed source/path budgets derived from simulation settings, not wall-clock time.
+- **Queue dedupe and invalidation indexes.** Replace vector forced-queue dedupe with queued flags/epochs, and eventually maintain destination back-references plus route-edge or route-region indexes so topology edits queue affected routes without scanning every route.
+- **Access and market caches.** Cache per-lot access nodes and source/destination market records by topology and lot revisions so every tick does not need to rebuild all access data from scratch.
+
+These are still non-hierarchical. They should not introduce destination buckets or a portal graph.
+
+### Part 2: Hierarchical Routing Research
+Hierarchical pathfinding is a future design slice. It should be treated as a first-class research topic because the right hierarchy may come from several different structures:
+
+- **Chunk portal graph.** Local routes enter/exit chunks through portals; long routes run through a coarser portal graph, then refine locally.
+- **Transport-tier graph.** Local streets feed roads, avenues, highways, ramps, train stations, or subway stops. Long routes can prefer faster/higher-throughput tiers when they are actually useful.
+- **Composed mini-routes.** Cache reusable fragments such as house block to arterial, arterial to ramp, station to station, ramp to industrial access road, then compose longer trips from these fragments and validate/refine with flat search.
+- **Chokepoint or cut-set caching.** If a neighborhood has one access point, every commuter must pass through that point. Cache local costs from origins to that chokepoint and reuse the downstream path work. Dense grids often do not have such a cut, so this must be opportunistic rather than forced.
+- **Sparse or chunk-owned topology.** A sparse active-node graph may support hierarchy, reverse adjacency, and memory locality, but it should not be assumed to be the final hierarchy by itself. Traffic load changes should remain separate from topology rebuilds.
+
+The hierarchy must remain congestion-aware enough to avoid hard-preferring high-tier routes. In a well ordered city, long trips should often use highways or trains, but a closer local road should still receive traffic when congestion or geometry makes it competitive. The flat graph remains the correctness fallback for dense grids, one-way details, ramps, transfers, and cases where the hierarchy has no useful compression.
+
 ## Alternative Scaling Shapes
 | Design | Per-tick shape | What it fixes | What it does not fix |
 | --- | --- | --- | --- |
 | Lower `q` only | Multiplies routine selected sources by a smaller constant | Routine recheck cost | Mass forced invalidation; destination scan shape; dense memory |
 | More ticks per day plus lower `q` | Preserves or lowers daily routine churn while shrinking per-tick slices | Smoother daily work distribution | Needs commute phase fix; does not cap forced queues alone |
 | Hard forced/routine source budgets | `O(B * sourceCost)` plus backlog drain `ceil(F / B)` | Highway deletion freezes; deterministic CPU-independent scheduling | Source cost can still spike if one source tests many destinations |
-| Hard path-search budget | `O(P * averageSearchCost)` | Bounds A* attempts directly | Requires resumable or conservative source processing |
+| Single-pass nearest-destination Dijkstra | One source-root search can produce several destination routes | Repeated root re-exploration during source demand fill | Point-to-point repair search radius; all-lot access rebuilds |
+| Bidirectional A* for known destinations | Two directed frontiers guided by an admissible heuristic | Same-destination repair and medium-route retry | Nearest-goal discovery; multi-destination capacity assignment |
+| Hard path-search budget | `O(P * averageSearchCost)` | Bounds path attempts directly | Requires resumable or conservative source processing |
 | Route-to-edge or route-to-chunk invalidation index | `O(dirty edges + affected routes)` | Expensive global route scans after road edits | Recalculation cost for actually affected routes |
-| Cached lot access records | `O(changed lots/topology)` instead of recollecting every lot every tick | All-lot access scan overhead | A* cost |
-| Destination spatial buckets | `O(nearby/open buckets)` instead of scanning every destination per source | `selected sources * D` goal-list setup | Worst-case far/unreachable searches |
-| Reverse destination fields | `O(fields * V log V + selected sources)` | Duplicate search from many origins to same destination market | Capacity allocation, round-trip validation, dynamic congestion |
+| Cached lot access records | `O(changed lots/topology)` instead of recollecting every lot every tick | All-lot access scan overhead | Path search cost |
+| Destination spatial buckets | `O(nearby/open buckets)` instead of scanning every destination per source | Goal-list setup and early candidate filtering | Worst-case far/unreachable searches; non-trivial deterministic widening |
+| Reverse destination fields | `O(fields * V log V + selected sources)` | Shared exploration when many origins target the same market | Capacity allocation, round-trip validation, dynamic congestion |
+| Route splitting with virtual local load | Small bounded number of deterministic route alternatives per source | Avenue/parallel-road load distribution | Structural bottlenecks; hierarchy-level reuse |
 | Sparse chunk-owned topology | Memory `O(V + E)`; better cache locality | Dense memory and per-worker scratch size | If road density scales with area, worst-case search can still scale with active network size |
-| Hierarchical routing | Local search plus chunk/portal graph | Long-route search radius on huge maps | Dynamic congestion accuracy; implementation complexity |
-| A* heuristic or bucket queue | Lower constants and fewer visited nodes in favorable cases | Dijkstra heap overhead; some over-expansion | Multi-goal all-destination setup; mass invalidation scheduling |
+| Hierarchical routing | Local search plus portal/tier/chokepoint graph | Long-route search radius and repeated shared subpaths | Dynamic congestion accuracy; implementation complexity |
+| A* heuristic, landmarks, or bucket queue | Lower constants and fewer visited nodes in favorable cases | Heap overhead and over-expansion | Multi-goal demand fill; mass invalidation scheduling |
 
-The best near-term path is not a single heroic pathfinding algorithm. It is a queue and budget layer that makes route repair deterministic and bounded, plus enough indexing/caching to stop scheduling work from becoming its own freeze.
+The best near-term path is the flat slice above: one nearest-destination Dijkstra per selected source, an explicit split between nearest-destination and point-to-point routing, and bidirectional A* only for known-destination repair. Queue budgeting, route splitting, invalidation indexes, and hierarchy remain later work after that slice is measured.
 
 ## Recommended Budgeted Route Design
 ### Separate date ticks from commute repair phase
@@ -309,17 +349,61 @@ Cache per-lot access nodes by:
 
 Then build source and destination market records from dirty lot lists plus cached records instead of recollecting every lot's access nodes each tick. The full scan can remain as a validation/rebuild path after imports.
 
-### Reduce all-destination goal setup
-The current morning request pushes access nodes for every open destination. Before destination fields, use cheaper deterministic filters:
+### Avoid repeated source-root exploration
+The current morning assignment pushes access nodes for every open destination, runs a nearest-goal search, accepts one destination, then rebuilds the request and repeats from the same source root while demand remains. Slice 1 should keep the all-destination semantics but change the search shape:
 
-- Keep open destinations in spatial buckets by chunk or coarse tile cell.
-- For a source, gather buckets in expanding Manhattan rings until enough capacity or a maximum candidate count is reached.
-- Always use deterministic bucket and lot ordering.
-- Fall back to wider rings over later ticks if no route is accepted.
+- Build the open destination goal set once for the selected source.
+- Run one outward Dijkstra/uniform-cost search from the source access nodes.
+- When compatible destination nodes are reached, store their path results in increasing cost order.
+- Continue until enough reachable candidate capacity exists to satisfy demand, the frontier is exhausted, or the max commute cost is exceeded.
+- Batch-assign the accepted routes after the candidate set is known.
 
-This changes typical setup from `O(D)` per selected source to `O(nearby candidate destinations)`. It also makes "near jobs first" explicit instead of relying on Dijkstra to discover the nearest goal after receiving every goal in the city.
+Do not use spatial destination buckets in Slice 1. Bucket, portal, station, or tier-based filtering belongs in deferred alternatives and the later hierarchical-routing research slice.
 
-## Options
+## Deferred Alternative Plans
+This section keeps the ideas that are not part of Slice 1. They are not rejected; they are parked so the first implementation stays small enough to finish and measure.
+
+### Destination candidate buckets
+A non-hierarchical candidate-filtering alternative would keep open destinations in deterministic spatial buckets, either by transport chunk or by a fixed coarse tile grid. For a source, it would gather buckets in expanding Manhattan rings until it has enough open capacity, enough candidate lots, or reaches a configured search radius. Candidate lots and access nodes must be ordered deterministically by bucket, lot id, and access node id.
+
+This could reduce goal setup from "all open destinations in the city" to "nearby open destinations first". It is not in Slice 1 because it is easy to make subtly wrong: a nearby bucket can be disconnected, a farther bucket can contain the first valid route, and a too-small candidate cap can change assignment outcomes. If it returns later, it should be framed as a candidate provider for the nearest-destination API, with a widening fallback that eventually becomes equivalent to all destinations.
+
+### Reverse destination fields
+Reverse fields are a shared-work alternative for moments when many nearby sources are trying to reach the same broad vacancy market. Build one reverse shortest-path field from destination access nodes, then let many sources read distances from that field instead of each source exploring independently.
+
+The field should be short-lived and market-specific, not a global "jobs field". It should be built from current vacancies or from a high-volume market group, using previous committed congestion if congestion is included. It still cannot assign capacity by itself: the reduce phase must deterministically accept candidates, validate round trips, and handle destinations filling during the same tick. This makes reverse fields promising as a later batch accelerator, but not a substitute for the Slice 1 nearest-destination semantics.
+
+### Sparse or chunk-owned topology cache
+A sparse topology cache remains useful for memory locality, reverse adjacency, and future hierarchy, but it should not be confused with traffic load storage. Dense road/render/query data can remain authoritative while routing topology is rebuilt from active pathable tiles after topology edits:
+
+- Store active node and edge arrays by transport chunk.
+- Rebuild dirty chunks wholesale, then reconnect borders to neighbors.
+- Use route node handles such as `(chunkId, localNodeId, generation)` so routes crossing changed chunks become stale without surgical edge patching.
+- Keep traffic loads in separate mutable morning/evening states keyed by stable movement edge identity; load changes must not rebuild topology.
+- Let broad modes such as car and pedestrian use dense tile-to-local-node lookup inside chunks, while sparse modes such as trains and subways use compact per-mode lookup tables.
+
+This is a good support layer for hierarchy and bidirectional search, especially for reverse adjacency. It is still future work because the current dense topology is acceptable for Slice 1, and because the harder question is semantic: how to exploit highways, ramps, stations, and chokepoints without breaking dense-grid correctness.
+
+### Heuristic and queue variants
+Plain bidirectional A* belongs only to point-to-point repair in Slice 1. Additional variants are worth preserving as alternatives:
+
+- A standard A* heuristic can guide one known destination, but it is weak for nearest-destination demand fill because there are many possible goals and the desired behavior is outward discovery.
+- Landmark or ALT-style lower bounds could improve point-to-point repair on large flat graphs, but landmarks must be topology-aware and remain admissible under congestion by using lower-bound, uncongested costs.
+- Dial, radix, or bucket queues could reduce Dijkstra overhead if costs can be represented as bounded integers. Current costs include congestion multipliers and deterministic jitter, so this needs measurement before replacing the binary heap.
+
+These are constant-factor or point-to-point accelerators. They do not remove the need for the route-intent split, candidate batching, invalidation indexes, or hierarchy research.
+
+### Precomputed hierarchy and chokepoints
+The future hierarchy should precompute stable lower-bound structure, not final traffic-adjusted routes. Traffic changes constantly; topology and access structure change much less often. Good candidates for precomputation are:
+
+- local costs from lots to arterial, ramp, station, or chunk-portal nodes;
+- portal-to-portal or station-to-station lower-bound distances;
+- reusable mini-routes that can be composed and then refined against current traffic;
+- opportunistic cut sets, such as a neighborhood with one access road where every commuter must pass through the same chokepoint.
+
+The city can be a dense grid or a set of isolated neighborhoods, and the same algorithm must behave well in both. A chokepoint cache should activate when the graph actually has a small separator; a dense grid should fall back to flat or portal search without pretending that one access point exists. High-throughput routes such as highways and trains should bias long trips because of lower cost and capacity, but local roads must remain viable when they are closer or when the high-tier route is congested.
+
+## Older Options And Where They Land Now
 ### Option A: Persist Dense Scratch
 - `TransportPathScratch` has been moved out of `runCommuteAssignment` and is now persistent for commute routing.
 - Keep current dense node ids and current `TransportCostMap` storage.
@@ -353,7 +437,7 @@ This changes typical setup from `O(D)` per selected source to `O(nearby candidat
 - Cost: temporarily stale routes remain until processed. This is a deliberate simulation smoothing tradeoff and should be visible through a pending commute repair counter.
 
 ## Recommended Design
-Option A and the sparse traffic-load portion of Option B are implemented. Continue from the current dense-topology, sparse-load architecture, but make Option D the next routing scalability step. Defer chunk-owned topology-cache work until profiling proves dense topology memory/locality is still the bottleneck. Keep Option C as a later batch accelerator after deterministic budgets and invalidation indexes exist.
+Option A and the sparse traffic-load portion of Option B are implemented. Continue from the current dense-topology, sparse-load architecture for Slice 1. The next concrete work is not destination bucketing or a chunk-owned topology cache; it is the flat routing split: one nearest-destination Dijkstra per selected source, separate nearest-destination and point-to-point APIs, and bidirectional A* for point-to-point route repair. Defer deterministic route queues, route splitting, invalidation indexes, destination fields, chunk portals, and chunk-owned sparse topology until after this slice is measured.
 
 Immediate data shape:
 - Keep the existing dense `TransportCostMap` topology for now.
@@ -369,7 +453,18 @@ Sparse load policy:
 - Traffic overlay pixels and overlay chunk revisions update only for tiles touched by load deltas. The overlay pixel is the worst utilization across morning/evening, modes, layers, and directions.
 - Full load/overlay rebuild remains available for imports, graph rebuilds, debugging, and validation.
 
-Lazy route policy:
+Flat nearest-destination policy:
+- Source demand fill should run one outward Dijkstra/uniform-cost search from source access nodes and collect enough compatible destination candidates before assigning route records.
+- Do not re-run the source-root search once per accepted destination.
+- Batch route creation after candidate collection so one source's accepted routes can be reduced/applied together through the sparse load pipeline.
+- If morning candidate collection succeeds but evening validation rejects too much capacity, continue/resume candidate collection if possible rather than restarting from the source root.
+
+Point-to-point repair policy:
+- Existing-route repair, same-destination medium retry, and destination-specific replacement should use the point-to-point routing API.
+- The point-to-point API should become bidirectional A* with explicit reverse adjacency for movement and transfer edges.
+- The heuristic must be admissible under congestion by using fastest uncongested lower-bound movement, not current congested cost.
+
+Later lazy route policy:
 - Route against previous-tick committed loads during a batch, not against every immediately added commuter. This keeps route jobs parallel and avoids turning one long route into thousands of topology writes.
 - Search only until enough vacancies are found to satisfy the selected unemployed demand budget, then stop.
 - Keep the rolling rebalance queue, but compute its per-tick fraction from a target sweep in logical days: `routineFractionPerTick = 1 / (targetSweepDays * ticksPerDay)`.
@@ -414,35 +509,45 @@ Later topology-cache shape:
 ## Implementation Phases
 0. **Persistent scratch:** implemented for commute routing. Additional timing counters for scratch reset/path search/load begin/load commit/overlay refresh are still useful.
 1. **Sparse load pipeline:** implemented for ordinary commute load changes and touched overlay updates while keeping current dense topology.
-2. **Deterministic route work queue:** replace vector forced-queue dedupe with queued flags/epochs, add fixed forced/routine/path budgets, and preserve stale routes until a source is processed.
-3. **Indexed invalidation:** add destination back-references and either route-edge indexes or route chunk-generation stamps so large road edits queue affected sources without scanning all routes.
-4. **Destination candidate filtering:** use deterministic spatial buckets to avoid pushing every destination access node into every morning request.
-5. **Parallel batches:** move route recalculation into worker batches with worker-local scratch and deltas, then deterministic reduce.
-6. **Chunk-owned topology cache:** only if profiling still points at topology traversal or dense memory, introduce a chunk-owned active-edge cache rebuilt wholesale per dirty chunk after topology edits.
-7. **Destination fields:** add reverse vacancy fields for high-volume markets only after route batching, invalidation indexes, and sparse loads are stable.
+2. **Flat slice 1A, single-pass nearest-destination search:** change demand-fill assignment so one source-root Dijkstra gathers enough reachable destination candidates, then batch-assigns route records without re-running from the source for each accepted destination.
+3. **Flat slice 1B, route API split:** separate nearest-destination demand fill from point-to-point route repair in the public/internal routing surface.
+4. **Flat slice 1C, bidirectional A* route repair:** implement point-to-point repair with bidirectional A*, reverse adjacency, admissible heuristic, and equivalence tests against the current Dijkstra behavior.
+5. **Later flat optimization, route splitting:** add deterministic source-demand splitting with virtual local load so parallel routes can share demand under congestion before committing sparse load deltas.
+6. **Later flat optimization, route work budgeting and invalidation indexes:** add deterministic forced/routine budgets, O(1) forced-queue dedupe, destination back-references, and route-edge or route-region invalidation.
+7. **Hierarchical research slice:** design and prototype chunk portals, transport-tier nodes, composed mini-routes, chokepoint caching, and possible sparse/chunk-owned topology after the flat routing slice is measured.
 
 ## Test Plan
-- Add a deterministic smart-RCI count test for a full 1024 residential grid: `305,832` car pathable tiles, `305,832` pedestrian pathable tiles, `92,208` lots, and `278,484` frontage points.
-- Add the same count test for full 1024 industrial: `224,112` car pathable tiles, `224,112` pedestrian pathable tiles, `51,528` lots, and `207,024` frontage points.
-- Keep persistent-scratch tests or instrumentation checks proving ordinary route searches do not allocate map-sized scratch.
+- Add tests proving a source with demand larger than one destination capacity can satisfy multiple destinations from one nearest-destination search and produces the same accepted route order as repeated Dijkstra on simple networks.
+- Add a test where reachable destination capacity before max cost is insufficient; the source should create routes only for reachable capacity and leave remaining demand unsatisfied.
+- Add round-trip tests where the morning nearest destination fails evening validation, proving batch assignment selects later valid candidates without restarting from the source per candidate.
+- Add API tests covering the distinction between nearest-destination demand fill and point-to-point repair.
+- Add point-to-point bidirectional A* equivalence tests against the current Dijkstra search on straight roads, corners, intersections, disconnected roads, one-way roads, mixed car/pedestrian access, and transfer edges.
+- Add congestion tests proving bidirectional A* uses previous committed load and keeps the heuristic optimistic rather than congestion-overestimating.
 - Extend sparse load-delta tests beyond the current unit coverage: removing one route, adding one route, and rerouting many routes should touch only the expected edge ids and overlay chunks.
-- Add commute tests for round-trip validity, one-way invalid destinations, per-direction medium retry flags, and reassignment after already-retried medium/long/invalid directions.
-- Add lazy-budget tests proving route search stops after enough vacancies are found for the selected unemployed demand budget.
 - Add budget tests proving a forced queue of `N` invalidated source lots processes exactly `min(N, budget)` sources on a given tick and leaves the rest queued deterministically.
 - Add a `ticksPerDay > 2` test proving date length does not skew morning/evening medium-route repair.
 - Add topology-deletion tests proving stale routes remain active until processed, then subtract old load and add replacement load in one sparse transaction.
 - Add invalidation-index tests proving a dirty road edge/chunk queues only routes crossing that edge/chunk, plus affected destination back-references, without scanning every route.
-- Add route equivalence tests before any topology cache work, comparing the dense current route results with the chunk-owned cache on straight roads, corners, intersections, disconnected roads, one-way roads, and mixed car/pedestrian access.
-- Add sparse mode tests with a tiny rail/subway line to verify node count scales with track/station tiles rather than map size.
-- Add a performance regression test that recalculates at least 500 source routes on the 1024 residential ideal grid without allocating map-sized scratch or scanning all map nodes in ordinary load commit.
+- Add route-splitting tests later: a fast avenue plus slower parallel roads should concentrate more load on the avenue when uncongested, then assign some load to parallel roads when virtual local load makes them competitive.
+- Keep the deterministic smart-RCI count test for a full `1024` residential grid: `305,832` car pathable tiles, `305,832` pedestrian pathable tiles, `92,208` lots, and `278,484` frontage points.
+- Keep the same count test for full `1024` industrial: `224,112` car pathable tiles, `224,112` pedestrian pathable tiles, `51,528` lots, and `207,024` frontage points.
+- Keep a performance regression test that recalculates at least `500` source routes on the `1024` residential ideal grid without allocating map-sized scratch or scanning all map nodes in ordinary load commit.
+- In the sparse/chunk topology slice, add route equivalence tests comparing dense current route results with the chunk-owned cache on straight roads, corners, intersections, disconnected roads, one-way roads, and mixed car/pedestrian access.
+- In the sparse-mode slice, add a tiny rail/subway line test proving node count scales with track/station tiles rather than map size.
+- In the hierarchical slice, add dense-grid fallback tests and single-chokepoint neighborhood tests before accepting any portal/tier/chokepoint cache as authoritative.
 
 ## Open Questions To Resolve During Implementation
+- For single-pass nearest-destination search, should evening validation happen during candidate collection, after candidate collection, or through a resumable search that continues if later round-trip validation rejects too much capacity?
+- How much extra destination capacity should the nearest-destination pass collect to avoid resuming after evening rejects?
+- What is the exact point-to-point bidirectional A* stop condition for this directed graph with transfer edges and multiple start/goal access nodes?
+- Should reverse movement adjacency be generated on the fly from dense neighbor cells, or should the cost map maintain explicit reverse edge lists for movement and transfer edges?
+- What lower-bound heuristic should be used across mixed car/pedestrian modes and future transfers? Default: fastest uncongested tile movement with zero transfer optimism, never current congested cost.
 - Whether to keep `(fromNodeId, roadDirection)` as the long-term dense movement edge identity or introduce explicit edge ids before chunk-owned topology work.
 - Whether traffic overlay should update when hidden. Default: do not rebuild overlay pixels while hidden; mark touched chunks stale and rebuild lazily when the overlay is requested.
-- Whether route jobs should read old load or old load plus same-tick accepted deltas. Default: read previous-tick committed loads for parallelism and deterministic batching.
-- Whether the later chunk-owned topology cache should use one shared graph or one graph per mode. Default: one cache with mode in the node key so transfers are natural.
-- Whether destination fields should be congestion-aware. Default: use previous-tick congestion in edge costs when building the field, then still run candidate validation in reduce.
+- Whether route jobs should read old load or old load plus same-source virtual local deltas. Default: nearest/repair searches read previous committed load; later route splitting may layer a per-source virtual delta before commit.
+- Whether the later hierarchy should use chunk portals, transport-tier nodes, composed mini-routes, chokepoint/cut-set caches, sparse/chunk-owned topology, or a mix of those.
+- Whether destination candidates should ever be bucketed separately from hierarchy. Default: not in Slice 1; evaluate alongside the hierarchy slice, and if revived, use deterministic coarse transport chunks or fixed grid cells with widening fallback to all destinations.
+- Whether future destination fields should be congestion-aware. Default: use previous-tick congestion in edge costs when building the field, then still run candidate validation in reduce.
 - What forced-source budget feels right at `T = 24`. The table above suggests `B = 250` drains `20,000` invalidated sources in about `3.3` logical days, while `B = 100` takes about `8.3` days.
 - Whether stale invalid routes should continue contributing commute satisfaction until processed. Default: yes for smooth background repair, with a visible pending repair count; clear satisfaction only when that source is processed and no replacement route is found.
 - Whether route budgeting should be source-atomic or resumable mid-source. Default: source-atomic with a conservative destination-reject cap until profiling shows individual sources dominate.
-- How destination candidates should be bucketed. Default: coarse transport chunks or a fixed grid, searched in deterministic expanding Manhattan rings.

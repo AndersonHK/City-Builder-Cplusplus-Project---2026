@@ -154,7 +154,7 @@ msbuild 'City Builder/RciLotConstructionTests.vcxproj' /p:Configuration=Release 
 
 ## Design guides
 - `docs/design/transport-network.md` - template-owned road placement, lane cells, directional cost maps, pathfinding, crosswalk graphic rules, packed road state, and layer revisions. Main code anchors: `TransportTypes.h`, `TransportCostMap.h`, `RoadLane.h`, `RoadLaneCell.h`, `RoadGraphic.h`, `RoadTemplateDefinition.h`, `Road.h`, `TransportTile.h`, `RoadRenderState.h`, and `TransportNetwork.h`.
-- `docs/design/transport-routing-scalability-plan.md` - plan for persistent route scratch, sparse traffic load deltas, lazy route budgeting, later chunk-owned routing topology caches, and future destination-field reuse.
+- `docs/design/transport-routing-scalability-plan.md` - plan for flat route-search cleanup, single-pass nearest-destination Dijkstra, point-to-point bidirectional A* repair, later route splitting, and future hierarchical routing research.
 - `docs/design/app-config.md` - INI-backed startup preferences, hotkeys, date display settings, and debug console gates.
 - `docs/design/city-morphology-art-direction.md` - low-poly art direction for SC4-like controlled chaos, narrow/deep parcel grain, frontage rhythm, block composition, and freecam-safe isometric readability. Main code anchors: `RciTool.cpp`, `Lot.h`, `Lot.cpp`, and `Data/RCI/rci_tools.xml`.
 - `docs/design/lot-density-progression.md` - RCI density progression, SC4-inspired stage lessons, half-scale tile balancing, local density-cap scoring, rowhouse/apartment density bands, and redevelopment mix targets. Main code anchors: `rci_tools.xml`, `SimulationRuntime::rciMaxDensityPerTile`, `SimulationRuntime::rciDesirabilityForCandidate`, and `findRciConstructorLotAsset`.

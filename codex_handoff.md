@@ -45,7 +45,7 @@ Workspace: repository root
   - packed ground-road render state
   - split ground/elevated road chunk revisions
 - `SimulationTime` owns day/tick scaling; one logical day is currently two simulation ticks. Date display uses logical days, and authored day durations should convert at load/setup time.
-- `TransportCostMap` now owns directional `(tile, layer, mode)` base costs/capacities/access, sparse transfer edges, morning/evening mutable traffic load states, and A* scratch-driven pathfinding.
+- `TransportCostMap` now owns directional `(tile, layer, mode)` base costs/capacities/access, sparse transfer edges, morning/evening mutable traffic load states, and reusable uniform-cost/Dijkstra scratch-driven pathfinding. The next route slice should add single-pass nearest-destination demand fill and point-to-point bidirectional A* repair.
 - Commute assignment now requires round-trip-valid destinations: morning home-to-job and evening job-to-home. Lot query arrows/text publish morning commutes, road query arrows/text publish morning and evening commutes, and the traffic overlay shows the worst tile utilization across morning/evening, modes, layers, and directions.
 - Worker chunk dispatch no longer copies a hot-path `std::function`; it uses an enum-driven task path plus an atomic chunk cursor.
 - The simulation thread now participates in chunk work instead of only dispatching and waiting.
