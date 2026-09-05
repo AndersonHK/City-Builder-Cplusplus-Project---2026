@@ -1,0 +1,11 @@
+<module id="driveway_cap_both_module">
+  <size width="1" height="1" />
+  <effects airPollution="0" landValue="0" />
+  <render mesh="metric_driveway_cap_both_module" family="driveway_cap_both" metric="true" stretch="false" widthMeters="6.00" depthMeters="6.00" heightMeters="1.80" height="0.30000" floors="1" seed="0" colorR="0.31" colorG="0.33" colorB="0.33" />
+  <variations>
+    <variation id="blue_sedan" weight="3" seed="1" carStyle="sedan" colorR="0.25" colorG="0.37" colorB="0.48" />
+    <variation id="silver_wagon" weight="2" seed="2" carStyle="wagon" colorR="0.61" colorG="0.64" colorB="0.63" />
+    <variation id="red_pickup" weight="1" seed="3" carStyle="pickup" colorR="0.52" colorG="0.23" colorB="0.18" />
+  </variations>
+  <pathBlocker xMeters="1.4" zMeters="0" widthMeters="3.2" depthMeters="4.5" />
+</module>

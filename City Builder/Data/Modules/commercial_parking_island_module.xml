@@ -1,0 +1,10 @@
+<module id="commercial_parking_island_module">
+  <size width="1" height="1" />
+  <effects airPollution="0" parkEffect="0" landValue="0" />
+  <render mesh="metric_commercial_parking_island_module" family="parking_island" widthMeters="6" depthMeters="6" heightMeters="5.4" floors="1" seed="0" colorR="0.35" colorG="0.4" colorB="0.43" metric="true" stretch="false" />
+  <variations>
+    <variation id="oak" weight="3" treeStyle="oak" />
+    <variation id="birch" weight="2" treeStyle="birch" />
+    <variation id="conifer" weight="1" treeStyle="conifer" />
+  </variations>
+</module>

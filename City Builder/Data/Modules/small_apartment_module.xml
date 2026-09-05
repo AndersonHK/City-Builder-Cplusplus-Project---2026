@@ -1,0 +1,8 @@
+<module id="small_apartment_module" density="medium">
+  <size width="2" height="2" />
+  <effects airPollution="0" landValue="2600" />
+  <render mesh="metric_small_apartment_module" height="2.77833" colorR="0.55" colorG="0.49" colorB="0.44" family="walkup" widthMeters="11.04" depthMeters="11.04" heightMeters="16.67" floors="5" seed="55" metric="true" stretch="false" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="13" />
+  </parameters>
+</module>

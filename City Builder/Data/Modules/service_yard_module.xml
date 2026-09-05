@@ -1,0 +1,5 @@
+<module id="service_yard_module">
+  <size width="1" height="1" />
+  <effects airPollution="6" landValue="125" />
+  <render mesh="metric_service_yard_module" height="0.04167" colorR="0.38" colorG="0.35" colorB="0.30" family="yard" widthMeters="6.00" depthMeters="6.00" heightMeters="0.25" floors="1" seed="51" metric="true" stretch="true" />
+</module>

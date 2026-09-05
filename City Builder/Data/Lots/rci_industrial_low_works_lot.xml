@@ -1,0 +1,28 @@
+<lot id="rci_industrial_low_works_lot" name="Low Industrial Works" zoningType="industrial" densityBand="low" constructionDays="5">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="2" height="2" />
+  <compatibility minWidth="2" maxWidth="8" minDepth="2" maxDepth="8" />
+  <front direction="north" />
+  <autoLayout>
+    <autoModule id="warehouse_module" role="primary" minWidth="2" maxWidth="2" minDepth="2" maxDepth="2" xRef="start" x="0" yRef="start" y="0" />
+    <autoModule id="warehouse_module" role="primary" minWidth="2" maxWidth="2" minDepth="3" maxDepth="8" xRef="start" x="0" yRef="start" y="1" />
+    <autoModule id="warehouse_module" role="primary" minWidth="3" maxWidth="3" minDepth="2" maxDepth="2" xRef="start" x="1" yRef="start" y="0" />
+    <autoModule id="warehouse_module" role="primary" minWidth="3" maxWidth="3" minDepth="3" maxDepth="8" xRef="start" x="1" yRef="start" y="1" />
+    <autoModule id="warehouse_module" role="primary" minWidth="4" maxWidth="4" minDepth="2" maxDepth="2" xRef="start" x="1" yRef="start" y="0" />
+    <autoModule id="warehouse_module" role="primary" minWidth="4" maxWidth="4" minDepth="3" maxDepth="8" xRef="start" x="1" yRef="start" y="1" />
+    <autoModule id="warehouse_module" role="primary" minWidth="5" maxWidth="5" minDepth="2" maxDepth="2" xRef="start" x="2" yRef="start" y="0" />
+    <autoModule id="warehouse_module" role="primary" minWidth="5" maxWidth="5" minDepth="3" maxDepth="8" xRef="start" x="2" yRef="start" y="1" />
+    <autoModule id="warehouse_module" role="primary" minWidth="6" maxWidth="6" minDepth="2" maxDepth="2" xRef="start" x="2" yRef="start" y="0" />
+    <autoModule id="warehouse_module" role="primary" minWidth="6" maxWidth="6" minDepth="3" maxDepth="8" xRef="start" x="2" yRef="start" y="1" />
+    <autoModule id="warehouse_module" role="primary" minWidth="7" maxWidth="7" minDepth="2" maxDepth="2" xRef="start" x="3" yRef="start" y="0" />
+    <autoModule id="warehouse_module" role="primary" minWidth="7" maxWidth="7" minDepth="3" maxDepth="8" xRef="start" x="3" yRef="start" y="1" />
+    <autoModule id="warehouse_module" role="primary" minWidth="8" maxWidth="8" minDepth="2" maxDepth="2" xRef="start" x="3" yRef="start" y="0" />
+    <autoModule id="warehouse_module" role="primary" minWidth="8" maxWidth="8" minDepth="3" maxDepth="8" xRef="start" x="3" yRef="start" y="1" />
+    <autoModule id="service_yard_module" required="false" xRef="end" yRef="front" />
+    <autoFill id="concrete_floor_module" alternatives="concrete_floor_module:4,industrial_boxes_module:1" />
+  </autoLayout>
+  <access>
+    <connection xRef="center" yRef="front" modes="pedestrian" />
+    <connection xRef="end" yRef="front" modes="car" />
+  </access>
+</lot>

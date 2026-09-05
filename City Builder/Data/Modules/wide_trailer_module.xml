@@ -1,0 +1,8 @@
+<module id="wide_trailer_module">
+  <size width="3" height="1" />
+  <effects airPollution="0" landValue="550" />
+  <render mesh="metric_wide_trailer_module" height="0.75000" colorR="0.63" colorG="0.62" colorB="0.52" family="trailer" widthMeters="11.50" depthMeters="5.50" heightMeters="4.50" floors="1" seed="70" metric="true" stretch="false" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="3" />
+  </parameters>
+</module>

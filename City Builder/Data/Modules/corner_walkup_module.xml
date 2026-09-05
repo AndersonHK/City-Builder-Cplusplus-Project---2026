@@ -1,0 +1,8 @@
+<module id="corner_walkup_module" density="medium">
+  <size width="3" height="4" />
+  <effects airPollution="0" landValue="4100" />
+  <render mesh="metric_corner_walkup_module" height="1.76167" colorR="0.60" colorG="0.55" colorB="0.49" family="walkup" widthMeters="16.56" depthMeters="22.08" heightMeters="10.57" floors="3" seed="7" metric="true" stretch="false" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="30" />
+  </parameters>
+</module>

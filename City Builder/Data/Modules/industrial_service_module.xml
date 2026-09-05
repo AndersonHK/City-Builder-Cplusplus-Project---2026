@@ -1,0 +1,10 @@
+<module id="industrial_service_module">
+  <size width="1" height="1" />
+  <effects airPollution="0" parkEffect="0" landValue="0" />
+  <render mesh="metric_industrial_service_module" family="industrial_service" widthMeters="6" depthMeters="6" heightMeters="3.2" floors="1" seed="0" colorR="0.35" colorG="0.4" colorB="0.43" metric="true" stretch="false" />
+  <variations>
+    <variation id="container" weight="3" seed="0" colorR="0.31" colorG="0.42" colorB="0.43" />
+    <variation id="vessels" seed="1" colorR="0.63" colorG="0.65" colorB="0.61" />
+    <variation id="pallets" weight="2" seed="2" colorR="0.33" colorG="0.41" colorB="0.32" />
+  </variations>
+</module>

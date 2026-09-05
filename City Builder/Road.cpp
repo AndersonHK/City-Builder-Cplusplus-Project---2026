@@ -21,10 +21,265 @@ bool IsTileInsideMap(int tileX, int tileY, int mapWidth, int mapHeight) {
 bool LaneRoleUsesDirectedFlow(RoadLaneRole laneRole) {
     return laneRole == RoadLaneRole::Through || laneRole == RoadLaneRole::Turn || laneRole == RoadLaneRole::Transit;
 }
+
+RoadAxis AxisBetween(const Int2& startTile, const Int2& endTile) {
+    if (startTile == endTile) {
+        return RoadAxis::None;
+    }
+    if (startTile.y == endTile.y) {
+        return RoadAxis::Horizontal;
+    }
+    if (startTile.x == endTile.x) {
+        return RoadAxis::Vertical;
+    }
+    return RoadAxis::None;
+}
+
+std::uint8_t DirectionBetween(const Int2& startTile, const Int2& endTile) {
+    if (startTile.y == endTile.y) {
+        return startTile.x <= endTile.x ? kRoadDirectionEast : kRoadDirectionWest;
+    }
+    if (startTile.x == endTile.x) {
+        return startTile.y <= endTile.y ? kRoadDirectionSouth : kRoadDirectionNorth;
+    }
+    return 0;
+}
+
+bool DirectionIsPositive(std::uint8_t direction) {
+    return direction == kRoadDirectionEast || direction == kRoadDirectionSouth;
+}
+
+bool CrossSectionLeftSideIsHigh(std::uint8_t direction) {
+    return direction == kRoadDirectionWest || direction == kRoadDirectionSouth;
+}
+
+std::uint8_t CanonicalTwoWayForwardDirection(RoadAxis axis) {
+    if (axis == RoadAxis::Horizontal) {
+        return kRoadDirectionEast;
+    }
+    if (axis == RoadAxis::Vertical) {
+        return kRoadDirectionNorth;
+    }
+    return 0;
+}
+
+int AxisCoordinate(const Int2& tile, RoadAxis axis) {
+    return axis == RoadAxis::Horizontal ? tile.x : tile.y;
+}
+
+void SetAxisCoordinate(Int2& tile, RoadAxis axis, int coordinate) {
+    if (axis == RoadAxis::Horizontal) {
+        tile.x = coordinate;
+    } else if (axis == RoadAxis::Vertical) {
+        tile.y = coordinate;
+    }
+}
+
+int DistanceToHorizontalSide(int localX, int footprint, std::uint8_t outsideDirection) {
+    return outsideDirection == kRoadDirectionEast ? footprint - 1 - localX : localX;
+}
+
+int DistanceToVerticalSide(int localY, int footprint, std::uint8_t outsideDirection) {
+    return outsideDirection == kRoadDirectionSouth ? footprint - 1 - localY : localY;
+}
+
+bool PathLaneAllowsCapReturn(const RoadLanePlacement& lanePlacement) {
+    return !lanePlacement.isCar() || RoadTemplateDirectionModeFromId(lanePlacement.templateId) == RoadDirectionMode::TwoWay;
+}
+
+bool LaneTypeCollapsesToOneTile(const RoadLanePlacement& lanePlacement) {
+    return lanePlacement.isCar() || lanePlacement.isPedestrian() || lanePlacement.isSeparator();
+}
+
+bool SamePathLaneBody(const RoadLanePlacement& left, const RoadLanePlacement& right) {
+    return LaneTypeCollapsesToOneTile(left) &&
+        LaneTypeCollapsesToOneTile(right) &&
+        left.family == right.family &&
+        left.laneType == right.laneType &&
+        left.laneIndex == right.laneIndex &&
+        left.axis == right.axis &&
+        left.sideOverlaps(right);
+}
+
+bool HasSamePathLaneAt(const std::vector<RoadTilePlacement>& placements, const RoadLanePlacement& lanePlacement, int tileX, int tileY, std::uint8_t roadDirection) {
+    std::size_t placementIndex = 0;
+    for (; placementIndex < placements.size(); ++placementIndex) {
+        const RoadLanePlacement& candidate = placements[placementIndex].lanePlacement;
+        if (candidate.tileX == tileX &&
+            candidate.tileY == tileY &&
+            SamePathLaneBody(lanePlacement, candidate) &&
+            candidate.hasTravelDirection(roadDirection)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool SameReturnLaneBody(const RoadLanePlacement& left, const RoadLanePlacement& right) {
+    return !left.isSeparator() &&
+        !right.isSeparator() &&
+        left.family == right.family &&
+        left.laneType == right.laneType &&
+        left.axis == right.axis &&
+        left.sideOverlaps(right);
+}
+
+std::uint8_t CapReturnDirectionForPathLane(const std::vector<RoadTilePlacement>& placements, const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection, int mapWidth, int mapHeight) {
+    if (roadDirection == 0 || lanePlacement.axis == RoadAxis::None) {
+        return 0;
+    }
+
+    const std::uint8_t crossDirections[] = {
+        lanePlacement.axis == RoadAxis::Horizontal ? kRoadDirectionNorth : kRoadDirectionWest,
+        lanePlacement.axis == RoadAxis::Horizontal ? kRoadDirectionSouth : kRoadDirectionEast
+    };
+    const std::uint8_t returnDirection = OppositeRoadDirection(roadDirection);
+    const int maximumCrossSteps = std::max(mapWidth, mapHeight);
+
+    std::size_t crossDirectionIndex = 0;
+    for (; crossDirectionIndex < sizeof(crossDirections) / sizeof(crossDirections[0]); ++crossDirectionIndex) {
+        const std::uint8_t crossDirection = crossDirections[crossDirectionIndex];
+        int scanTileX = lanePlacement.tileX;
+        int scanTileY = lanePlacement.tileY;
+        int stepIndex = 0;
+        for (; stepIndex < maximumCrossSteps; ++stepIndex) {
+            scanTileX += RoadDirectionDeltaX(crossDirection);
+            scanTileY += RoadDirectionDeltaY(crossDirection);
+            if (scanTileX < 0 || scanTileX >= mapWidth || scanTileY < 0 || scanTileY >= mapHeight) {
+                break;
+            }
+
+            std::size_t placementIndex = 0;
+            bool foundRoadBody = false;
+            for (; placementIndex < placements.size(); ++placementIndex) {
+                const RoadLanePlacement& candidate = placements[placementIndex].lanePlacement;
+                if (candidate.tileX != scanTileX ||
+                    candidate.tileY != scanTileY ||
+                    candidate.family != lanePlacement.family) {
+                    continue;
+                }
+
+                foundRoadBody = true;
+                if (SameReturnLaneBody(lanePlacement, candidate) &&
+                    candidate.laneIndex != lanePlacement.laneIndex &&
+                    candidate.hasTravelDirection(returnDirection)) {
+                    return crossDirection;
+                }
+            }
+
+            if (!foundRoadBody) {
+                break;
+            }
+        }
+    }
+
+    return 0;
+}
+
+bool HasSameLaneDifferentAxisNearby(const std::vector<RoadTilePlacement>& placements, const RoadLanePlacement& lanePlacement);
+
+std::uint8_t RawMovementMaskForPathLane(const std::vector<RoadTilePlacement>& placements, const RoadLanePlacement& lanePlacement, int mapWidth, int mapHeight) {
+    if (lanePlacement.isSeparator()) {
+        return 0;
+    }
+
+    std::uint8_t movementMask = 0;
+    const bool hasDifferentAxisNearby = HasSameLaneDifferentAxisNearby(placements, lanePlacement);
+    const std::uint8_t directions[] = {
+        kRoadDirectionNorth,
+        kRoadDirectionEast,
+        kRoadDirectionSouth,
+        kRoadDirectionWest
+    };
+
+    std::size_t directionIndex = 0;
+    for (; directionIndex < sizeof(directions) / sizeof(directions[0]); ++directionIndex) {
+        const std::uint8_t direction = directions[directionIndex];
+        if (!lanePlacement.hasTravelDirection(direction)) {
+            continue;
+        }
+
+        const int neighborTileX = lanePlacement.tileX + RoadDirectionDeltaX(direction);
+        const int neighborTileY = lanePlacement.tileY + RoadDirectionDeltaY(direction);
+        if (HasSamePathLaneAt(placements, lanePlacement, neighborTileX, neighborTileY, direction)) {
+            movementMask |= direction;
+        } else if (!hasDifferentAxisNearby && PathLaneAllowsCapReturn(lanePlacement)) {
+            movementMask |= CapReturnDirectionForPathLane(placements, lanePlacement, direction, mapWidth, mapHeight);
+        }
+    }
+
+    return movementMask;
+}
+
+bool HasSameLaneDifferentAxisNearby(const std::vector<RoadTilePlacement>& placements, const RoadLanePlacement& lanePlacement) {
+    std::size_t placementIndex = 0;
+    for (; placementIndex < placements.size(); ++placementIndex) {
+        const RoadLanePlacement& candidate = placements[placementIndex].lanePlacement;
+        if (!LaneTypeCollapsesToOneTile(candidate) ||
+            candidate.laneType != lanePlacement.laneType ||
+            candidate.family != lanePlacement.family ||
+            candidate.laneIndex != lanePlacement.laneIndex ||
+            candidate.axis == lanePlacement.axis) {
+            continue;
+        }
+
+        const int distance = std::abs(candidate.tileX - lanePlacement.tileX) + std::abs(candidate.tileY - lanePlacement.tileY);
+        if (distance <= 1) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void CollapsePathPlacementsToTiles(std::vector<RoadTilePlacement>& placements, int mapWidth, int mapHeight) {
+    (void)placements;
+    (void)mapWidth;
+    (void)mapHeight;
+}
+
+bool CornerWantsLaneAxis(const RoadTilePlacement& placement, const Int2& cornerTile, int footprint, std::uint8_t horizontalOutsideDirection, std::uint8_t verticalOutsideDirection) {
+    if (placement.tileX < cornerTile.x ||
+        placement.tileX >= cornerTile.x + footprint ||
+        placement.tileY < cornerTile.y ||
+        placement.tileY >= cornerTile.y + footprint) {
+        return true;
+    }
+
+    const int localX = placement.tileX - cornerTile.x;
+    const int localY = placement.tileY - cornerTile.y;
+    const int horizontalDistance = DistanceToHorizontalSide(localX, footprint, horizontalOutsideDirection);
+    const int verticalDistance = DistanceToVerticalSide(localY, footprint, verticalOutsideDirection);
+    if (placement.lanePlacement.axis == RoadAxis::Horizontal) {
+        return horizontalDistance <= verticalDistance;
+    }
+    if (placement.lanePlacement.axis == RoadAxis::Vertical) {
+        return verticalDistance <= horizontalDistance;
+    }
+    return true;
+}
+
+RoadFamily FamilyForTemplateKind(RoadTemplateKind templateKind) {
+    return RoadTemplateDefinition::forKind(templateKind).family();
+}
+
+TransportLayerId LayerForTemplateKind(RoadTemplateKind templateKind) {
+    return RoadTemplateDefinition::forKind(templateKind).layer();
+}
+
+RoadDirectionMode DirectionModeForTemplateKind(RoadTemplateKind templateKind, RoadDirectionMode directionMode) {
+    return RoadTemplateDefinition::forKind(templateKind).normalizeDirectionMode(directionMode);
+}
+
+int LaneCountForTemplateKind(RoadTemplateKind templateKind, int laneCount, RoadDirectionMode directionMode) {
+    return RoadTemplateDefinition::forKind(templateKind).normalizeLaneCount(laneCount, directionMode);
+}
 }
 
 RoadTemplate::RoadTemplate()
-    : family(RoadFamily::LocalStreet),
+    : templateKind(RoadTemplateKind::Street),
+      family(RoadFamily::LocalStreet),
       layer(TransportLayerId::Ground),
       trafficSide(RoadTrafficSide::RightHand),
       directionMode(RoadDirectionMode::TwoWay),
@@ -36,6 +291,7 @@ RoadStrokeCommand::RoadStrokeCommand()
     : startTile(0, 0),
       cornerTile(0, 0),
       endTile(0, 0),
+      templateKind(RoadTemplateKind::Street),
       family(RoadFamily::None),
       layer(TransportLayerId::Ground),
       operation(RoadStrokeOperation::Place) {
@@ -55,7 +311,7 @@ Road::LayoutLane::LayoutLane()
 Road::Road(const RoadTemplate& roadTemplate)
     : roadTemplate_(roadTemplate) {
     if (roadTemplate_.identity.id == 0) {
-        roadTemplate_.identity.id = makeTemplateId(roadTemplate_.family, roadTemplate_.layer, roadTemplate_.laneCount, roadTemplate_.trafficSide, roadTemplate_.directionMode);
+        roadTemplate_.identity.id = makeTemplateId(roadTemplate_.templateKind, roadTemplate_.family, roadTemplate_.layer, roadTemplate_.laneCount, roadTemplate_.trafficSide, roadTemplate_.directionMode);
     }
     if (roadTemplate_.identity.footprint == 0) {
         roadTemplate_.identity.footprint = static_cast<std::uint8_t>(std::min(255, chooseTemplateFootprint(roadTemplate_)));
@@ -67,63 +323,120 @@ const RoadTemplate& Road::templateData() const {
 }
 
 bool Road::appendStrokePlacements(const Int2& startTile, const Int2& cornerTile, const Int2& endTile, int mapWidth, int mapHeight, std::vector<RoadTilePlacement>& placements) const {
+    const RoadAxis firstAxis = AxisBetween(startTile, cornerTile);
+    const RoadAxis secondAxis = AxisBetween(cornerTile, endTile);
+    const int footprint = chooseTemplateFootprint(roadTemplate_);
+    if (firstAxis != RoadAxis::None && secondAxis != RoadAxis::None && firstAxis != secondAxis && footprint > 1) {
+        const std::uint8_t firstDirection = DirectionBetween(startTile, cornerTile);
+        const std::uint8_t secondDirection = DirectionBetween(cornerTile, endTile);
+        Int2 adjustedFirstCornerTile = cornerTile;
+        if (DirectionIsPositive(firstDirection)) {
+            SetAxisCoordinate(adjustedFirstCornerTile, firstAxis, AxisCoordinate(cornerTile, firstAxis) + footprint - 1);
+        }
+
+        Int2 adjustedEndTile = endTile;
+        Int2 adjustedSecondStartTile = cornerTile;
+        if (!DirectionIsPositive(secondDirection) && secondDirection != 0) {
+            SetAxisCoordinate(adjustedSecondStartTile, secondAxis, AxisCoordinate(cornerTile, secondAxis) + footprint - 1);
+        }
+        if (DirectionIsPositive(secondDirection)) {
+            adjustedEndTile.x = secondAxis == RoadAxis::Horizontal ? std::max(adjustedEndTile.x, cornerTile.x + footprint) : adjustedEndTile.x;
+            adjustedEndTile.y = secondAxis == RoadAxis::Vertical ? std::max(adjustedEndTile.y, cornerTile.y + footprint) : adjustedEndTile.y;
+        } else if (secondDirection != 0) {
+            adjustedEndTile.x = secondAxis == RoadAxis::Horizontal ? std::min(adjustedEndTile.x, cornerTile.x - 1) : adjustedEndTile.x;
+            adjustedEndTile.y = secondAxis == RoadAxis::Vertical ? std::min(adjustedEndTile.y, cornerTile.y - 1) : adjustedEndTile.y;
+        }
+
+        std::vector<RoadTilePlacement> cornerPlacements;
+        if (!appendLegPlacements(startTile, adjustedFirstCornerTile, mapWidth, mapHeight, cornerPlacements) ||
+            !appendLegPlacements(adjustedSecondStartTile, adjustedEndTile, mapWidth, mapHeight, cornerPlacements)) {
+            return false;
+        }
+
+        const std::uint8_t horizontalOutsideDirection = firstAxis == RoadAxis::Horizontal ? OppositeRoadDirection(firstDirection) : secondDirection;
+        const std::uint8_t verticalOutsideDirection = firstAxis == RoadAxis::Vertical ? OppositeRoadDirection(firstDirection) : secondDirection;
+        std::size_t placementIndex = 0;
+        for (; placementIndex < cornerPlacements.size(); ++placementIndex) {
+            if (CornerWantsLaneAxis(cornerPlacements[placementIndex], cornerTile, footprint, horizontalOutsideDirection, verticalOutsideDirection)) {
+                placements.push_back(cornerPlacements[placementIndex]);
+            }
+        }
+
+        CollapsePathPlacementsToTiles(placements, mapWidth, mapHeight);
+        return true;
+    }
+
     if (!appendLegPlacements(startTile, cornerTile, mapWidth, mapHeight, placements)) {
         return false;
     }
 
-    return appendLegPlacements(cornerTile, endTile, mapWidth, mapHeight, placements);
+    if (!appendLegPlacements(cornerTile, endTile, mapWidth, mapHeight, placements)) {
+        return false;
+    }
+
+    CollapsePathPlacementsToTiles(placements, mapWidth, mapHeight);
+    return true;
 }
 
 RoadTemplate Road::makeTemplate(RoadFamily family, TransportLayerId layer, int laneCount, RoadTrafficSide trafficSide, RoadDirectionMode directionMode) {
+    const RoadTemplateKind templateKind = inferTemplateKind(family, layer, laneCount, directionMode);
+    family = FamilyForTemplateKind(templateKind);
+    layer = LayerForTemplateKind(templateKind);
+    directionMode = DirectionModeForTemplateKind(templateKind, directionMode);
+    laneCount = LaneCountForTemplateKind(templateKind, laneCount, directionMode);
+
     RoadTemplate roadTemplate;
+    roadTemplate.templateKind = templateKind;
     roadTemplate.family = family;
     roadTemplate.layer = layer;
     roadTemplate.trafficSide = trafficSide;
     roadTemplate.directionMode = directionMode;
-    roadTemplate.laneCount = std::max(1, laneCount);
-    roadTemplate.identity.id = makeTemplateId(family, layer, roadTemplate.laneCount, trafficSide, directionMode);
+    roadTemplate.laneCount = laneCount;
+    roadTemplate.identity.id = makeTemplateId(templateKind, family, layer, roadTemplate.laneCount, trafficSide, directionMode);
     roadTemplate.overlapPolicy = RoadTemplateOverlapPolicy::AdapterFriendly;
 
-    const bool hasPedestrianEdgeLanes = family == RoadFamily::LocalStreet && layer == TransportLayerId::Ground;
-
-    RoadTemplateElement pedestrianElement;
-    pedestrianElement.laneType = RoadLaneTypeId::Pedestrian;
-    pedestrianElement.surface = RoadLaneSurface::Sidewalk;
-    pedestrianElement.laneRole = RoadLaneRole::Access;
-    pedestrianElement.behavior.minimumWidth = hasPedestrianEdgeLanes ? 0.18f : 0.0f;
-    pedestrianElement.behavior.preferredWidth = hasPedestrianEdgeLanes ? 0.25f : 0.0f;
-    pedestrianElement.behavior.maximumWidth = hasPedestrianEdgeLanes ? 0.45f : 0.0f;
-    pedestrianElement.behavior.connectorMask = kRoadDirectionNorth | kRoadDirectionEast | kRoadDirectionSouth | kRoadDirectionWest;
-
-    RoadTemplateElement carElement;
-    carElement.laneType = RoadLaneTypeId::Car;
-    carElement.surface = RoadLaneSurface::Asphalt;
-    carElement.laneRole = RoadLaneRole::Through;
-    carElement.behavior.minimumWidth = 0.60f;
-    carElement.behavior.preferredWidth = family == RoadFamily::Highway ? 0.90f : 0.75f;
-    carElement.behavior.maximumWidth = 1.0f;
-    carElement.behavior.connectorMask = kRoadDirectionNorth | kRoadDirectionEast | kRoadDirectionSouth | kRoadDirectionWest;
-
-    if (hasPedestrianEdgeLanes) {
-        roadTemplate.elements.push_back(pedestrianElement);
-    }
-
-    const int totalLaneElements = directionMode == RoadDirectionMode::TwoWay ? roadTemplate.laneCount * 2 : roadTemplate.laneCount;
-    int laneIndex = 0;
-    for (; laneIndex < totalLaneElements; ++laneIndex) {
-        roadTemplate.elements.push_back(carElement);
-    }
-
-    if (hasPedestrianEdgeLanes) {
-        roadTemplate.elements.push_back(pedestrianElement);
-    }
-
+    RoadTemplateDefinition::forKind(templateKind).buildElements(roadTemplate);
     roadTemplate.identity.footprint = static_cast<std::uint8_t>(std::min(255, chooseTemplateFootprint(roadTemplate)));
     return roadTemplate;
 }
 
+RoadTemplate Road::makeTemplate(RoadTemplateKind templateKind, RoadTrafficSide trafficSide, RoadDirectionMode directionMode) {
+    RoadFamily family = FamilyForTemplateKind(templateKind);
+    TransportLayerId layer = LayerForTemplateKind(templateKind);
+    directionMode = DirectionModeForTemplateKind(templateKind, directionMode);
+    const int laneCount = LaneCountForTemplateKind(templateKind, templateKind == RoadTemplateKind::Avenue ? 2 : 1, directionMode);
+
+    RoadTemplate roadTemplate;
+    roadTemplate.templateKind = templateKind;
+    roadTemplate.family = family;
+    roadTemplate.layer = layer;
+    roadTemplate.trafficSide = trafficSide;
+    roadTemplate.directionMode = directionMode;
+    roadTemplate.laneCount = laneCount;
+    roadTemplate.identity.id = makeTemplateId(templateKind, family, layer, roadTemplate.laneCount, trafficSide, directionMode);
+    roadTemplate.overlapPolicy = RoadTemplateOverlapPolicy::AdapterFriendly;
+    RoadTemplateDefinition::forKind(templateKind).buildElements(roadTemplate);
+    roadTemplate.identity.footprint = static_cast<std::uint8_t>(std::min(255, chooseTemplateFootprint(roadTemplate)));
+    return roadTemplate;
+}
+
+RoadTemplateKind Road::inferTemplateKind(RoadFamily family, TransportLayerId layer, int laneCount, RoadDirectionMode directionMode) {
+    if (family == RoadFamily::Highway || layer == TransportLayerId::Elevated) {
+        return RoadTemplateKind::Highway;
+    }
+    if (family == RoadFamily::LocalStreet && layer == TransportLayerId::Ground && directionMode == RoadDirectionMode::TwoWay && laneCount >= 2) {
+        return RoadTemplateKind::Avenue;
+    }
+    return RoadTemplateKind::Street;
+}
+
 std::uint16_t Road::makeTemplateId(RoadFamily family, TransportLayerId layer, int laneCount, RoadTrafficSide trafficSide, RoadDirectionMode directionMode) {
+    return makeTemplateId(inferTemplateKind(family, layer, laneCount, directionMode), family, layer, laneCount, trafficSide, directionMode);
+}
+
+std::uint16_t Road::makeTemplateId(RoadTemplateKind templateKind, RoadFamily family, TransportLayerId layer, int laneCount, RoadTrafficSide trafficSide, RoadDirectionMode directionMode) {
     return static_cast<std::uint16_t>(
+        (static_cast<std::uint16_t>(templateKind) << 14) |
         (static_cast<std::uint16_t>(family) << 12) |
         (static_cast<std::uint16_t>(layer) << 10) |
         (static_cast<std::uint16_t>(trafficSide) << 8) |
@@ -146,6 +459,25 @@ int Road::chooseTemplateFootprint(const RoadTemplate& roadTemplate) {
     return footprint;
 }
 
+RoadLaneCell Road::makeLaneCell(const RoadLanePlacement& lanePlacement, std::uint8_t directionMask, std::uint8_t travelDirectionMask, std::uint8_t pathDirectionMask) {
+    RoadLaneCellContext context;
+    context.directionMask = directionMask;
+    if (travelDirectionMask == 0) {
+        travelDirectionMask = RoadDirectionsFromLaneIntent(lanePlacement.laneTravelMask);
+    }
+    if (pathDirectionMask == 0) {
+        pathDirectionMask = travelDirectionMask;
+    }
+    context.travelDirectionMask = travelDirectionMask;
+    context.pathDirectionMask = pathDirectionMask;
+    return makeLaneCell(lanePlacement, context);
+}
+
+RoadLaneCell Road::makeLaneCell(const RoadLanePlacement& lanePlacement, const RoadLaneCellContext& context) {
+    const RoadTemplateKind templateKind = RoadTemplateKindFromId(lanePlacement.templateId);
+    return RoadTemplateDefinition::forKind(templateKind).makeLaneCell(lanePlacement, context);
+}
+
 bool Road::appendLegPlacements(const Int2& startTile, const Int2& endTile, int mapWidth, int mapHeight, std::vector<RoadTilePlacement>& placements) const {
     if (startTile == endTile) {
         return true;
@@ -155,20 +487,17 @@ bool Road::appendLegPlacements(const Int2& startTile, const Int2& endTile, int m
     std::uint8_t reverseDirection = 0;
     RoadAxis axis = RoadAxis::None;
     bool horizontal = false;
+    std::uint8_t segmentDirection = 0;
     if (startTile.y == endTile.y) {
         horizontal = true;
         axis = RoadAxis::Horizontal;
-        forwardDirection = startTile.x <= endTile.x ? kRoadDirectionEast : kRoadDirectionWest;
-        if (roadTemplate_.directionMode == RoadDirectionMode::TwoWay) {
-            forwardDirection = kRoadDirectionEast;
-        }
+        segmentDirection = startTile.x <= endTile.x ? kRoadDirectionEast : kRoadDirectionWest;
+        forwardDirection = roadTemplate_.directionMode == RoadDirectionMode::TwoWay ? CanonicalTwoWayForwardDirection(axis) : segmentDirection;
         reverseDirection = OppositeRoadDirection(forwardDirection);
     } else if (startTile.x == endTile.x) {
         axis = RoadAxis::Vertical;
-        forwardDirection = startTile.y <= endTile.y ? kRoadDirectionSouth : kRoadDirectionNorth;
-        if (roadTemplate_.directionMode == RoadDirectionMode::TwoWay) {
-            forwardDirection = kRoadDirectionNorth;
-        }
+        segmentDirection = startTile.y <= endTile.y ? kRoadDirectionSouth : kRoadDirectionNorth;
+        forwardDirection = roadTemplate_.directionMode == RoadDirectionMode::TwoWay ? CanonicalTwoWayForwardDirection(axis) : segmentDirection;
         reverseDirection = OppositeRoadDirection(forwardDirection);
     } else {
         return false;
@@ -185,6 +514,18 @@ bool Road::appendLegPlacements(const Int2& startTile, const Int2& endTile, int m
             layoutLanes[mirroredIndex].start = static_cast<float>(footprint) - oldEnd;
             layoutLanes[mirroredIndex].end = static_cast<float>(footprint) - oldStart;
         }
+    }
+    if (roadTemplate_.directionMode != RoadDirectionMode::TwoWay && CrossSectionLeftSideIsHigh(segmentDirection)) {
+        std::size_t mirroredIndex = 0;
+        for (; mirroredIndex < layoutLanes.size(); ++mirroredIndex) {
+            const float oldStart = layoutLanes[mirroredIndex].start;
+            const float oldEnd = layoutLanes[mirroredIndex].end;
+            layoutLanes[mirroredIndex].start = static_cast<float>(footprint) - oldEnd;
+            layoutLanes[mirroredIndex].end = static_cast<float>(footprint) - oldStart;
+        }
+        std::sort(layoutLanes.begin(), layoutLanes.end(), [](const LayoutLane& left, const LayoutLane& right) {
+            return left.start < right.start;
+        });
     }
 
     std::vector<RoadTemplateSeamKind> seamAfter(layoutLanes.size(), RoadTemplateSeamKind::None);
@@ -217,7 +558,7 @@ bool Road::appendLegPlacements(const Int2& startTile, const Int2& endTile, int m
                 tilePlacement.tileX = tileX;
                 tilePlacement.tileY = tileY;
                 tilePlacement.tileIndex = (tileY * mapWidth) + tileX;
-                tilePlacement.lanePlacement = makeLanePlacement(layoutLane, static_cast<int>(laneIndex), tileX, tileY, tilePlacement.tileIndex, axis, crossOffset, footprint, seamAfter);
+                tilePlacement.lanePlacement = makeLanePlacement(layoutLane, static_cast<int>(laneIndex), tileX, tileY, tilePlacement.tileIndex, axis, crossOffset, seamAfter);
                 placements.push_back(tilePlacement);
             }
         }
@@ -305,7 +646,7 @@ std::vector<Road::LayoutLane> Road::buildLayoutLanes(std::uint8_t forwardDirecti
     return lanes;
 }
 
-RoadLanePlacement Road::makeLanePlacement(const LayoutLane& layoutLane, int laneOrdinal, int tileX, int tileY, int tileIndex, RoadAxis axis, int crossOffset, int footprint, const std::vector<RoadTemplateSeamKind>& seamAfter) const {
+RoadLanePlacement Road::makeLanePlacement(const LayoutLane& layoutLane, int laneOrdinal, int tileX, int tileY, int tileIndex, RoadAxis axis, int crossOffset, const std::vector<RoadTemplateSeamKind>& seamAfter) const {
     RoadLanePlacement lanePlacement;
     lanePlacement.tileX = tileX;
     lanePlacement.tileY = tileY;
@@ -319,6 +660,7 @@ RoadLanePlacement Road::makeLanePlacement(const LayoutLane& layoutLane, int lane
     lanePlacement.laneType = layoutLane.lane.laneType();
     lanePlacement.surface = layoutLane.lane.surface();
     lanePlacement.role = layoutLane.lane.role();
+    lanePlacement.separatorStyle = roadTemplate_.elements[static_cast<std::size_t>(layoutLane.lane.laneIndex())].separatorStyle;
     lanePlacement.laneTravelMask = layoutLane.lane.laneTravelMask();
     lanePlacement.arrowTravelMask = layoutLane.lane.arrowTravelMask();
     lanePlacement.sideMin = std::max(0.0f, layoutLane.start - static_cast<float>(crossOffset));
@@ -335,12 +677,17 @@ RoadLanePlacement Road::makeLanePlacement(const LayoutLane& layoutLane, int lane
         }
     }
 
+    if (layoutLane.lane.isSeparator() && lanePlacement.separatorStyle != RoadSeparatorStyle::None) {
+        const float sideMid = (lanePlacement.sideMin + lanePlacement.sideMax) * 0.5f;
+        lanePlacement.opposingDirectionDividerMask |= sideMid < 0.5f ? lowSideBit : highSideBit;
+    }
+
     const int previousLaneIndex = laneOrdinal - 1;
     if (previousLaneIndex >= 0 && previousLaneIndex < static_cast<int>(seamAfter.size()) && seamAfter[static_cast<std::size_t>(previousLaneIndex)] != RoadTemplateSeamKind::None) {
         const std::uint8_t seamBit = lanePlacement.sideMin < 0.5f ? lowSideBit : highSideBit;
         if (seamAfter[static_cast<std::size_t>(previousLaneIndex)] == RoadTemplateSeamKind::SameDirectionLaneDivider) {
             lanePlacement.sameDirectionDividerMask |= seamBit;
-        } else {
+        } else if (seamAfter[static_cast<std::size_t>(previousLaneIndex)] == RoadTemplateSeamKind::OpposingDirectionLaneDivider) {
             lanePlacement.opposingDirectionDividerMask |= seamBit;
         }
     }
@@ -349,7 +696,7 @@ RoadLanePlacement Road::makeLanePlacement(const LayoutLane& layoutLane, int lane
         const std::uint8_t seamBit = lanePlacement.sideMax < 0.5f ? lowSideBit : highSideBit;
         if (seamAfter[static_cast<std::size_t>(laneOrdinal)] == RoadTemplateSeamKind::SameDirectionLaneDivider) {
             lanePlacement.sameDirectionDividerMask |= seamBit;
-        } else {
+        } else if (seamAfter[static_cast<std::size_t>(laneOrdinal)] == RoadTemplateSeamKind::OpposingDirectionLaneDivider) {
             lanePlacement.opposingDirectionDividerMask |= seamBit;
         }
     }

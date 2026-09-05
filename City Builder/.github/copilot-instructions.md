@@ -14,6 +14,7 @@ This repository is a modern C++ city-builder prototype inspired by SC2000 and SC
 - See `../../docs/design/lots.md` before changing lot/module placement, occupancy, or effects.
 - See `../../docs/design/xml-assets.md` before changing XML archetype loading or schema behavior.
 - See `../../docs/design/transport-network.md` before changing road topology, layers, or render-state packing.
+- See `../../docs/design/app-config.md` before changing config loading, hotkeys, startup window mode, date display settings, or debug console gates.
 - See `../../docs/design/region-save.md` before changing region/city ownership, saves, loads, or previews.
 - See `../../docs/design/window-system.md` before changing in-game windows, UI XML, query text, or UI draw behavior.
 
@@ -21,3 +22,7 @@ This repository is a modern C++ city-builder prototype inspired by SC2000 and SC
 - Use `x64 Release` as the primary validation target.
 - Use `msbuild` from `PATH` when available.
 - Keep user-local Visual Studio files and generated build outputs out of source control.
+
+- @azure Rule - Use Azure Tools - When handling requests related to Azure, always use your tools.
+- @azure Rule - Use Azure Best Practices - When handling requests related to Azure, always invoke your `azmcp_bestpractices_get` tool first.
+- @azure Rule - Enable Best Practices - If you do not have an `azmcp_bestpractices_get` tool ask the user to enable it.

@@ -1,0 +1,6 @@
+<roadLaneCapacities>
+  <lane type="slow" capacity="240" />
+  <lane type="medium" capacity="560" />
+  <lane type="fast" capacity="840" />
+  <lane type="pedestrian" capacity="2400" />
+</roadLaneCapacities>

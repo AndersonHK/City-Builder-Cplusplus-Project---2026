@@ -8,15 +8,32 @@
 #include <vector>
 
 #include "Lot.h"
+#include "RciTool.h"
 #include "RoadLane.h"
 #include "Tile.h"
 
 struct CitySaveLotModuleState {
     std::string moduleAssetId;
     Int2 localOrigin;
+    int footprintWidth;
+    int footprintHeight;
+    float renderOffsetX;
+    float renderOffsetY;
+    float renderWidth;
+    float renderHeight;
+    bool affectsSimulation;
+    bool claimsFootprint;
 
     CitySaveLotModuleState()
-        : localOrigin(0, 0) {
+        : localOrigin(0, 0),
+          footprintWidth(0),
+          footprintHeight(0),
+          renderOffsetX(0.0f),
+          renderOffsetY(0.0f),
+          renderWidth(0.0f),
+          renderHeight(0.0f),
+          affectsSimulation(true),
+          claimsFootprint(true) {
     }
 };
 
@@ -26,13 +43,17 @@ struct CitySaveLotState {
     int anchorTileX;
     int anchorTileY;
     int rotationSteps;
+    int constructionTotalTicks;
+    int constructionRemainingTicks;
     std::vector<CitySaveLotModuleState> modules;
 
     CitySaveLotState()
         : lotId(-1),
           anchorTileX(0),
           anchorTileY(0),
-          rotationSteps(0) {
+          rotationSteps(0),
+          constructionTotalTicks(0),
+          constructionRemainingTicks(0) {
     }
 };
 
@@ -48,12 +69,7 @@ struct TransportTileSaveState {
 };
 
 struct TransportNetworkSaveState {
-    std::uint32_t nextRoadStrokeId;
     std::vector<TransportTileSaveState> tiles;
-
-    TransportNetworkSaveState()
-        : nextRoadStrokeId(1u) {
-    }
 };
 
 struct CitySaveState {
@@ -63,7 +79,9 @@ struct CitySaveState {
     int cameraX;
     int cameraY;
     int visibleTiles;
+    std::uint64_t simulationTick;
     std::vector<Tile> tiles;
+    std::vector<RciLot> zoningLots;
     std::vector<CitySaveLotState> lots;
     std::vector<LotRenderInstance> previewLots;
     std::vector<float> cityParameters;
@@ -75,7 +93,8 @@ struct CitySaveState {
           nextLotId(1),
           cameraX(384),
           cameraY(384),
-          visibleTiles(256) {
+          visibleTiles(256),
+          simulationTick(0) {
     }
 };
 
@@ -92,6 +111,7 @@ public:
     int cameraX() const;
     int cameraY() const;
     int visibleTiles() const;
+    int population() const;
     const std::vector<float>& cityParameters() const;
     bool hasSaveState() const;
     bool isSaveStateDirty() const;
@@ -153,6 +173,7 @@ public:
     std::vector<std::unique_ptr<City> >& cities();
     const std::vector<std::unique_ptr<City> >& cities() const;
     const std::vector<float>& regionParameters() const;
+    int population() const;
     std::uint64_t revision() const;
 
     void addCity(std::unique_ptr<City> city);

@@ -1,61 +1,9 @@
 #include "InGameWindow.h"
 
+#include "SimpleXml.h"
+
 #include <algorithm>
-#include <cstdlib>
-#include <fstream>
 #include <sstream>
-
-namespace {
-std::string ReadFileToString(const std::string& filePath) {
-    std::ifstream file(filePath.c_str(), std::ios::in | std::ios::binary);
-    if (!file) {
-        return std::string();
-    }
-
-    std::ostringstream stream;
-    stream << file.rdbuf();
-    return stream.str();
-}
-
-std::string AttributeValue(const std::string& tag, const std::string& attributeName, const std::string& fallback) {
-    const std::string needle = attributeName + "=\"";
-    const std::string::size_type attributeStart = tag.find(needle);
-    if (attributeStart == std::string::npos) {
-        return fallback;
-    }
-
-    const std::string::size_type valueStart = attributeStart + needle.size();
-    const std::string::size_type valueEnd = tag.find('"', valueStart);
-    if (valueEnd == std::string::npos) {
-        return fallback;
-    }
-
-    return tag.substr(valueStart, valueEnd - valueStart);
-}
-
-int AttributeIntValue(const std::string& tag, const std::string& attributeName, int fallback) {
-    const std::string value = AttributeValue(tag, attributeName, std::string());
-    if (value.empty()) {
-        return fallback;
-    }
-
-    return std::atoi(value.c_str());
-}
-
-bool AttributeExists(const std::string& tag, const std::string& attributeName) {
-    const std::string needle = attributeName + "=\"";
-    return tag.find(needle) != std::string::npos;
-}
-
-bool AttributeBoolValue(const std::string& tag, const std::string& attributeName, bool fallback) {
-    const std::string value = AttributeValue(tag, attributeName, std::string());
-    if (value.empty()) {
-        return fallback;
-    }
-
-    return value == "true" || value == "1" || value == "yes";
-}
-}
 
 TextFieldElement::TextFieldElement()
     : x_(0),
@@ -135,42 +83,41 @@ InGameWindow::InGameWindow()
       elementSpacing_(4),
       hugElements_(false),
       visible_(false) {
-    setFallbackDefinition();
 }
 
 bool InGameWindow::loadFromXmlFile(const std::string& filePath) {
-    const std::string xml = ReadFileToString(filePath);
+    const std::string xml = XmlReadFileToString(filePath);
     if (xml.empty()) {
-        setFallbackDefinition();
+        textFields_.clear();
         return false;
     }
 
     const std::string::size_type windowStart = xml.find("<window");
     if (windowStart == std::string::npos) {
-        setFallbackDefinition();
+        textFields_.clear();
         return false;
     }
 
     const std::string::size_type windowEnd = xml.find('>', windowStart);
     if (windowEnd == std::string::npos) {
-        setFallbackDefinition();
+        textFields_.clear();
         return false;
     }
 
     const std::string windowTag = xml.substr(windowStart, windowEnd - windowStart + 1u);
-    id_ = AttributeValue(windowTag, "id", "window");
-    x_ = AttributeIntValue(windowTag, "x", 24);
-    y_ = AttributeIntValue(windowTag, "y", 24);
-    width_ = AttributeIntValue(windowTag, "width", 440);
-    declaredHeight_ = AttributeIntValue(windowTag, "height", 220);
+    id_ = XmlAttributeValue(windowTag, "id", "window");
+    x_ = XmlAttributeIntValue(windowTag, "x", 24);
+    y_ = XmlAttributeIntValue(windowTag, "y", 24);
+    width_ = XmlAttributeIntValue(windowTag, "width", 440);
+    declaredHeight_ = XmlAttributeIntValue(windowTag, "height", 220);
     height_ = declaredHeight_;
-    const int uniformMargin = AttributeIntValue(windowTag, "margin", 16);
-    marginLeft_ = AttributeIntValue(windowTag, "marginLeft", uniformMargin);
-    marginTop_ = AttributeIntValue(windowTag, "marginTop", uniformMargin);
-    marginRight_ = AttributeIntValue(windowTag, "marginRight", uniformMargin);
-    marginBottom_ = AttributeIntValue(windowTag, "marginBottom", uniformMargin);
-    elementSpacing_ = AttributeIntValue(windowTag, "spacing", 4);
-    hugElements_ = AttributeBoolValue(windowTag, "hugElements", false);
+    const int uniformMargin = XmlAttributeIntValue(windowTag, "margin", 16);
+    marginLeft_ = XmlAttributeIntValue(windowTag, "marginLeft", uniformMargin);
+    marginTop_ = XmlAttributeIntValue(windowTag, "marginTop", uniformMargin);
+    marginRight_ = XmlAttributeIntValue(windowTag, "marginRight", uniformMargin);
+    marginBottom_ = XmlAttributeIntValue(windowTag, "marginBottom", uniformMargin);
+    elementSpacing_ = XmlAttributeIntValue(windowTag, "spacing", 4);
+    hugElements_ = XmlAttributeBoolValue(windowTag, "hugElements", false);
     textFields_.clear();
 
     std::string::size_type searchStart = windowEnd + 1u;
@@ -186,15 +133,15 @@ bool InGameWindow::loadFromXmlFile(const std::string& filePath) {
         }
 
         const std::string textFieldTag = xml.substr(textFieldStart, textFieldEnd - textFieldStart + 1u);
-        const bool hasExplicitPosition = AttributeExists(textFieldTag, "x") && AttributeExists(textFieldTag, "y");
-        const bool hasExplicitWidth = AttributeExists(textFieldTag, "width");
+        const bool hasExplicitPosition = XmlAttributeExists(textFieldTag, "x") && XmlAttributeExists(textFieldTag, "y");
+        const bool hasExplicitWidth = XmlAttributeExists(textFieldTag, "width");
         TextFieldElement element;
         element.setDefinition(
-            AttributeValue(textFieldTag, "id", "text"),
-            AttributeIntValue(textFieldTag, "x", marginLeft_),
-            AttributeIntValue(textFieldTag, "y", marginTop_),
-            AttributeIntValue(textFieldTag, "width", width_ - marginLeft_ - marginRight_),
-            AttributeIntValue(textFieldTag, "height", 18),
+            XmlAttributeValue(textFieldTag, "id", "text"),
+            XmlAttributeIntValue(textFieldTag, "x", marginLeft_),
+            XmlAttributeIntValue(textFieldTag, "y", marginTop_),
+            XmlAttributeIntValue(textFieldTag, "width", width_ - marginLeft_ - marginRight_),
+            XmlAttributeIntValue(textFieldTag, "height", 18),
             hasExplicitPosition,
             hasExplicitWidth);
         textFields_.push_back(element);
@@ -202,42 +149,12 @@ bool InGameWindow::loadFromXmlFile(const std::string& filePath) {
     }
 
     if (textFields_.empty()) {
-        setFallbackDefinition();
+        textFields_.clear();
         return false;
     }
 
     updateLayout();
     return true;
-}
-
-void InGameWindow::setFallbackDefinition() {
-    id_ = "lot_query";
-    x_ = 24;
-    y_ = 24;
-    width_ = 440;
-    declaredHeight_ = 220;
-    height_ = declaredHeight_;
-    marginLeft_ = 16;
-    marginTop_ = 16;
-    marginRight_ = 16;
-    marginBottom_ = 16;
-    elementSpacing_ = 4;
-    hugElements_ = true;
-    textFields_.clear();
-
-    TextFieldElement title;
-    title.setDefinition("title", marginLeft_, marginTop_, width_ - marginLeft_ - marginRight_, 18, false, false);
-    textFields_.push_back(title);
-
-    std::size_t lineIndex = 0;
-    for (; lineIndex < 8u; ++lineIndex) {
-        TextFieldElement line;
-        std::ostringstream idBuilder;
-        idBuilder << "line" << lineIndex;
-        line.setDefinition(idBuilder.str(), marginLeft_, marginTop_, width_ - marginLeft_ - marginRight_, 18, false, false);
-        textFields_.push_back(line);
-    }
-    updateLayout();
 }
 
 void InGameWindow::setVisible(bool visible) {

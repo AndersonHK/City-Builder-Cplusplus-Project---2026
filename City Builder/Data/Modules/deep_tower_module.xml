@@ -1,0 +1,8 @@
+<module id="deep_tower_module" density="high">
+  <size width="4" height="6" />
+  <effects airPollution="0" landValue="12500" />
+  <render mesh="metric_deep_tower_module" height="4.97833" colorR="0.64" colorG="0.67" colorB="0.70" family="tower" widthMeters="21.12" depthMeters="31.68" heightMeters="45.12" floors="14" seed="10" metric="true" stretch="false" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="168" />
+  </parameters>
+</module>

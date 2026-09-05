@@ -1,7 +1,7 @@
 # Codex repository map and implementation memory
 
-Snapshot: 2026-04-22
-Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
+Snapshot: 2026-05-17
+Workspace: repository root
 
 ## Top-level layout that matters now
 - `City Builder/City Builder.vcxproj` - authoritative build entrypoint
@@ -16,6 +16,9 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - per-chunk render revisions
   - transport network publication
   - per-pass timing
+- `City Builder/SimulationTime.h`
+  - tick/day conversion
+  - current day length of two ticks
 - `City Builder/TransportTypes.h`
 - `City Builder/RoadLane.h`
 - `City Builder/Road.h`
@@ -33,10 +36,11 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 - `City Builder/TransportCostMap.h`
 - `City Builder/TransportCostMap.cpp`
   - dense `(tile, layer, mode)` directional costs and capacities
-  - old/new traffic load buffers
+  - morning/evening old/new traffic load states stored separately from base topology
+  - sparse touched movement/transfer load commits
   - sparse transfer edges
-  - A* pathfinding with reusable scratch arrays
-  - traffic overlay color generation
+  - uniform-cost/Dijkstra pathfinding with reusable scratch arrays; planned split between single-pass nearest-destination demand fill and point-to-point bidirectional A* route repair
+  - traffic overlay payload generation from worst morning/evening utilization
 - `City Builder/TransportNetworkTests.vcxproj`
   - standalone non-graphics transport topology tests
 - `City Builder/Renderer.h`
@@ -75,6 +79,16 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 - `City Builder/AssetLoader.h`
 - `City Builder/AssetLoader.cpp`
   - strict XML asset loading for module and lot archetypes
+- `City Builder/RuntimePaths.h`
+  - reusable deployed-executable and deployed-Data path helpers
+- `City Builder/SimpleXml.h`
+  - tolerant one-tag XML file and attribute helpers for UI/RCI tool layout
+- `City Builder/RendererColor.h`
+  - scene-linear HDR color conversion, tone mapping, PQ encode, and output-mode preference helpers
+- `City Builder/RendererPayload.h`
+  - fixed-point renderer scalar payload depths, masks, and packing helpers
+- `City Builder/RciRoadStroke.cpp`
+  - shared conversion from RCI road plans to normal road stroke commands
 - `City Builder/ShaderProgram.h`
 - `City Builder/ShaderProgram.cpp`
   - shader parsing/compilation/linking
@@ -96,6 +110,14 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 - `.vcxproj.user`, debug logs, and build outputs were cleaned out of source control and should stay untracked.
 - This shell environment may need the duplicate process `PATH` entry cleared before MSBuild runs cleanly.
 - Missing legacy `Dependencies`, `Linker`, and `vendor` references from the old project layout should not remain load-bearing assumptions forever; the refactor should keep the project internally coherent even if external library paths are machine-local.
+
+## Reusable helper map
+- Use `RuntimeDataPath(...)`, `RuntimeDataDirectory()`, and `RuntimeExecutablePath(...)` whenever runtime code needs deployed files. Do not rebuild source-tree paths or embed machine-specific absolute paths.
+- Use `SimpleXml.h` for tolerant parsing of small authored UI/tool tags where caller defaults are acceptable. Gameplay asset imports that must fail loudly should stay in `AssetLoader`.
+- Use `RendererColor.h` for authored sRGB to scene-linear conversion, SDR tone mapping, HDR10 PQ encoding, and renderer output-mode preference tests.
+- Use `RendererPayload.h` for semantic fixed-point renderer payloads. Stat caps and channel-depth choices should enter through these helpers instead of scattered byte, 16-bit, or mask literals.
+- Use `BuildRciRoadStrokeCommand(...)` when RCI planning needs to preview or commit its generated access roads through the normal road stroke path.
+- Use `RoadTemplateDirectionModeFromId(...)`, `RoadTemplateKindFromId(...)`, and `CountRoadCardinalDirections(...)` instead of re-decoding template bitfields or recounting road masks locally.
 
 ## Runtime map
 - Simulation owns authoritative world state.
@@ -121,7 +143,7 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - ground and elevated road uploads are deferred while dirty chunks are hidden
   - elevated roads rebuild only when visible chunks have changed revisions
 - Overlays:
-  - traffic capacity is the first generic per-tile RGBA overlay
+- traffic capacity and land value use the reusable per-tile RGBA overlay draw path
   - overlay chunks upload lazily only when visible and stale
   - overlay draw happens after roads and lots so the tint remains readable
 - Lots:
@@ -134,7 +156,9 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - holding left mouse in `Q` mode continuously paints pollution again
   - mouse wheel supports `2048 / 1024 / 512 / 256 / 128 / 64 / 32` visible-tile steps
   - `R` drag-places ground streets and `H` drag-places elevated highways
+  - `B` drag-selects a 2D bulldoze area with red tile/building preview before queued deletion
   - `T` toggles the traffic capacity overlay
+  - `L` toggles the land value overlay
   - `M` and `Y` still expose live module add/remove testing for the XML-backed lot system
 
 ## Current migration doctrine
@@ -142,6 +166,9 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 - Use contiguous storage and chunk-based passes to improve cache behavior without jumping to full structure-of-arrays immediately.
 - Add comments only where they preserve future reasoning about cache sizing, swap rules, command timing, and render/sim ownership.
 - When changing architecture, update the nearest `docs/design/*.md` guide, keep `README.md` as the navigable index, and cite important code symbols/line references where practical so future sessions can find the source of truth quickly.
+- Lot commute query publishing is morning-only; road commute query publishing includes morning and evening segments; traffic congestion overlay is worst-of morning/evening/mode/layer/direction.
+- Authored day durations should use logical days where possible and convert through `SimulationTime` at load/setup boundaries. Runtime elapsed counters and saves can stay in ticks.
+- When adding test coverage for transport/pathfinding/commutes, prefer reusable sandbox or micro-simulation scenarios over tiny function-only assertions.
 - The next likely renderer seam is one of:
   - split `Renderer.cpp` into smaller renderer support units
   - move lots into chunk ownership

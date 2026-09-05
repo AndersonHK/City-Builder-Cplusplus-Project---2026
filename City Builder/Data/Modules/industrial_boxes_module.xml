@@ -1,0 +1,15 @@
+<module id="industrial_boxes_module">
+  <size width="1" height="1" />
+  <effects airPollution="0" parkEffect="0" landValue="20" />
+  <render mesh="metric_industrial_boxes_module" height="0.30000" colorR="0.46" colorG="0.46" colorB="0.43" family="props" widthMeters="6.00" depthMeters="6.00" heightMeters="1.80" floors="1" seed="20" metric="true" stretch="false" />
+  <variations>
+    <variation id="ochre" seed="0" colorR="0.53" colorG="0.34" colorB="0.21" />
+    <variation id="grey" seed="1" colorR="0.40" colorG="0.46" colorB="0.47" />
+  </variations>
+  <pathBlocker xMeters="3.9" zMeters="4.3" widthMeters="1.7" depthMeters="1.2" />
+  <pathBlocker xMeters="0.4" zMeters="0.5" widthMeters="1.7" depthMeters="1.2" />
+  <pathBlocker xMeters="3.9" zMeters="4.1" widthMeters="1.7" depthMeters="1.45" />
+  <pathBlocker xMeters="0.59" zMeters="4.69" widthMeters="1.37" depthMeters="0.62" />
+  <pathBlocker xMeters="0.4" zMeters="0.45" widthMeters="1.7" depthMeters="1.45" />
+  <pathBlocker xMeters="4.04" zMeters="0.69" widthMeters="1.37" depthMeters="0.62" />
+</module>

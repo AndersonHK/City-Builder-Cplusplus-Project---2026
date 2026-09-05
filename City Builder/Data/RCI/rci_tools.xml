@@ -1,0 +1,53 @@
+<rciTools constructorAttemptsPerTick="5" constructorOverbuildPercent="120" constructorMergeCapacityDiscount="0.2" constructorRedevelopmentCapacityIncrease="0.2" baselineLandValue="0">
+  <zone id="residential_low" name="Low Density Residence" labelStringId="zone.tool.residential_low" zoningType="low_density_residential" colorR="0.44" colorG="0.92" colorB="0.46" colorA="0.50" minDepth="2" preferredDepth="4" maxDepth="8" minWidth="2" preferredWidth="16" maxWidth="24" desirabilityThreshold="60">
+    <maxDensityPerTile population="0" value="0.70" />
+    <maxDensityPerTile population="500" value="0.75" />
+    <maxDensityPerTile population="2000" value="0.95" />
+    <maxDensityPerTile population="6000" value="1.20" />
+    <maxDensityPerTile population="15000" value="1.45" />
+    <maxDensityPerTile population="1000000" value="1.45" />
+  </zone>
+  <zone id="residential_high" name="High Density Residence" labelStringId="zone.tool.residential_high" zoningType="high_density_residential" colorR="0.10" colorG="0.48" colorB="0.20" colorA="0.50" minDepth="2" preferredDepth="4" maxDepth="8" minWidth="2" preferredWidth="16" maxWidth="24" desirabilityThreshold="60">
+    <maxDensityPerTile population="0" value="0.70" />
+    <maxDensityPerTile population="500" value="0.75" />
+    <maxDensityPerTile population="2000" value="0.95" />
+    <maxDensityPerTile population="6000" value="1.20" />
+    <maxDensityPerTile population="15000" value="1.45" />
+    <maxDensityPerTile population="1000000" value="8.00" />
+  </zone>
+  <zone id="industrial" name="Industry" labelStringId="zone.tool.industrial" zoningType="industrial" colorR="0.92" colorG="0.76" colorB="0.15" colorA="0.50" minDepth="2" preferredDepth="8" maxDepth="8" minWidth="2" preferredWidth="16" maxWidth="24" desirabilityThreshold="60">
+    <maxDensityPerTile population="0" value="0.80" />
+    <maxDensityPerTile population="1000" value="1.05" />
+    <maxDensityPerTile population="5000" value="1.35" />
+    <maxDensityPerTile population="15000" value="1.70" />
+    <maxDensityPerTile population="50000" value="2.10" />
+    <maxDensityPerTile population="150000" value="2.45" />
+    <maxDensityPerTile population="300000" value="2.70" />
+    <maxDensityPerTile population="600000" value="2.90" />
+    <maxDensityPerTile population="1000000" value="3.00" />
+  </zone>
+  <rciType id="low_wealth_residential" name="Low Wealth Residential" desirabilityOverlayStringId="overlay.desirability.low_wealth_residential" demandParameterId="residents.low_wealth" zoneTypes="low_density_residential,high_density_residential" colorR="0.18" colorG="0.72" colorB="0.28" colorA="0.50" />
+  <rciType id="dirty_industry" name="Dirty Industry" desirabilityOverlayStringId="overlay.desirability.dirty_industry" demandParameterId="jobs.dirty_industry" zoneTypes="industrial" colorR="0.92" colorG="0.76" colorB="0.15" colorA="0.50" />
+  <rciDesirability rciType="low_wealth_residential" baseline="70">
+    <sensitivity field="parkEffect" normalizer="160000">
+      <point value="0.0" desirabilityDelta="0" />
+      <point value="0.25" desirabilityDelta="15" />
+      <point value="1.0" desirabilityDelta="30" />
+    </sensitivity>
+    <sensitivity field="airPollution" normalizer="160000">
+      <point value="0.0" desirabilityDelta="0" />
+      <point value="0.25" desirabilityDelta="-25" />
+      <point value="1.0" desirabilityDelta="-60" />
+    </sensitivity>
+  </rciDesirability>
+  <rciDesirability rciType="dirty_industry" baseline="70">
+    <sensitivity field="parkEffect" normalizer="160000">
+      <point value="0.0" desirabilityDelta="0" />
+      <point value="1.0" desirabilityDelta="0" />
+    </sensitivity>
+    <sensitivity field="airPollution" normalizer="160000">
+      <point value="0.0" desirabilityDelta="0" />
+      <point value="1.0" desirabilityDelta="0" />
+    </sensitivity>
+  </rciDesirability>
+</rciTools>

@@ -1,0 +1,8 @@
+<module id="avenue_midrise_module" density="medium">
+  <size width="5" height="6" />
+  <effects airPollution="0" landValue="8400" />
+  <render mesh="metric_avenue_midrise_module" height="2.77833" colorR="0.60" colorG="0.62" colorB="0.60" family="midrise" widthMeters="27.60" depthMeters="33.12" heightMeters="16.67" floors="5" seed="1" metric="true" stretch="false" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="120" />
+  </parameters>
+</module>

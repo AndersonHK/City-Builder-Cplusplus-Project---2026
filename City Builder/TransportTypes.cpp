@@ -52,6 +52,12 @@ std::uint8_t LaneTypeMaskFor(RoadLaneTypeId laneType) {
     return static_cast<std::uint8_t>(1u << static_cast<std::uint8_t>(laneType));
 }
 
+bool IsRoadCarLaneType(RoadLaneTypeId laneType) {
+    return laneType == RoadLaneTypeId::Slow ||
+        laneType == RoadLaneTypeId::Medium ||
+        laneType == RoadLaneTypeId::Fast;
+}
+
 std::uint8_t SurfaceMaskFor(RoadLaneSurface surface) {
     return static_cast<std::uint8_t>(1u << static_cast<std::uint8_t>(surface));
 }

@@ -1,0 +1,16 @@
+<module id="rci_residential_house_8_module" density="low">
+  <size width="2" height="2" />
+  <effects airPollution="0" landValue="1300" />
+  <render mesh="metric_rci_residential_house_8_module" height="1.43333" colorR="0.52" colorG="0.40" colorB="0.34" family="house" widthMeters="9.76" depthMeters="10.28" heightMeters="8.60" floors="2" seed="43" metric="true" stretch="false" />
+  <props>
+    <prop id="garden_module" x="0" y="0" footprintWidth="2" footprintHeight="2" renderWidth="2" renderHeight="2" />
+    <prop id="pathway_module" x="0" y="0" footprintWidth="2" footprintHeight="2" renderWidth="0.34" renderHeight="2" alignX="center" alignY="start" />
+  </props>
+  <parameters>
+    <driver id="residents.low_wealth" amount="8" />
+  </parameters>
+  <variations>
+    <variation id="warm_brick" weight="3" seed="1" wallMaterial="brick" colorR="0.53" colorG="0.38" colorB="0.28" />
+    <variation id="cream_render" weight="1" seed="4" wallMaterial="render" colorR="0.72" colorG="0.68" colorB="0.55" />
+  </variations>
+</module>

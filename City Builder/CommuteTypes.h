@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
 
+#include "TransportCostMap.h"
 #include "TransportTypes.h"
 
 struct CommuteRouteSegment {
@@ -11,6 +13,7 @@ struct CommuteRouteSegment {
     int endTileY;
     TransportLayerId layer;
     TransportMode mode;
+    CommuteTimeOfDay timeOfDay;
     std::uint8_t direction;
     std::uint16_t demand;
 
@@ -21,8 +24,30 @@ struct CommuteRouteSegment {
           endTileY(0),
           layer(TransportLayerId::Ground),
           mode(TransportMode::Car),
+          timeOfDay(CommuteTimeOfDay::Morning),
           direction(0),
           demand(0) {
     }
 };
 
+struct CommuteRouteRecord {
+    int destinationLotId;
+    int demand;
+    std::uint16_t transportLoad;
+    bool longCommute;
+    bool morningMediumRetry;
+    bool eveningMediumRetry;
+    TransportPathResult morningPathResult;
+    TransportPathResult eveningPathResult;
+    std::vector<CommuteRouteSegment> morningSegments;
+    std::vector<CommuteRouteSegment> eveningSegments;
+
+    CommuteRouteRecord()
+        : destinationLotId(-1),
+          demand(0),
+          transportLoad(0u),
+          longCommute(false),
+          morningMediumRetry(false),
+          eveningMediumRetry(false) {
+    }
+};

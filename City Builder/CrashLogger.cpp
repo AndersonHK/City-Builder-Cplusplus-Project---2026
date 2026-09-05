@@ -1,5 +1,7 @@
 #include "CrashLogger.h"
 
+#include "RuntimePaths.h"
+
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
@@ -16,19 +18,9 @@
 namespace {
 std::mutex gCrashLogMutex;
 std::string gApplicationName = "City Builder";
+HWND gApplicationDialogOwner = 0;
+int gCrashLogSuppressionDepth = 0;
 thread_local std::string gCurrentCrashScope = "unknown";
-
-std::string GetExecutableDirectory() {
-    char modulePath[MAX_PATH];
-    const DWORD pathLength = GetModuleFileNameA(0, modulePath, MAX_PATH);
-    std::string fullPath(modulePath, modulePath + pathLength);
-    const std::string::size_type lastSeparatorIndex = fullPath.find_last_of("\\/");
-    if (lastSeparatorIndex == std::string::npos) {
-        return ".";
-    }
-
-    return fullPath.substr(0, lastSeparatorIndex);
-}
 
 std::string Timestamp() {
     SYSTEMTIME localTime;
@@ -58,7 +50,7 @@ void EnsureLogDirectory(const std::string& directory) {
 }
 
 std::string LogDirectory() {
-    const std::string dataDirectory = GetExecutableDirectory() + "\\Data";
+    const std::string dataDirectory = RuntimeDataDirectory();
     EnsureLogDirectory(dataDirectory);
 
     const std::string logsDirectory = dataDirectory + "\\Logs";
@@ -70,12 +62,27 @@ void WriteLine(const std::string& severity, const std::string& scope, const std:
     const std::string line = SeverityLine(severity, scope, message);
 
     std::lock_guard<std::mutex> lock(gCrashLogMutex);
+    if (gCrashLogSuppressionDepth > 0) {
+        return;
+    }
+
     std::cerr << line << std::endl;
 
     std::ofstream log(CrashLogFilePath().c_str(), std::ios::out | std::ios::app);
     if (log) {
         log << line << std::endl;
     }
+}
+
+HWND CurrentDialogOwner() {
+    return gApplicationDialogOwner != 0 && IsWindow(gApplicationDialogOwner) ? gApplicationDialogOwner : 0;
+}
+
+int ShowApplicationDialog(const std::string& title, const std::string& message, UINT iconFlags) {
+    HWND owner = CurrentDialogOwner();
+    UINT flags = MB_OK | iconFlags;
+    flags |= owner == 0 ? MB_TASKMODAL : MB_APPLMODAL;
+    return MessageBoxA(owner, message.c_str(), title.c_str(), flags);
 }
 
 std::string ExceptionCodeString(DWORD exceptionCode) {
@@ -130,6 +137,23 @@ CrashScope::~CrashScope() {
     gCurrentCrashScope = previousScope_;
 }
 
+ScopedCrashLogSuppression::ScopedCrashLogSuppression()
+    : active_(true) {
+    std::lock_guard<std::mutex> lock(gCrashLogMutex);
+    ++gCrashLogSuppressionDepth;
+}
+
+ScopedCrashLogSuppression::~ScopedCrashLogSuppression() {
+    if (!active_) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(gCrashLogMutex);
+    if (gCrashLogSuppressionDepth > 0) {
+        --gCrashLogSuppressionDepth;
+    }
+}
+
 void InitializeCrashLogger(const std::string& applicationName) {
     gApplicationName = applicationName.empty() ? "City Builder" : applicationName;
     SetUnhandledExceptionFilter(UnhandledCrashFilter);
@@ -165,6 +189,17 @@ void LogException(const std::string& scope, const std::exception& error) {
     LogError(scope, error.what());
 }
 
+void SetApplicationDialogOwner(void* nativeWindowHandle) {
+    gApplicationDialogOwner = static_cast<HWND>(nativeWindowHandle);
+}
+
+void ClearApplicationDialogOwner(void* nativeWindowHandle) {
+    HWND handle = static_cast<HWND>(nativeWindowHandle);
+    if (nativeWindowHandle == 0 || gApplicationDialogOwner == handle) {
+        gApplicationDialogOwner = 0;
+    }
+}
+
 int LogCrashAndShowWindow(const std::string& scope, const std::string& message) {
     WriteLine("fatal", scope, message);
 
@@ -175,7 +210,7 @@ int LogCrashAndShowWindow(const std::string& scope, const std::string& message) 
         << "Error: " << message << "\n\n"
         << "Log file:\n" << CrashLogFilePath();
 
-    return MessageBoxA(0, dialogText.str().c_str(), "City Builder Crash", MB_OK | MB_ICONERROR | MB_TASKMODAL);
+    return ShowApplicationDialog("City Builder Crash", dialogText.str(), MB_ICONERROR);
 }
 
 int LogCrashAndShowWindow(const std::string& scope, const std::exception& error) {

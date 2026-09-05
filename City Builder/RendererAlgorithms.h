@@ -6,7 +6,9 @@
 
 #include "ChunkConfig.h"
 #include "InGameWindow.h"
+#include "RendererPayload.h"
 #include "Tile.h"
+#include "UiWidgets.h"
 
 struct UiQuadInstanceData {
     float x;
@@ -19,8 +21,40 @@ struct UiQuadInstanceData {
     float colorA;
 };
 
-std::int16_t RendererPackTileStateScalar(int value);
-void RendererFillTileStateChunkPixels(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, std::vector<std::int16_t>& texturePixels);
+// Packs signed tile stats into the configured fixed-point signed payload range.
+RendererSignedScalarPayload RendererPackTileStateScalar(int value);
+
+// Writes pollution and park-effect stat channels for one chunk.
+void RendererFillTileStateChunkPixels(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, std::vector<RendererSignedScalarPayload>& texturePixels);
+
+// Writes the lot-occupancy lift mask used to keep occupied terrain below lots.
 void RendererFillTileLiftChunkPixels(const std::vector<int>& lotOccupancy, int mapWidth, const ChunkRect& chunkRect, std::vector<std::uint8_t>& texturePixels);
+
+// Writes zoning semantic IDs; shaders choose the visible zoning colors.
+void RendererFillZoningOverlayChunkValues(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, std::vector<RendererScalarPayload>& textureValues);
+
+// Writes land value as a capped scalar against kSimulationStatDisplayCap.
+void RendererFillLandValueOverlayChunkValues(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, std::vector<RendererScalarPayload>& textureValues);
+
+// Writes air pollution as a capped scalar against kSimulationStatDisplayCap.
+void RendererFillAirPollutionOverlayChunkValues(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, std::vector<RendererScalarPayload>& textureValues);
+
+// Writes park effect as a capped scalar against kSimulationStatDisplayCap.
+void RendererFillParkEffectOverlayChunkValues(const std::vector<Tile>& tiles, int mapWidth, const ChunkRect& chunkRect, std::vector<RendererScalarPayload>& textureValues);
+
+// Decodes one UTF-8 codepoint for the renderer bitmap text path.
 bool RendererNextUtf8Codepoint(const std::string& text, std::size_t& byteIndex, std::uint32_t& codepoint);
+
+// Converts an in-game window into screen-space quad instances.
 std::vector<UiQuadInstanceData> RendererBuildWindowQuads(const InGameWindow& window);
+
+// Converts UI menus/buttons into screen-space quad instances.
+std::vector<UiQuadInstanceData> RendererBuildUiMenuQuads(const UiLayout& uiLayout, int framebufferWidth, int framebufferHeight, const std::string& activeAction);
+std::vector<UiQuadInstanceData> RendererBuildUiMenuQuads(const UiLayout& uiLayout, int framebufferWidth, int framebufferHeight, const std::vector<std::string>& activeActions);
+std::vector<UiQuadInstanceData> RendererBuildUiMenuQuads(const UiLayout& uiLayout, int framebufferWidth, int framebufferHeight, const std::vector<std::string>& activeActions, const std::vector<std::string>& menuIds);
+
+// Appends clipped bitmap text quads into an existing UI batch.
+void RendererAppendTextQuads(const std::string& text, float x, float y, float width, float height, const UiColor& textColor, bool centered, std::vector<UiQuadInstanceData>& quads);
+
+// Appends the shared startup/save-load loading screen UI batch.
+void RendererAppendLoadingScreenQuads(const std::string& label, float progress, int framebufferWidth, int framebufferHeight, std::vector<UiQuadInstanceData>& quads);

@@ -32,11 +32,11 @@ struct CityParameterDefinition {
 
 struct CityParameterContribution {
     int parameterId;
-    float amount;
+    int amount;
 
     CityParameterContribution()
         : parameterId(-1),
-          amount(0.0f) {
+          amount(0) {
     }
 };
 
@@ -50,6 +50,9 @@ public:
     const CityParameterDefinition& definition(int parameterId) const;
 
     int residentsLowWealthId() const;
+    int residentsMediumWealthId() const;
+    int residentsHighWealthId() const;
+    const std::vector<int>& residentPopulationParameterIds() const;
     int jobsDirtyIndustryId() const;
     int jobsLowWealthId() const;
     int satisfactionLowWealthCommuteId() const;
@@ -61,10 +64,14 @@ private:
 
     std::vector<CityParameterDefinition> definitions_;
     std::unordered_map<std::string, int> indexById_;
+    std::vector<int> residentPopulationParameterIds_;
     int residentsLowWealthId_;
+    int residentsMediumWealthId_;
+    int residentsHighWealthId_;
     int jobsDirtyIndustryId_;
     int jobsLowWealthId_;
     int satisfactionLowWealthCommuteId_;
     int satisfactionDirtyIndustryStaffingId_;
 };
 
+int CalculatePopulationFromCityParameters(const std::vector<float>& cityParameters, const CityParameterRegistry& registry);

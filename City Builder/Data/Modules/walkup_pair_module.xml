@@ -1,0 +1,8 @@
+<module id="walkup_pair_module" density="medium">
+  <size width="3" height="4" />
+  <effects airPollution="0" landValue="4200" />
+  <render mesh="metric_walkup_pair_module" height="1.76167" colorR="0.57" colorG="0.54" colorB="0.49" family="walkup" widthMeters="16.56" depthMeters="22.08" heightMeters="10.57" floors="3" seed="67" metric="true" stretch="false" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="32" />
+  </parameters>
+</module>

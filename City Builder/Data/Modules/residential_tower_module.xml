@@ -1,0 +1,8 @@
+<module id="residential_tower_module" density="high">
+  <size width="3" height="4" />
+  <effects airPollution="0" landValue="9500" />
+  <render mesh="metric_residential_tower_module" height="4.47000" colorR="0.62" colorG="0.66" colorB="0.68" family="tower" widthMeters="15.84" depthMeters="21.12" heightMeters="42.07" floors="13" seed="46" metric="true" stretch="false" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="72" />
+  </parameters>
+</module>

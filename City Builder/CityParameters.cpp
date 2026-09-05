@@ -2,15 +2,23 @@
 
 #include "CrashLogger.h"
 
+#include <algorithm>
 #include <stdexcept>
 
 CityParameterRegistry::CityParameterRegistry()
     : residentsLowWealthId_(-1),
+      residentsMediumWealthId_(-1),
+      residentsHighWealthId_(-1),
       jobsDirtyIndustryId_(-1),
       jobsLowWealthId_(-1),
       satisfactionLowWealthCommuteId_(-1),
       satisfactionDirtyIndustryStaffingId_(-1) {
     residentsLowWealthId_ = addParameter("residents.low_wealth", CityParameterKind::Driver);
+    residentsMediumWealthId_ = addParameter("residents.medium_wealth", CityParameterKind::Driver);
+    residentsHighWealthId_ = addParameter("residents.high_wealth", CityParameterKind::Driver);
+    residentPopulationParameterIds_.push_back(residentsLowWealthId_);
+    residentPopulationParameterIds_.push_back(residentsMediumWealthId_);
+    residentPopulationParameterIds_.push_back(residentsHighWealthId_);
     jobsDirtyIndustryId_ = addParameter("jobs.dirty_industry", CityParameterKind::Driver);
     jobsLowWealthId_ = addParameter("jobs.low_wealth", CityParameterKind::Driver);
     satisfactionLowWealthCommuteId_ = addParameter("satisfaction.low_wealth_commute", CityParameterKind::Satisfaction);
@@ -43,6 +51,18 @@ const CityParameterDefinition& CityParameterRegistry::definition(int parameterId
 
 int CityParameterRegistry::residentsLowWealthId() const {
     return residentsLowWealthId_;
+}
+
+int CityParameterRegistry::residentsMediumWealthId() const {
+    return residentsMediumWealthId_;
+}
+
+int CityParameterRegistry::residentsHighWealthId() const {
+    return residentsHighWealthId_;
+}
+
+const std::vector<int>& CityParameterRegistry::residentPopulationParameterIds() const {
+    return residentPopulationParameterIds_;
 }
 
 int CityParameterRegistry::jobsDirtyIndustryId() const {
@@ -93,4 +113,20 @@ void CityParameterRegistry::addImpact(const std::string& sourceId, const std::st
     impact.targetParameterId = targetParameterId;
     impact.multiplier = multiplier;
     definitions_[sourceParameterId].impacts.push_back(impact);
+}
+
+int CalculatePopulationFromCityParameters(const std::vector<float>& cityParameters, const CityParameterRegistry& registry) {
+    int population = 0;
+    const std::vector<int>& residentParameterIds = registry.residentPopulationParameterIds();
+    std::size_t parameterIndex = 0;
+    for (; parameterIndex < residentParameterIds.size(); ++parameterIndex) {
+        const int residentParameterId = residentParameterIds[parameterIndex];
+        if (residentParameterId < 0 || residentParameterId >= static_cast<int>(cityParameters.size())) {
+            continue;
+        }
+
+        population += std::max(0, static_cast<int>(cityParameters[residentParameterId] + 0.5f));
+    }
+
+    return population;
 }

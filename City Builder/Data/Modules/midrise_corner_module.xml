@@ -1,0 +1,8 @@
+<module id="midrise_corner_module" density="medium">
+  <size width="3" height="4" />
+  <effects airPollution="0" landValue="5500" />
+  <render mesh="metric_midrise_corner_module" height="2.27000" colorR="0.58" colorG="0.58" colorB="0.55" family="midrise" widthMeters="16.56" depthMeters="22.08" heightMeters="13.62" floors="4" seed="29" metric="true" stretch="false" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="36" />
+  </parameters>
+</module>

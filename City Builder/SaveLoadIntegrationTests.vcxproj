@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{A65B7BE3-DA98-4641-8B7C-8820D7E4DD4E}</ProjectGuid>
+    <RootNamespace>CityBuilderSaveLoadIntegrationTests</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <OutDir>$(ProjectDir)..\Distributable\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)..\Build\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <OutDir>$(ProjectDir)..\Distributable\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)..\Build\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <SDLCheck>true</SDLCheck>
+    </ClCompile>
+    <PostBuildEvent>
+      <Command>"$(SystemRoot)\System32\xcopy.exe" /Y /I /E "$(ProjectDir)Data" "$(OutDir)Data"</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+    </ClCompile>
+    <Link>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+    <PostBuildEvent>
+      <Command>"$(SystemRoot)\System32\xcopy.exe" /Y /I /E "$(ProjectDir)Data" "$(OutDir)Data"</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="AssetLoader.cpp" />
+    <ClCompile Include="ChunkConfig.cpp" />
+    <ClCompile Include="City.cpp" />
+    <ClCompile Include="CityParameters.cpp" />
+    <ClCompile Include="CrashLogger.cpp" />
+    <ClCompile Include="GameSession.cpp" />
+    <ClCompile Include="Lot.cpp" />
+    <ClCompile Include="RciRoadStroke.cpp" />
+    <ClCompile Include="RciTool.cpp" />
+    <ClCompile Include="Road.cpp" />
+    <ClCompile Include="RoadGraphic.cpp" />
+    <ClCompile Include="RoadLane.cpp" />
+    <ClCompile Include="RoadLaneCell.cpp" />
+    <ClCompile Include="RoadTemplateDefinition.cpp" />
+    <ClCompile Include="RoadRenderState.cpp" />
+    <ClCompile Include="SaveLoadIntegrationTests.cpp" />
+    <ClCompile Include="SimulationRuntime.cpp" />
+    <ClCompile Include="TransportCostMap.cpp" />
+    <ClCompile Include="TransportNetwork.cpp" />
+    <ClCompile Include="TransportTile.cpp" />
+    <ClCompile Include="TransportTypes.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="AssetLoader.h" />
+    <ClInclude Include="ChunkConfig.h" />
+    <ClInclude Include="City.h" />
+    <ClInclude Include="CityParameters.h" />
+    <ClInclude Include="CommuteTypes.h" />
+    <ClInclude Include="CrashLogger.h" />
+    <ClInclude Include="GameSession.h" />
+    <ClInclude Include="Lot.h" />
+    <ClInclude Include="LotModule.h" />
+    <ClInclude Include="RciTool.h" />
+    <ClInclude Include="Road.h" />
+    <ClInclude Include="RoadGraphic.h" />
+    <ClInclude Include="RoadLane.h" />
+    <ClInclude Include="RoadLaneCell.h" />
+    <ClInclude Include="RoadTemplate.h" />
+    <ClInclude Include="RoadTemplateDefinition.h" />
+    <ClInclude Include="RoadRenderState.h" />
+    <ClInclude Include="SimulationRuntime.h" />
+    <ClInclude Include="SimulationTime.h" />
+    <ClInclude Include="Tile.h" />
+    <ClInclude Include="TransportCostMap.h" />
+    <ClInclude Include="TransportNetwork.h" />
+    <ClInclude Include="TransportTile.h" />
+    <ClInclude Include="TransportTypes.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

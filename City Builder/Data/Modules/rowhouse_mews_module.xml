@@ -1,0 +1,8 @@
+<module id="rowhouse_mews_module" density="low">
+  <size width="3" height="5" />
+  <effects airPollution="0" landValue="3600" />
+  <render mesh="metric_rowhouse_mews_module" height="1.43333" colorR="0.63" colorG="0.52" colorB="0.46" family="rowhouse" widthMeters="16.92" depthMeters="27.60" heightMeters="8.60" floors="2" seed="50" metric="true" stretch="false" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="24" />
+  </parameters>
+</module>

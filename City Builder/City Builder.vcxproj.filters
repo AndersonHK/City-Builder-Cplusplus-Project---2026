@@ -15,6 +15,9 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="AppConfig.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="AssetLoader.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -30,7 +33,13 @@
     <ClCompile Include="ChunkConfig.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Localization.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="GameSession.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="GeneratedMeshCatalog.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="InGameWindow.cpp">
@@ -42,19 +51,40 @@
     <ClCompile Include="Road.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="RoadAtlas.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="RoadLane.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="RoadTemplateDefinition.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="RoadRenderState.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="RciRoadStroke.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="RciTool.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="RendererAlgorithms.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="RendererColor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="VulkanRendererSupport.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Renderer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="ShaderProgram.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="SimulationDate.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="SimulationRuntime.cpp">
@@ -75,15 +105,18 @@
     <ClCompile Include="TransportTypes.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="UiWidgets.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="Basic.shader">
       <Filter>Resource Files</Filter>
     </None>
-    <None Include="Data\Lots\park_lot.xml">
+    <None Include="Data\config.ini">
       <Filter>Resource Files</Filter>
     </None>
-    <None Include="Data\Lots\smokestack_lot.xml">
+    <None Include="Data\Locale\en-US.json">
       <Filter>Resource Files</Filter>
     </None>
     <None Include="Data\Lots\factory_lot.xml">
@@ -92,25 +125,2017 @@
     <None Include="Data\Lots\house_lot.xml">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="Data\Lots\park_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x2_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x2_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x2_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x2_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x2_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x2_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x3_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x3_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x3_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x3_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x3_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x3_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x4_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x4_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x4_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x4_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x4_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x4_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x5_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x5_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x5_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x5_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x5_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x5_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x6_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x6_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x6_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x6_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x6_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x6_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x7_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x7_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x7_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x7_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x7_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x7_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x8_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x8_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x8_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x8_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x8_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_2x8_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x2_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x2_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x2_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x2_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x2_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x2_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x3_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x3_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x3_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x3_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x3_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x3_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x4_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x4_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x4_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x4_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x4_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x4_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x5_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x5_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x5_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x5_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x5_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x5_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x6_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x6_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x6_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x6_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x6_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x6_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x7_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x7_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x7_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x7_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x7_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x7_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x8_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x8_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x8_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x8_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x8_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_3x8_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x2_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x2_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x2_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x2_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x2_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x2_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x3_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x3_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x3_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x3_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x3_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x3_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x4_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x4_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x4_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x4_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x4_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x4_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x5_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x5_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x5_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x5_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x5_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x5_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x6_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x6_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x6_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x6_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x6_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x6_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x7_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x7_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x7_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x7_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x7_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x7_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x8_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x8_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x8_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x8_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x8_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_4x8_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x2_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x2_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x2_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x2_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x2_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x2_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x3_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x3_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x3_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x3_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x3_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x3_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x4_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x4_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x4_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x4_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x4_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x4_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x5_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x5_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x5_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x5_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x5_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x5_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x6_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x6_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x6_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x6_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x6_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x6_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x7_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x7_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x7_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x7_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x7_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x7_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x8_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x8_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x8_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x8_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x8_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_5x8_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x2_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x2_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x2_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x2_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x2_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x2_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x3_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x3_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x3_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x3_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x3_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x3_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x4_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x4_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x4_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x4_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x4_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x4_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x5_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x5_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x5_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x5_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x5_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x5_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x6_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x6_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x6_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x6_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x6_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x6_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x7_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x7_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x7_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x7_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x7_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x7_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x8_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x8_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x8_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x8_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x8_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_6x8_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x2_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x2_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x2_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x2_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x2_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x2_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x3_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x3_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x3_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x3_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x3_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x3_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x4_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x4_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x4_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x4_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x4_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x4_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x5_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x5_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x5_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x5_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x5_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x5_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x6_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x6_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x6_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x6_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x6_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x6_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x7_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x7_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x7_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x7_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x7_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x7_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x8_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x8_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x8_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x8_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x8_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_7x8_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x2_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x2_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x2_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x2_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x2_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x2_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x3_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x3_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x3_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x3_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x3_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x3_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x4_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x4_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x4_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x4_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x4_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x4_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x5_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x5_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x5_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x5_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x5_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x5_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x6_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x6_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x6_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x6_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x6_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x6_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x7_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x7_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x7_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x7_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x7_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x7_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x8_high_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x8_high_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x8_low_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x8_low_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x8_medium_works_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_industrial_8x8_medium_yard_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x2_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x2_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x2_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x2_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x2_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x2_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x3_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x3_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x3_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x3_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x3_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x3_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x4_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x4_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x4_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x4_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x4_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x4_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x5_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x5_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x5_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x5_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x5_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x5_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x6_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x6_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x6_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x6_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x6_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x6_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x7_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x7_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x7_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x7_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x7_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x7_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x8_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x8_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x8_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x8_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x8_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_2x8_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x2_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x2_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x2_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x2_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x2_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x2_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x3_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x3_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x3_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x3_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x3_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x3_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x4_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x4_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x4_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x4_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x4_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x4_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x5_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x5_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x5_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x5_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x5_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x5_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x6_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x6_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x6_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x6_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x6_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x6_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x7_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x7_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x7_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x7_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x7_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x7_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x8_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x8_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x8_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x8_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x8_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_3x8_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x2_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x2_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x2_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x2_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x2_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x2_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x3_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x3_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x3_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x3_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x3_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x3_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x4_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x4_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x4_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x4_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x4_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x4_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x5_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x5_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x5_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x5_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x5_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x5_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x6_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x6_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x6_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x6_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x6_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x6_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x7_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x7_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x7_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x7_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x7_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x7_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x8_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x8_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x8_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x8_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x8_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_4x8_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x2_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x2_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x2_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x2_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x2_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x2_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x3_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x3_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x3_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x3_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x3_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x3_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x4_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x4_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x4_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x4_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x4_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x4_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x5_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x5_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x5_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x5_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x5_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x5_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x6_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x6_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x6_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x6_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x6_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x6_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x7_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x7_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x7_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x7_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x7_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x7_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x8_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x8_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x8_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x8_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x8_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_5x8_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x2_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x2_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x2_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x2_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x2_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x2_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x3_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x3_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x3_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x3_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x3_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x3_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x4_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x4_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x4_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x4_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x4_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x4_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x5_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x5_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x5_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x5_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x5_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x5_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x6_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x6_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x6_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x6_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x6_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x6_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x7_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x7_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x7_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x7_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x7_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x7_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x8_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x8_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x8_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x8_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x8_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_6x8_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x2_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x2_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x2_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x2_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x2_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x2_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x3_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x3_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x3_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x3_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x3_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x3_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x4_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x4_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x4_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x4_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x4_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x4_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x5_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x5_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x5_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x5_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x5_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x5_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x6_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x6_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x6_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x6_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x6_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x6_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x7_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x7_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x7_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x7_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x7_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x7_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x8_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x8_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x8_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x8_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x8_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_7x8_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x2_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x2_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x2_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x2_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x2_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x2_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x3_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x3_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x3_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x3_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x3_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x3_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x4_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x4_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x4_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x4_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x4_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x4_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x5_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x5_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x5_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x5_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x5_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x5_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x6_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x6_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x6_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x6_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x6_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x6_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x7_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x7_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x7_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x7_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x7_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x7_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x8_high_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x8_high_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x8_low_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x8_low_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x8_medium_court_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\rci_residential_8x8_medium_garden_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Lots\smokestack_lot.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\apartment_block_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\avenue_midrise_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\compact_factory_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\compact_house_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\compact_tower_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\concrete_floor_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\corner_duplex_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\corner_walkup_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\deep_house_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\deep_midrise_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\deep_rowhouse_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\deep_tower_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\distribution_center_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
     <None Include="Data\Modules\driveway_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\duplex_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\freight_warehouse_module.xml">
       <Filter>Resource Files</Filter>
     </None>
     <None Include="Data\Modules\garden_module.xml">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="Data\Modules\heavy_factory_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
     <None Include="Data\Modules\house_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\industrial_stack_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\large_factory_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\large_house_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\large_warehouse_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\larger_house_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\loading_yard_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\machine_shop_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\midrise_block_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\midrise_corner_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\midrise_court_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\midrise_slab_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\narrow_duplex_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\narrow_rowhouse_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\narrow_tower_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\narrow_walkup_module.xml">
       <Filter>Resource Files</Filter>
     </None>
     <None Include="Data\Modules\park_module.xml">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="Data\Modules\parking_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\pathway_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\residential_tower_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\residential_tower_podium_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\row_house_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\rowhouse_court_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\rowhouse_mews_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\service_yard_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\shallow_midrise_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\shallow_walkup_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\slender_tower_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\small_apartment_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
     <None Include="Data\Modules\smokestack_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\smokestack_row_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\superblock_midrise_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\superblock_tower_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\terrace_unit_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\tower_podium_block_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\tower_slab_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\trailer_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\walkup_apartment_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\walkup_block_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\walkup_court_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\walkup_pair_module.xml">
       <Filter>Resource Files</Filter>
     </None>
     <None Include="Data\Modules\warehouse_module.xml">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="Data\Modules\wide_midrise_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\wide_trailer_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\wide_walkup_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\workshop_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\Modules\yard_workshop_module.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\RCI\initial_demands.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\RCI\rci_tools.xml">
+      <Filter>Resource Files</Filter>
+    </None>
     <None Include="Data\TransportNetwork\congestion.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\TransportNetwork\lane_capacities.xml">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\TransportNetwork\SandboxCases\dead_end.txt">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\TransportNetwork\SandboxCases\dead_end_extension.txt">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\TransportNetwork\SandboxCases\four_lane_corner.txt">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\TransportNetwork\SandboxCases\four_way.txt">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\TransportNetwork\SandboxCases\l_corner.txt">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\TransportNetwork\SandboxCases\l_corner_up2_right1.txt">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\TransportNetwork\SandboxCases\mixed_width_crossing.txt">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\TransportNetwork\SandboxCases\one_way_crosses_two_way.txt">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\TransportNetwork\SandboxCases\t_section.txt">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\TransportNetwork\SandboxCases\t_section_through.txt">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\TransportNetwork\SandboxCases\wide_deleted_approach.txt">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="Data\UI\city_tools.xml">
       <Filter>Resource Files</Filter>
     </None>
     <None Include="Data\UI\lot_query.xml">
@@ -118,6 +2143,9 @@
     </None>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AppConfig.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="AssetLoader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -133,7 +2161,13 @@
     <ClInclude Include="ChunkConfig.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Localization.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="GameSession.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="GeneratedMeshCatalog.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="InGameWindow.h">
@@ -145,22 +2179,61 @@
     <ClInclude Include="LotModule.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="LotRenderSurfacePatterns.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="Road.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RoadAtlas.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="RoadLane.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="RoadLaneCell.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RoadTemplate.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RoadTemplateDefinition.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="RoadRenderState.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RciTool.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="RendererAlgorithms.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="RendererColor.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="Renderer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="RendererPayload.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RuntimePaths.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="VulkanRendererSupport.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="ShaderProgram.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SimpleXml.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SimulationDate.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SimulationTime.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="SimulationRuntime.h">
@@ -179,6 +2252,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="TransportTypes.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UiWidgets.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -1,0 +1,8 @@
+<module id="superblock_midrise_module" density="medium">
+  <size width="5" height="7" />
+  <effects airPollution="0" landValue="9500" />
+  <render mesh="metric_superblock_midrise_module" height="2.77833" colorR="0.60" colorG="0.63" colorB="0.61" family="midrise" widthMeters="27.60" depthMeters="38.64" heightMeters="16.67" floors="5" seed="58" metric="true" stretch="false" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="140" />
+  </parameters>
+</module>

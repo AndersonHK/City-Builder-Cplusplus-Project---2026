@@ -1,0 +1,8 @@
+<module id="narrow_tower_module" density="high">
+  <size width="2" height="4" />
+  <effects airPollution="0" landValue="8500" />
+  <render mesh="metric_narrow_tower_module" height="4.47000" colorR="0.62" colorG="0.65" colorB="0.67" family="tower" widthMeters="10.56" depthMeters="21.12" heightMeters="39.02" floors="12" seed="34" metric="true" stretch="false" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="40" />
+  </parameters>
+</module>

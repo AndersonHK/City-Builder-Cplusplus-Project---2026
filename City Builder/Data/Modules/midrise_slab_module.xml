@@ -1,0 +1,8 @@
+<module id="midrise_slab_module" density="medium">
+  <size width="3" height="5" />
+  <effects airPollution="0" landValue="6300" />
+  <render mesh="metric_midrise_slab_module" height="2.27000" colorR="0.57" colorG="0.59" colorB="0.57" family="midrise" widthMeters="16.56" depthMeters="27.60" heightMeters="13.62" floors="4" seed="31" metric="true" stretch="false" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="48" />
+  </parameters>
+</module>

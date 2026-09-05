@@ -1,0 +1,4 @@
+<initialDemands>
+  <demand id="residents.low_wealth" amount="20" />
+  <demand id="jobs.dirty_industry" amount="20" />
+</initialDemands>

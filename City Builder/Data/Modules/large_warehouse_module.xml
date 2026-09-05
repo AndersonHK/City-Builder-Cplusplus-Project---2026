@@ -1,0 +1,13 @@
+<module id="large_warehouse_module" density="medium">
+  <size width="3" height="3" />
+  <effects airPollution="640" landValue="3100" />
+  <render mesh="metric_large_warehouse_module" height="1.25000" colorR="0.38" colorG="0.40" colorB="0.38" family="warehouse" widthMeters="16.92" depthMeters="16.92" heightMeters="7.50" floors="1" seed="24" metric="true" stretch="false" />
+  <parameters>
+    <driver id="jobs.dirty_industry" amount="15" />
+  </parameters>
+  <variations>
+    <variation id="weathered_brick" weight="3" seed="1" wallMaterial="brick" colorR="0.48" colorG="0.33" colorB="0.26" />
+    <variation id="light_cladding" weight="2" seed="2" wallMaterial="metal" colorR="0.64" colorG="0.66" colorB="0.63" />
+    <variation id="painted_masonry" weight="1" seed="3" wallMaterial="render" colorR="0.53" colorG="0.55" colorB="0.47" />
+  </variations>
+</module>

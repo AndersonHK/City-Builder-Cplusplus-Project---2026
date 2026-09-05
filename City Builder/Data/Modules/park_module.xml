@@ -1,5 +1,10 @@
 <module id="park_module">
   <size width="2" height="2" />
-  <effects airPollution="-4000" landValue="10000" />
-  <render height="0.35" colorR="0.18" colorG="0.54" colorB="0.23" />
+  <effects airPollution="-2000" parkEffect="5000" landValue="0" />
+  <render mesh="metric_park_module" height="1.03333" colorR="0.18" colorG="0.54" colorB="0.23" family="park" widthMeters="12.00" depthMeters="12.00" heightMeters="6.20" floors="1" seed="36" metric="true" stretch="false" />
+  <variations>
+    <variation id="oak" weight="3" treeStyle="oak" />
+    <variation id="birch" weight="2" treeStyle="birch" />
+    <variation id="conifer" weight="1" treeStyle="conifer" />
+  </variations>
 </module>

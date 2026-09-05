@@ -1,4 +1,5 @@
 #include "ShaderProgram.h"
+#include "LotMaterialShader.h"
 
 #include "CrashLogger.h"
 
@@ -43,6 +44,10 @@ ShaderSources LoadShaderSources(const std::string& shaderFilePath) {
         }
 
         if (shaderType != ShaderType::None) {
+            if (line.find("// LOT_MATERIAL_SHADER") != std::string::npos) {
+                sourceBuilders[static_cast<int>(shaderType)] << LotMaterialShaderSource() << '\n';
+                continue;
+            }
             sourceBuilders[static_cast<int>(shaderType)] << line << '\n';
         }
     }

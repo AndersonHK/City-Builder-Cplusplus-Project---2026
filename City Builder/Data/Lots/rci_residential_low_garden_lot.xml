@@ -1,0 +1,32 @@
+<lot id="rci_residential_low_garden_lot" name="Low Residential Garden" zoningType="residential" densityBand="low" constructionDays="4">
+  <anchor x="0" y="0" />
+  <footprint x="0" y="0" width="2" height="2" />
+  <compatibility minWidth="2" maxWidth="8" minDepth="2" maxDepth="8" />
+  <front direction="north" />
+  <autoLayout>
+    <autoModule id="trailer_module" role="primary" minWidth="2" maxWidth="2" minDepth="2" maxDepth="2" xRef="start" x="0" yRef="start" y="1" renderWidth="1.15" renderHeight="0.92" alignX="center" alignY="center" />
+    <autoModule id="rci_residential_house_4_module" role="primary" minWidth="2" maxWidth="2" minDepth="3" maxDepth="3" xRef="start" x="0" yRef="start" y="1" renderWidth="1.18" renderHeight="1.15" alignX="center" alignY="center" />
+    <autoModule id="rci_residential_house_5_module" role="primary" minWidth="2" maxWidth="2" minDepth="4" maxDepth="4" xRef="start" x="0" yRef="start" y="1" renderWidth="1.30" renderHeight="1.28" alignX="center" alignY="center" />
+    <autoModule id="rci_residential_house_6_module" role="primary" minWidth="2" maxWidth="2" minDepth="5" maxDepth="5" xRef="start" x="0" yRef="start" y="1" renderWidth="1.45" renderHeight="1.40" alignX="center" alignY="center" />
+    <autoModule id="rci_residential_house_7_module" role="primary" minWidth="2" maxWidth="2" minDepth="6" maxDepth="6" xRef="start" x="0" yRef="start" y="2" renderWidth="1.62" renderHeight="1.55" alignX="center" alignY="center" />
+    <autoModule id="rci_residential_house_8_module" role="primary" minWidth="2" maxWidth="2" minDepth="7" maxDepth="8" xRef="start" x="0" yRef="start" y="2" renderWidth="1.78" renderHeight="1.70" alignX="center" alignY="center" />
+    <autoModule id="duplex_module" role="primary" minWidth="3" maxWidth="3" minDepth="2" maxDepth="8" xRef="start" x="0" yRef="start" y="0" />
+    <autoModule id="rci_residential_house_5_module" role="primary" minWidth="4" maxWidth="8" minDepth="2" maxDepth="2" xRef="center" yRef="start" renderWidth="1.30" renderHeight="1.28" alignX="center" alignY="center" />
+    <autoModule id="rci_residential_house_8_module" role="primary" minWidth="4" maxWidth="8" minDepth="3" maxDepth="8" xRef="center" yRef="center" renderWidth="1.84" renderHeight="1.76" alignX="center" alignY="center" />
+    <autoModule id="rci_residential_thin_rowhouse_3w_module" primaryId="duplex_module" minWidth="3" maxWidth="3" minDepth="4" maxDepth="4" xRef="primaryStart" yRef="end" />
+    <autoModule id="duplex_module" primaryId="duplex_module" minWidth="3" maxWidth="3" minDepth="5" maxDepth="8" xRef="primaryStart" yRef="primaryStart" y="3" />
+    <autoModule id="driveway_module" primaryId="trailer_module" minWidth="2" maxWidth="2" minDepth="2" maxDepth="2" required="false" affectsSimulation="false" claimsFootprint="false" xRef="end" yRef="front" renderWidth="0.45" renderHeight="1" alignX="center" alignY="start" />
+    <autoModule id="driveway_module" primaryId="rci_residential_house_4_module,rci_residential_house_5_module,rci_residential_house_6_module,rci_residential_house_7_module,rci_residential_house_8_module" minWidth="2" maxWidth="2" minDepth="3" maxDepth="8" required="false" affectsSimulation="false" claimsFootprint="false" xRef="end" yRef="front" renderWidth="0.45" renderHeight="1" alignX="center" alignY="start" />
+    <autoModule id="driveway_module" primaryId="rci_residential_house_8_module" minWidth="4" maxWidth="8" minDepth="4" maxDepth="8" required="false" affectsSimulation="false" claimsFootprint="false" xRef="end" yRef="front" renderWidth="0.45" renderHeight="1" alignX="center" alignY="start" />
+    <autoLine id="pathway_module" primaryId="duplex_module" minDepth="5" maxDepth="8" affectsSimulation="false" claimsFootprint="true" xRef="primaryCenter" yStartRef="primaryStart" yStartOffset="2" yEndRef="primaryStart" yEndOffset="2" renderWidth="0.34" alignX="center" />
+    <autoLine id="pathway_module" primaryId="duplex_module" minDepth="4" maxDepth="4" affectsSimulation="false" claimsFootprint="true" xRef="primaryCenter" yStartRef="primaryEnd" yStartOffset="1" yEndRef="primaryEnd" yEndOffset="1" renderWidth="0.34" alignX="center" />
+    <autoLine id="pathway_module" affectsSimulation="false" claimsFootprint="false" required="false" xRef="center" yStartRef="front" yEndRef="primaryStart" yEndOffset="-1" renderWidth="0.28" alignX="center" />
+    <autoFill id="yard_module" primaryId="row_house_module,narrow_rowhouse_module,duplex_module" affectsSimulation="false" claimsFootprint="true" />
+    <autoFill id="garden_module" alternatives="garden_module:3,garden_tree_module:1" />
+    <autoEdge id="fence_module" source="yard_module" />
+  </autoLayout>
+  <access>
+    <connection xRef="center" yRef="front" modes="pedestrian" />
+    <connection xRef="end" yRef="front" modes="car" />
+  </access>
+</lot>

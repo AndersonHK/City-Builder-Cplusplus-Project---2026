@@ -1,0 +1,10 @@
+<module id="commercial_parking_stalls_module">
+  <size width="1" height="1" />
+  <effects airPollution="0" parkEffect="0" landValue="0" />
+  <render mesh="metric_commercial_parking_stalls_module" family="parking_stalls" widthMeters="6" depthMeters="6" heightMeters="1.8" floors="1" seed="0" colorR="0.35" colorG="0.4" colorB="0.43" metric="true" stretch="false" />
+  <variations>
+    <variation id="blue_sedan" weight="3" seed="1" carStyle="sedan" colorR="0.25" colorG="0.37" colorB="0.48" />
+    <variation id="silver_wagon" weight="2" seed="2" carStyle="wagon" colorR="0.61" colorG="0.64" colorB="0.63" />
+    <variation id="red_pickup" weight="1" seed="3" carStyle="pickup" colorR="0.52" colorG="0.23" colorB="0.18" />
+  </variations>
+</module>

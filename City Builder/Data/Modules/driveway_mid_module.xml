@@ -1,0 +1,6 @@
+<module id="driveway_mid_module">
+  <size width="1" height="1" />
+  <effects airPollution="0" landValue="0" />
+  <render mesh="metric_driveway_mid_module" family="driveway_mid" metric="true" stretch="false" widthMeters="6.00" depthMeters="6.00" heightMeters="0.30" height="0.05000" floors="1" seed="0" colorR="0.31" colorG="0.33" colorB="0.33" />
+  <pathBlocker xMeters="1.4" zMeters="0" widthMeters="3.2" depthMeters="6" />
+</module>

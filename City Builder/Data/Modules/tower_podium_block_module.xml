@@ -1,0 +1,8 @@
+<module id="tower_podium_block_module" density="high">
+  <size width="5" height="5" />
+  <effects airPollution="0" landValue="13000" />
+  <render mesh="metric_tower_podium_block_module" height="3.96167" colorR="0.65" colorG="0.68" colorB="0.70" family="tower" widthMeters="26.40" depthMeters="26.40" heightMeters="35.97" floors="11" seed="61" metric="true" stretch="false" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="140" />
+  </parameters>
+</module>

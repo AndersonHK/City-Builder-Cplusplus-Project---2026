@@ -5,7 +5,7 @@
 
 namespace {
 const float kLaneSpanEpsilon = 0.0001f;
-const std::uint16_t kTravelCostScale = 1000u;
+const std::uint16_t kCostUnitsPerSecond = 1000u;
 }
 
 RoadLane::RoadLane()
@@ -55,15 +55,19 @@ void RoadLane::setTravel(std::uint8_t laneTravelMask) {
 }
 
 bool RoadLane::isCar() const {
-    return element_.laneType == RoadLaneTypeId::Car;
+    return IsRoadCarLaneType(element_.laneType);
 }
 
 bool RoadLane::isPedestrian() const {
     return element_.laneType == RoadLaneTypeId::Pedestrian;
 }
 
+bool RoadLane::isSeparator() const {
+    return element_.laneType == RoadLaneTypeId::Separator;
+}
+
 bool RoadLane::usesRoadArrows() const {
-    return element_.laneType == RoadLaneTypeId::Car || element_.laneType == RoadLaneTypeId::Bus;
+    return IsRoadCarLaneType(element_.laneType) || element_.laneType == RoadLaneTypeId::Bus;
 }
 
 bool RoadLane::usesDirectedFlow() const {
@@ -72,14 +76,20 @@ bool RoadLane::usesDirectedFlow() const {
 
 std::uint16_t RoadLane::traversalCost(RoadFamily family) const {
     switch (element_.laneType) {
-        case RoadLaneTypeId::Car:
-            return family == RoadFamily::Highway ? kTravelCostScale / 14u : kTravelCostScale / 10u;
+        case RoadLaneTypeId::Slow:
+            return kCostUnitsPerSecond / 9u;
+        case RoadLaneTypeId::Medium:
+            return kCostUnitsPerSecond / 11u;
+        case RoadLaneTypeId::Fast:
+            return family == RoadFamily::Highway ? kCostUnitsPerSecond / 14u : kCostUnitsPerSecond / 13u;
         case RoadLaneTypeId::Pedestrian:
-            return kTravelCostScale / 1u;
+            return kCostUnitsPerSecond / 2u;
         case RoadLaneTypeId::Bike:
-            return kTravelCostScale / 4u;
+            return kCostUnitsPerSecond / 4u;
         case RoadLaneTypeId::Bus:
-            return family == RoadFamily::Highway ? kTravelCostScale / 14u : kTravelCostScale / 8u;
+            return family == RoadFamily::Highway ? kCostUnitsPerSecond / 14u : kCostUnitsPerSecond / 8u;
+        case RoadLaneTypeId::Separator:
+            return 0;
         default:
             return 0;
     }
@@ -92,13 +102,13 @@ RoadLanePlacement::RoadLanePlacement()
       family(RoadFamily::None),
       layer(TransportLayerId::Ground),
       templateId(0),
-      strokeId(0),
       laneIndex(0),
       axis(RoadAxis::None),
       crossSectionMask(0),
-      laneType(RoadLaneTypeId::Car),
+      laneType(RoadLaneTypeId::Slow),
       surface(RoadLaneSurface::Asphalt),
       role(RoadLaneRole::Through),
+      separatorStyle(RoadSeparatorStyle::None),
       laneTravelMask(0),
       arrowTravelMask(0),
       sideMin(0.0f),
@@ -110,11 +120,15 @@ RoadLanePlacement::RoadLanePlacement()
 }
 
 bool RoadLanePlacement::isCar() const {
-    return laneType == RoadLaneTypeId::Car;
+    return IsRoadCarLaneType(laneType);
 }
 
 bool RoadLanePlacement::isPedestrian() const {
     return laneType == RoadLaneTypeId::Pedestrian;
+}
+
+bool RoadLanePlacement::isSeparator() const {
+    return laneType == RoadLaneTypeId::Separator;
 }
 
 bool RoadLanePlacement::isSameAxis(const RoadLanePlacement& other) const {
@@ -135,6 +149,7 @@ bool RoadLanePlacement::isExactReplayOf(const RoadLanePlacement& other) const {
         laneType == other.laneType &&
         surface == other.surface &&
         role == other.role &&
+        separatorStyle == other.separatorStyle &&
         laneTravelMask == other.laneTravelMask &&
         arrowTravelMask == other.arrowTravelMask &&
         std::fabs(sideMin - other.sideMin) <= kLaneSpanEpsilon &&

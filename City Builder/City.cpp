@@ -1,9 +1,10 @@
 #include "City.h"
 
 #include <algorithm>
-#include <random>
 #include <sstream>
 #include <utility>
+
+#include "CityParameters.h"
 
 City::City()
     : regionX_(0),
@@ -62,6 +63,11 @@ int City::cameraY() const {
 
 int City::visibleTiles() const {
     return visibleTiles_;
+}
+
+int City::population() const {
+    CityParameterRegistry registry;
+    return CalculatePopulationFromCityParameters(cityParameters_, registry);
 }
 
 const std::vector<float>& City::cityParameters() const {
@@ -164,28 +170,31 @@ std::uint32_t City::seedForRegionCoordinate(int regionX, int regionY) {
 }
 
 CitySaveState City::createDefaultSaveState(std::uint32_t seed, int width, int height) {
+    (void)seed;
+
     CitySaveState saveState;
     saveState.width = width;
     saveState.height = height;
     saveState.nextLotId = 1;
     saveState.visibleTiles = kDefaultVisibleTiles;
+    saveState.simulationTick = 0;
     saveState.cameraX = centeredCameraCoordinate(width, saveState.visibleTiles);
     saveState.cameraY = centeredCameraCoordinate(height, saveState.visibleTiles);
 
-    std::mt19937 randomEngine(seed);
-    std::uniform_int_distribution<int> baseDistribution(0, 327670);
     const std::size_t totalTileCount = static_cast<std::size_t>(saveState.width) * static_cast<std::size_t>(saveState.height);
     saveState.tiles.assign(totalTileCount, Tile());
 
     std::size_t tileIndex = 0;
     for (; tileIndex < saveState.tiles.size(); ++tileIndex) {
-        saveState.tiles[tileIndex].landValue = baseDistribution(randomEngine);
-        saveState.tiles[tileIndex].airPollution = baseDistribution(randomEngine);
+        saveState.tiles[tileIndex].landValue = 0;
+        saveState.tiles[tileIndex].airPollution = 0;
+        saveState.tiles[tileIndex].parkEffect = 0;
         saveState.tiles[tileIndex].isVacant = true;
         saveState.tiles[tileIndex].zoningType = 0;
     }
 
     saveState.lots.clear();
+    saveState.zoningLots.clear();
     saveState.previewLots.clear();
     saveState.cityParameters.clear();
     saveState.transport = TransportNetworkSaveState();
@@ -268,6 +277,11 @@ const std::vector<std::unique_ptr<City> >& Region::cities() const {
 
 const std::vector<float>& Region::regionParameters() const {
     return regionParameters_;
+}
+
+int Region::population() const {
+    CityParameterRegistry registry;
+    return CalculatePopulationFromCityParameters(regionParameters_, registry);
 }
 
 std::uint64_t Region::revision() const {

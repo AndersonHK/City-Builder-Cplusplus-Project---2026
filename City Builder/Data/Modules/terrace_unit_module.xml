@@ -1,0 +1,8 @@
+<module id="terrace_unit_module" density="low">
+  <size width="1" height="2" />
+  <effects airPollution="0" landValue="1200" />
+  <render mesh="metric_terrace_unit_module" height="1.43333" colorR="0.57" colorG="0.43" colorB="0.36" family="rowhouse" widthMeters="5.64" depthMeters="11.04" heightMeters="8.60" floors="2" seed="60" metric="true" stretch="false" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="4" />
+  </parameters>
+</module>

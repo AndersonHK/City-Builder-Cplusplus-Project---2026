@@ -1,7 +1,7 @@
 # Codex handoff memory
 
-Snapshot: 2026-04-22
-Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
+Snapshot: 2026-05-17
+Workspace: repository root
 
 ## Recommended next-chat posture
 - Start from the refactored architecture, not from the original monolithic prototype.
@@ -26,7 +26,9 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
 - Lot occupancy lift is separated into a visible-chunk mask texture instead of causing tile instance rebuilds.
 - Ground roads piggyback on the tile pass through a packed road-state texture plus atlas lookups.
 - Ground-road and elevated-road uploads are lazy per visible dirty chunk.
-- Traffic capacity is the first generic per-tile overlay; `T` toggles it, and it draws above roads/lots.
+- Traffic capacity uses the reusable per-tile RGBA overlay path; `T` toggles it, and it draws above roads/lots.
+- Land value overlay uses the same tile overlay texture/draw path; `L` toggles it and renderer-packs the published tile snapshot from city-wide min/max land value into red/yellow/green tint.
+- Bulldoze is intended to be an area drag tool, with renderer-only red tile/building preview and committed deletion through queued commands.
 - Lots render through a separate world-space placeholder prism path and are not chunk-owned yet.
 - Mouse picking now raycasts from the perspective camera onto the ground plane.
 - Arrow-key panning was corrected after the renderer migration so movement now matches the camera-facing directions.
@@ -42,7 +44,9 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - directional transport cost-map derived traffic overlay state
   - packed ground-road render state
   - split ground/elevated road chunk revisions
-- `TransportCostMap` now owns directional `(tile, layer, mode)` costs, capacities, old/new traffic loads, transfer edges, and A* scratch-driven pathfinding.
+- `SimulationTime` owns day/tick scaling; one logical day is currently two simulation ticks. Date display uses logical days, and authored day durations should convert at load/setup time.
+- `TransportCostMap` now owns directional `(tile, layer, mode)` base costs/capacities/access, sparse transfer edges, morning/evening mutable traffic load states, and reusable uniform-cost/Dijkstra scratch-driven pathfinding. The next route slice should add single-pass nearest-destination demand fill and point-to-point bidirectional A* repair.
+- Commute assignment now requires round-trip-valid destinations: morning home-to-job and evening job-to-home. Lot query arrows/text publish morning commutes, road query arrows/text publish morning and evening commutes, and the traffic overlay shows the worst tile utilization across morning/evening, modes, layers, and directions.
 - Worker chunk dispatch no longer copies a hot-path `std::function`; it uses an enum-driven task path plus an atomic chunk cursor.
 - The simulation thread now participates in chunk work instead of only dispatching and waiting.
 - Write-buffer selection no longer uses the old 1 ms sleep polling path; it waits on the render condition variable.
@@ -77,7 +81,9 @@ Workspace: C:\Users\imper\Documents\GitHub\City-Builder-Cplusplus-Project - 2026
   - do not reintroduce tracked build outputs
   - keep user-local VS files like `.vcxproj.user` out of git
 - continue cleaning up project/build assumptions around local dependency paths
+- split the road-tool sandbox logic into a reusable integration-test harness when expanding tests for commute/pathfinding behavior
 - keep profiling the simulation before speculative SIMD work
+- current commute/pathfinding performance checkpoint from the user's test city: roughly `10` TPS before route/load work, `14` TPS after persistent scratch, and about `200` TPS after sparse morning/evening load states; no-pathfinding cities can still reach about `2000` TPS, so tile-based updates remain the broad ceiling without pathfinding
 - look for remaining low-hanging runtime wins in:
   - lot-effects iteration cost
   - visible-chunk tile-state upload and packing cost

@@ -1,5 +1,53 @@
 #include "TransportTile.h"
 
+#include <algorithm>
+
+namespace {
+bool LaneTypeCollapsesToOneTile(RoadLaneTypeId laneType) {
+    return IsRoadCarLaneType(laneType) ||
+        laneType == RoadLaneTypeId::Pedestrian ||
+        laneType == RoadLaneTypeId::Separator;
+}
+
+bool RoadAxesOverlap(RoadAxis left, RoadAxis right) {
+    return (AxisMaskFor(left) & AxisMaskFor(right)) != 0;
+}
+
+RoadAxis MergeRoadAxes(RoadAxis left, RoadAxis right) {
+    return static_cast<RoadAxis>(AxisMaskFor(left) | AxisMaskFor(right));
+}
+
+bool IsSameAuthoredLaneReplay(const RoadLanePlacement& existingLane, const RoadLanePlacement& lanePlacement) {
+    return existingLane.family == lanePlacement.family &&
+        existingLane.layer == lanePlacement.layer &&
+        existingLane.templateId == lanePlacement.templateId &&
+        existingLane.laneIndex == lanePlacement.laneIndex &&
+        existingLane.axis == lanePlacement.axis &&
+        (existingLane.crossSectionMask & lanePlacement.crossSectionMask) == lanePlacement.crossSectionMask &&
+        existingLane.laneType == lanePlacement.laneType &&
+        existingLane.surface == lanePlacement.surface &&
+        existingLane.role == lanePlacement.role &&
+        existingLane.separatorStyle == lanePlacement.separatorStyle &&
+        existingLane.sideOverlaps(lanePlacement);
+}
+
+bool IsSameAuthoredLaneAxisSubsetReplay(const RoadLanePlacement& existingLane, const RoadLanePlacement& lanePlacement) {
+    const std::uint8_t existingAxisMask = AxisMaskFor(existingLane.axis);
+    const std::uint8_t laneAxisMask = AxisMaskFor(lanePlacement.axis);
+    return existingLane.family == lanePlacement.family &&
+        existingLane.layer == lanePlacement.layer &&
+        existingLane.templateId == lanePlacement.templateId &&
+        laneAxisMask != 0 &&
+        (existingAxisMask & laneAxisMask) == laneAxisMask &&
+        (existingLane.crossSectionMask & lanePlacement.crossSectionMask) == lanePlacement.crossSectionMask &&
+        existingLane.laneType == lanePlacement.laneType &&
+        existingLane.surface == lanePlacement.surface &&
+        existingLane.role == lanePlacement.role &&
+        existingLane.separatorStyle == lanePlacement.separatorStyle &&
+        existingLane.sideOverlaps(lanePlacement);
+}
+}
+
 TransportTile::TransportTile() {
 }
 
@@ -14,7 +62,7 @@ RoadTileLaneAddResult TransportTile::tryAddLane(const RoadLanePlacement& lanePla
 
     std::size_t laneIndex = 0;
     for (; laneIndex < lanes_.size(); ++laneIndex) {
-        const RoadLanePlacement& existingLane = lanes_[laneIndex];
+        RoadLanePlacement& existingLane = lanes_[laneIndex];
         if (existingLane.family != lanePlacement.family) {
             return RoadTileLaneAddResult::Rejected;
         }
@@ -23,7 +71,29 @@ RoadTileLaneAddResult TransportTile::tryAddLane(const RoadLanePlacement& lanePla
             return RoadTileLaneAddResult::Replay;
         }
 
-        if (existingLane.isSameAxis(lanePlacement) && existingLane.sideOverlaps(lanePlacement)) {
+        if (IsSameAuthoredLaneReplay(existingLane, lanePlacement)) {
+            return RoadTileLaneAddResult::Replay;
+        }
+
+        if (IsSameAuthoredLaneAxisSubsetReplay(existingLane, lanePlacement)) {
+            return RoadTileLaneAddResult::Replay;
+        }
+
+        const bool sameLaneCollisionClass = existingLane.laneType == lanePlacement.laneType ||
+            (IsRoadCarLaneType(existingLane.laneType) && IsRoadCarLaneType(lanePlacement.laneType));
+        if (sameLaneCollisionClass && LaneTypeCollapsesToOneTile(existingLane.laneType)) {
+            if (RoadAxesOverlap(existingLane.axis, lanePlacement.axis) &&
+                existingLane.sideOverlaps(lanePlacement)) {
+                return RoadTileLaneAddResult::Rejected;
+            }
+
+            continue;
+        }
+
+        if (!LaneTypeCollapsesToOneTile(existingLane.laneType) &&
+            !LaneTypeCollapsesToOneTile(lanePlacement.laneType) &&
+            existingLane.isSameAxis(lanePlacement) &&
+            existingLane.sideOverlaps(lanePlacement)) {
             return RoadTileLaneAddResult::Rejected;
         }
     }
@@ -65,18 +135,15 @@ std::vector<RoadLanePlacement>& TransportTile::lanesForMutation() {
 bool TransportTile::hasLaneType(RoadLaneTypeId laneType) const {
     std::size_t laneIndex = 0;
     for (; laneIndex < lanes_.size(); ++laneIndex) {
-        if (lanes_[laneIndex].active && lanes_[laneIndex].laneType == laneType) {
+        if (!lanes_[laneIndex].active) {
+            continue;
+        }
+
+        if (IsRoadCarLaneType(laneType) && IsRoadCarLaneType(lanes_[laneIndex].laneType)) {
             return true;
         }
-    }
 
-    return false;
-}
-
-bool TransportTile::hasAxis(RoadAxis axis) const {
-    std::size_t laneIndex = 0;
-    for (; laneIndex < lanes_.size(); ++laneIndex) {
-        if (lanes_[laneIndex].active && lanes_[laneIndex].axis == axis) {
+        if (lanes_[laneIndex].laneType == laneType) {
             return true;
         }
     }
@@ -87,75 +154,26 @@ bool TransportTile::hasAxis(RoadAxis axis) const {
 bool TransportTile::hasCarAxis(RoadAxis axis) const {
     std::size_t laneIndex = 0;
     for (; laneIndex < lanes_.size(); ++laneIndex) {
-        if (lanes_[laneIndex].active && lanes_[laneIndex].isCar() && lanes_[laneIndex].axis == axis) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool TransportTile::hasCompatibleLane(const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection, bool includeInactiveLanes) const {
-    std::size_t laneIndex = 0;
-    for (; laneIndex < lanes_.size(); ++laneIndex) {
         const RoadLanePlacement& lane = lanes_[laneIndex];
-        if ((includeInactiveLanes || lane.active) &&
-            lane.family == lanePlacement.family &&
-            lane.laneType == lanePlacement.laneType &&
-            lane.axis == lanePlacement.axis &&
-            lane.laneIndex == lanePlacement.laneIndex &&
-            lane.sideOverlaps(lanePlacement) &&
-            lane.hasTravelDirection(roadDirection)) {
+        if (!lane.active || !lane.isCar()) {
+            continue;
+        }
+
+        if ((AxisMaskFor(lane.axis) & AxisMaskFor(axis)) != 0) {
             return true;
         }
-    }
 
-    return false;
-}
+        if (AxisMaskFor(lane.axis) != 0) {
+            continue;
+        }
 
-bool TransportTile::hasMatchingLaneBody(const RoadLanePlacement& lanePlacement) const {
-    std::size_t laneIndex = 0;
-    for (; laneIndex < lanes_.size(); ++laneIndex) {
-        const RoadLanePlacement& lane = lanes_[laneIndex];
-        if (lane.active &&
-            lane.family == lanePlacement.family &&
-            lane.laneType == lanePlacement.laneType &&
-            lane.axis == lanePlacement.axis &&
-            lane.laneIndex == lanePlacement.laneIndex &&
-            lane.sideOverlaps(lanePlacement)) {
+        if (axis == RoadAxis::Horizontal &&
+            (lane.hasTravelDirection(kRoadDirectionEast) || lane.hasTravelDirection(kRoadDirectionWest))) {
             return true;
         }
-    }
 
-    return false;
-}
-
-bool TransportTile::hasMatchingLaneBodyFromStroke(const RoadLanePlacement& lanePlacement, bool includeInactiveLanes) const {
-    std::size_t laneIndex = 0;
-    for (; laneIndex < lanes_.size(); ++laneIndex) {
-        const RoadLanePlacement& lane = lanes_[laneIndex];
-        if ((includeInactiveLanes || lane.active) &&
-            lane.strokeId == lanePlacement.strokeId &&
-            lane.family == lanePlacement.family &&
-            lane.laneType == lanePlacement.laneType &&
-            lane.axis == lanePlacement.axis &&
-            lane.laneIndex == lanePlacement.laneIndex &&
-            lane.sideOverlaps(lanePlacement)) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool TransportTile::hasLaneContinuation(const RoadLanePlacement& lanePlacement, std::uint8_t roadDirection) const {
-    return hasCompatibleLane(lanePlacement, roadDirection, false);
-}
-
-bool TransportTile::hasCarLaneThrough(std::uint8_t roadDirection) const {
-    std::size_t laneIndex = 0;
-    for (; laneIndex < lanes_.size(); ++laneIndex) {
-        if (lanes_[laneIndex].active && lanes_[laneIndex].isCar() && lanes_[laneIndex].hasTravelDirection(roadDirection)) {
+        if (axis == RoadAxis::Vertical &&
+            (lane.hasTravelDirection(kRoadDirectionNorth) || lane.hasTravelDirection(kRoadDirectionSouth))) {
             return true;
         }
     }

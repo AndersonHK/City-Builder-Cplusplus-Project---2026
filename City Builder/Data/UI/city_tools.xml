@@ -1,0 +1,64 @@
+<ui>
+  <menu id="date_speed" anchor="topLeft" x="16" y="48" width="140" height="28" buttonWidth="32" buttonHeight="28" spacing="4" visible="true" backgroundA="0">
+    <button id="speed_pause" text="" icon="pause" action="set_speed_paused" x="0" y="0" colorR="0.08" colorG="0.12" colorB="0.13" colorA="0.94" activeR="0.22" activeG="0.43" activeB="0.35" activeA="0.96" />
+    <button id="speed_play" text="" icon="play" action="set_speed_play" x="36" y="0" colorR="0.08" colorG="0.12" colorB="0.13" colorA="0.94" activeR="0.22" activeG="0.43" activeB="0.35" activeA="0.96" />
+    <button id="speed_fast" text="" icon="fast" action="set_speed_fast" x="72" y="0" colorR="0.08" colorG="0.12" colorB="0.13" colorA="0.94" activeR="0.22" activeG="0.43" activeB="0.35" activeA="0.96" />
+    <button id="speed_fast_forward" text="" icon="fastForward" action="set_speed_fast_forward" x="108" y="0" colorR="0.08" colorG="0.12" colorB="0.13" colorA="0.94" activeR="0.22" activeG="0.43" activeB="0.35" activeA="0.96" />
+  </menu>
+  <menu id="side_tools" parentMenu="menu_toggle" parentButton="toggle_tools" stack="away" direction="up" anchor="bottomLeft" x="0" y="16" bottom="72" width="132" buttonWidth="132" buttonHeight="38" spacing="8" visible="true" backgroundA="0">
+    <button id="bulldozer" textStringId="ui.button.bulldoze" text="Bulldoze" action="select_bulldozer" colorR="0.34" colorG="0.12" colorB="0.11" colorA="0.90" activeR="0.58" activeG="0.22" activeB="0.18" activeA="0.96" />
+    <button id="street" textStringId="ui.button.street" text="Street" action="select_road_street" colorR="0.20" colorG="0.24" colorB="0.25" colorA="0.90" activeR="0.36" activeG="0.42" activeB="0.42" activeA="0.96" />
+    <button id="road" textStringId="ui.button.road" text="Road" action="select_road_road" colorR="0.14" colorG="0.22" colorB="0.30" colorA="0.90" activeR="0.24" activeG="0.42" activeB="0.54" activeA="0.96" />
+    <button id="one_way" textStringId="ui.button.one_way" text="One-Way" action="select_road_one_way" colorR="0.18" colorG="0.20" colorB="0.28" colorA="0.90" activeR="0.32" activeG="0.34" activeB="0.50" activeA="0.96" />
+    <button id="avenue" textStringId="ui.button.avenue" text="Avenue" action="select_road_avenue" colorR="0.18" colorG="0.26" colorB="0.31" colorA="0.90" activeR="0.30" activeG="0.46" activeB="0.56" activeA="0.96" />
+    <button id="query" textStringId="ui.button.query" text="Query" action="select_query" colorR="0.16" colorG="0.24" colorB="0.22" colorA="0.90" activeR="0.28" activeG="0.44" activeB="0.38" activeA="0.96" />
+    <button id="rci_menu" textStringId="ui.button.rci" text="RCI" action="toggle_rci_tool_menu" colorR="0.24" colorG="0.24" colorB="0.27" colorA="0.90" activeR="0.44" activeG="0.44" activeB="0.48" activeA="0.96" />
+  </menu>
+  <menu id="rci_tools" parentMenu="side_tools" parentButton="rci_menu" stack="centered" direction="right" anchor="bottomLeft" x="16" y="0" width="132" buttonWidth="132" buttonHeight="38" spacing="8" visible="false" backgroundA="0">
+  </menu>
+  <menu id="side_overlays" parentMenu="overlay_toggle" parentButton="toggle_overlays" stack="away" direction="up" anchor="bottomRight" x="0" y="16" bottom="72" width="132" buttonWidth="132" buttonHeight="38" spacing="8" visible="true" backgroundA="0">
+    <button id="overlay_traffic" textStringId="ui.button.traffic" text="Traffic" action="toggle_overlay_traffic" colorR="0.14" colorG="0.24" colorB="0.28" colorA="0.90" activeR="0.52" activeG="0.66" activeB="0.47" activeA="0.96" />
+    <button id="overlay_land_value" textStringId="ui.button.land_value" text="Land Value" action="toggle_overlay_land_value" colorR="0.18" colorG="0.30" colorB="0.16" colorA="0.90" activeR="0.52" activeG="0.66" activeB="0.47" activeA="0.96" />
+    <button id="overlay_park_effect" textStringId="ui.button.park_effect" text="Park Effect" action="toggle_overlay_park_effect" colorR="0.12" colorG="0.24" colorB="0.16" colorA="0.90" activeR="0.52" activeG="0.66" activeB="0.47" activeA="0.96" />
+    <button id="overlay_air_pollution" textStringId="ui.button.air_pollution" text="Air Poll." action="toggle_overlay_air_pollution" colorR="0.30" colorG="0.18" colorB="0.12" colorA="0.90" activeR="0.52" activeG="0.66" activeB="0.47" activeA="0.96" />
+    <button id="overlay_rci" textStringId="ui.button.rci" text="RCI" action="toggle_overlay_rci" colorR="0.24" colorG="0.22" colorB="0.12" colorA="0.90" activeR="0.52" activeG="0.66" activeB="0.47" activeA="0.96" />
+    <button id="overlay_rci_desirability_menu" textStringId="ui.button.rci_desire" text="RCI Desire" action="toggle_rci_overlay_menu" colorR="0.20" colorG="0.22" colorB="0.20" colorA="0.90" activeR="0.52" activeG="0.66" activeB="0.47" activeA="0.96" />
+  </menu>
+  <menu id="rci_desirability_overlays" parentMenu="side_overlays" parentButton="overlay_rci_desirability_menu" stack="centered" direction="left" anchor="bottomRight" x="16" y="0" width="132" buttonWidth="132" buttonHeight="38" spacing="8" visible="false" backgroundA="0">
+  </menu>
+  <menu id="region_exit" anchor="topLeft" x="16" y="16" width="196" height="40" buttonWidth="196" buttonHeight="40" spacing="0" visible="true" backgroundA="0">
+    <button id="region_exit_game" textStringId="ui.button.exit_to_desktop" text="Exit to Desktop" action="open_exit_confirm" x="0" y="0" width="196" height="40" colorR="0.08" colorG="0.12" colorB="0.13" colorA="0.94" activeR="0.08" activeG="0.12" activeB="0.13" activeA="0.94" />
+  </menu>
+  <menu id="region_escape_menu" anchor="center" x="0" y="0" width="260" height="56" buttonWidth="220" buttonHeight="40" spacing="0" visible="false" backgroundR="0.035" backgroundG="0.047" backgroundB="0.058" backgroundA="0.94">
+    <button id="region_escape_exit_game" textStringId="ui.button.exit_to_desktop" text="Exit to Desktop" action="open_exit_confirm" x="20" y="8" width="220" height="40" colorR="0.22" colorG="0.10" colorB="0.10" colorA="0.94" activeR="0.46" activeG="0.17" activeB="0.14" activeA="0.96" />
+  </menu>
+  <menu id="escape_menu" anchor="center" x="0" y="0" width="260" height="152" buttonWidth="220" buttonHeight="40" spacing="8" visible="false" backgroundR="0.035" backgroundG="0.047" backgroundB="0.058" backgroundA="0.94">
+    <button id="save_game" textStringId="ui.button.save" text="Save" action="save_autoslot" x="20" y="8" width="220" height="40" colorR="0.12" colorG="0.24" colorB="0.18" colorA="0.94" activeR="0.22" activeG="0.48" activeB="0.32" activeA="0.96" />
+    <button id="quit_to_region" textStringId="ui.button.exit_to_region" text="Exit to Region" action="open_quit_region_confirm" x="20" y="56" width="220" height="40" colorR="0.12" colorG="0.18" colorB="0.28" colorA="0.94" activeR="0.24" activeG="0.36" activeB="0.52" activeA="0.96" />
+    <button id="exit_game" textStringId="ui.button.exit_to_desktop" text="Exit to Desktop" action="open_exit_confirm" x="20" y="104" width="220" height="40" colorR="0.22" colorG="0.10" colorB="0.10" colorA="0.94" activeR="0.46" activeG="0.17" activeB="0.14" activeA="0.96" />
+  </menu>
+  <menu id="exit_confirm_dialog" anchor="center" x="0" y="0" width="340" height="116" buttonWidth="132" buttonHeight="36" spacing="8" visible="false" backgroundR="0.035" backgroundG="0.047" backgroundB="0.058" backgroundA="0.96">
+    <button id="exit_prompt" textStringId="ui.prompt.save_before_exiting" text="Save before exiting?" action="" x="18" y="14" width="304" height="34" colorR="0.035" colorG="0.047" colorB="0.058" colorA="0.0" activeR="0.035" activeG="0.047" activeB="0.058" activeA="0.0" />
+    <button id="exit_save_yes" textStringId="ui.button.yes" text="Yes" action="exit_save_yes" x="34" y="66" width="122" height="36" colorR="0.14" colorG="0.30" colorB="0.20" colorA="0.94" activeR="0.22" activeG="0.48" activeB="0.32" activeA="0.96" />
+    <button id="exit_save_no" textStringId="ui.button.no" text="No" action="exit_save_no" x="184" y="66" width="122" height="36" colorR="0.30" colorG="0.12" colorB="0.11" colorA="0.94" activeR="0.52" activeG="0.20" activeB="0.18" activeA="0.96" />
+  </menu>
+  <menu id="quit_region_confirm_dialog" anchor="center" x="0" y="0" width="340" height="116" buttonWidth="132" buttonHeight="36" spacing="8" visible="false" backgroundR="0.035" backgroundG="0.047" backgroundB="0.058" backgroundA="0.96">
+    <button id="quit_region_prompt" textStringId="ui.prompt.save_city_before_exiting" text="Save city before exiting?" action="" x="18" y="14" width="304" height="34" colorR="0.035" colorG="0.047" colorB="0.058" colorA="0.0" activeR="0.035" activeG="0.047" activeB="0.058" activeA="0.0" />
+    <button id="quit_region_save_yes" textStringId="ui.button.yes" text="Yes" action="quit_region_save_yes" x="34" y="66" width="122" height="36" colorR="0.14" colorG="0.30" colorB="0.20" colorA="0.94" activeR="0.22" activeG="0.48" activeB="0.32" activeA="0.96" />
+    <button id="quit_region_save_no" textStringId="ui.button.no" text="No" action="quit_region_save_no" x="184" y="66" width="122" height="36" colorR="0.30" colorG="0.12" colorB="0.11" colorA="0.94" activeR="0.52" activeG="0.20" activeB="0.18" activeA="0.96" />
+  </menu>
+  <menu id="city_switch_confirm_dialog" anchor="center" x="0" y="0" width="340" height="116" buttonWidth="132" buttonHeight="36" spacing="8" visible="false" backgroundR="0.035" backgroundG="0.047" backgroundB="0.058" backgroundA="0.96">
+    <button id="city_switch_prompt" textStringId="ui.prompt.save_city_before_leaving" text="Save city before leaving?" action="" x="18" y="14" width="304" height="34" colorR="0.035" colorG="0.047" colorB="0.058" colorA="0.0" activeR="0.035" activeG="0.047" activeB="0.058" activeA="0.0" />
+    <button id="city_switch_save_yes" textStringId="ui.button.yes" text="Yes" action="city_switch_save_yes" x="34" y="66" width="122" height="36" colorR="0.14" colorG="0.30" colorB="0.20" colorA="0.94" activeR="0.22" activeG="0.48" activeB="0.32" activeA="0.96" />
+    <button id="city_switch_save_no" textStringId="ui.button.no" text="No" action="city_switch_save_no" x="184" y="66" width="122" height="36" colorR="0.30" colorG="0.12" colorB="0.11" colorA="0.94" activeR="0.52" activeG="0.20" activeB="0.18" activeA="0.96" />
+  </menu>
+  <menu id="app_warning_dialog" anchor="center" x="0" y="96" width="420" height="40" buttonWidth="132" buttonHeight="36" spacing="0" visible="true" backgroundA="0">
+    <button id="app_warning_ok" textStringId="ui.button.ok" text="OK" action="dismiss_app_warning" x="144" y="2" width="132" height="36" colorR="0.14" colorG="0.30" colorB="0.20" colorA="0.94" activeR="0.22" activeG="0.48" activeB="0.32" activeA="0.96" />
+  </menu>
+  <menu id="menu_toggle" anchor="bottomLeft" x="16" bottom="16" width="92" buttonWidth="92" buttonHeight="40" spacing="0" visible="true" backgroundA="0">
+    <button id="toggle_tools" textStringId="ui.button.tools" text="Tools" action="toggle_side_menu" colorR="0.08" colorG="0.12" colorB="0.13" colorA="0.94" activeR="0.08" activeG="0.12" activeB="0.13" activeA="0.94" />
+  </menu>
+  <menu id="overlay_toggle" anchor="bottomRight" x="16" bottom="16" width="132" buttonWidth="132" buttonHeight="40" spacing="0" visible="true" backgroundA="0">
+    <button id="toggle_overlays" textStringId="ui.button.overlays" text="Overlays" action="toggle_overlay_menu" colorR="0.08" colorG="0.12" colorB="0.13" colorA="0.94" activeR="0.08" activeG="0.12" activeB="0.13" activeA="0.94" />
+  </menu>
+</ui>

@@ -42,19 +42,24 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <OutDir>$(ProjectDir)x64\$(Configuration)\</OutDir>
-    <IntDir>$(ProjectDir)x64\$(Configuration)\RendererTests\</IntDir>
+    <OutDir>$(ProjectDir)..\Distributable\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)..\Build\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <OutDir>$(ProjectDir)x64\$(Configuration)\</OutDir>
-    <IntDir>$(ProjectDir)x64\$(Configuration)\RendererTests\</IntDir>
+    <OutDir>$(ProjectDir)..\Distributable\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)..\Build\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
+      <AdditionalIncludeDirectories>$(VULKAN_SDK)\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
+    <Link>
+      <AdditionalDependencies>dxgi.lib;vulkan-1.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(VULKAN_SDK)\Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -64,22 +69,41 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
+      <AdditionalIncludeDirectories>$(VULKAN_SDK)\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalDependencies>dxgi.lib;vulkan-1.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(VULKAN_SDK)\Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="InGameWindow.cpp" />
+    <ClCompile Include="Localization.cpp" />
+    <ClCompile Include="RciTool.cpp" />
     <ClCompile Include="RendererAlgorithms.cpp" />
+    <ClCompile Include="RendererColor.cpp" />
     <ClCompile Include="RendererTests.cpp" />
+    <ClCompile Include="VulkanRendererSupport.cpp" />
+    <ClCompile Include="SimulationDate.cpp" />
+    <ClCompile Include="TransportTypes.cpp" />
+    <ClCompile Include="UiWidgets.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ChunkConfig.h" />
     <ClInclude Include="InGameWindow.h" />
+    <ClInclude Include="Localization.h" />
+    <ClInclude Include="RciTool.h" />
     <ClInclude Include="RendererAlgorithms.h" />
+    <ClInclude Include="RendererColor.h" />
+    <ClInclude Include="RendererPayload.h" />
+    <ClInclude Include="VulkanRendererSupport.h" />
+    <ClInclude Include="SimulationDate.h" />
+    <ClInclude Include="SimulationTime.h" />
     <ClInclude Include="Tile.h" />
+    <ClInclude Include="TransportTypes.h" />
+    <ClInclude Include="UiWidgets.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

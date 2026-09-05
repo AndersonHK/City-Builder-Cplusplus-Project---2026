@@ -1,0 +1,5 @@
+<module id="commercial_parking_crossing_module">
+  <size width="1" height="1" />
+  <effects airPollution="0" parkEffect="0" landValue="0" />
+  <render mesh="metric_commercial_parking_crossing_module" family="parking_crossing" widthMeters="6" depthMeters="6" heightMeters="0.3" floors="1" seed="0" colorR="0.35" colorG="0.4" colorB="0.43" metric="true" stretch="false" />
+</module>

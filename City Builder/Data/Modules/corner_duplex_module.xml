@@ -1,0 +1,8 @@
+<module id="corner_duplex_module" density="low">
+  <size width="3" height="3" />
+  <effects airPollution="0" landValue="1800" />
+  <render mesh="metric_corner_duplex_module" height="1.43333" colorR="0.60" colorG="0.44" colorB="0.36" family="duplex" widthMeters="16.92" depthMeters="16.56" heightMeters="8.60" floors="2" seed="6" metric="true" stretch="false" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="10" />
+  </parameters>
+</module>

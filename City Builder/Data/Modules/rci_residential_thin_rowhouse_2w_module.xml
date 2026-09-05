@@ -1,0 +1,8 @@
+<module id="rci_residential_thin_rowhouse_2w_module" density="low">
+  <size width="2" height="1" />
+  <effects airPollution="0" landValue="900" />
+  <render mesh="metric_rci_residential_thin_rowhouse_2w_module" height="1.43333" colorR="0.60" colorG="0.46" colorB="0.39" family="rowhouse" widthMeters="11.28" depthMeters="5.52" heightMeters="8.60" floors="2" seed="44" metric="true" stretch="false" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="4" />
+  </parameters>
+</module>

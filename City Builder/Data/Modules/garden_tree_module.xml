@@ -1,0 +1,11 @@
+<module id="garden_tree_module">
+  <size width="1" height="1" />
+  <effects airPollution="0" parkEffect="18" landValue="325" />
+  <render optionalLandscape="true" mesh="metric_garden_tree_module" height="1.25000" colorR="0.30" colorG="0.58" colorB="0.24" family="tree" widthMeters="6.00" depthMeters="6.00" heightMeters="7.50" floors="1" seed="17" metric="true" stretch="false" />
+  <variations>
+    <variation id="oak" weight="3" treeStyle="oak" />
+    <variation id="birch" weight="2" treeStyle="birch" />
+    <variation id="conifer" weight="1" treeStyle="conifer" />
+  </variations>
+  <pathBlocker xMeters="2.25" zMeters="2.25" widthMeters="1.5" depthMeters="1.5" />
+</module>

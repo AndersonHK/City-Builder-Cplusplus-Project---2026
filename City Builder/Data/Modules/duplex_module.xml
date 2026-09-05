@@ -1,0 +1,8 @@
+<module id="duplex_module" density="low">
+  <size width="3" height="2" />
+  <effects airPollution="0" landValue="1600" />
+  <render mesh="metric_duplex_module" height="1.43333" colorR="0.56" colorG="0.40" colorB="0.34" family="duplex" widthMeters="16.92" depthMeters="11.04" heightMeters="8.60" floors="2" seed="13" metric="true" stretch="false" />
+  <parameters>
+    <driver id="residents.low_wealth" amount="12" />
+  </parameters>
+</module>
