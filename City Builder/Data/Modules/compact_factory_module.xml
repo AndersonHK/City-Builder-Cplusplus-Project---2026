@@ -1,7 +1,7 @@
 <module id="compact_factory_module" density="high">
   <size width="2" height="2" />
   <effects airPollution="1000" landValue="5500" />
-  <render mesh="box" height="1.25" colorR="0.36" colorG="0.35" colorB="0.34" />
+  <render mesh="metric_compact_factory_module" height="1.25000" colorR="0.36" colorG="0.35" colorB="0.34" family="factory" widthMeters="11.28" depthMeters="11.28" heightMeters="7.50" floors="1" seed="2" metric="true" stretch="false" />
   <parameters>
     <driver id="jobs.dirty_industry" amount="10" />
   </parameters>

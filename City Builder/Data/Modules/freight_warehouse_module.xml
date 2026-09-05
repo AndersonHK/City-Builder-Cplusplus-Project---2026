@@ -1,7 +1,7 @@
 <module id="freight_warehouse_module" density="medium">
   <size width="4" height="3" />
   <effects airPollution="840" landValue="3800" />
-  <render mesh="box" height="1.05" colorR="0.37" colorG="0.39" colorB="0.37" />
+  <render mesh="metric_freight_warehouse_module" height="1.25000" colorR="0.37" colorG="0.39" colorB="0.37" family="warehouse" widthMeters="22.56" depthMeters="16.92" heightMeters="7.50" floors="1" seed="15" metric="true" stretch="false" />
   <parameters>
     <driver id="jobs.dirty_industry" amount="24" />
   </parameters>

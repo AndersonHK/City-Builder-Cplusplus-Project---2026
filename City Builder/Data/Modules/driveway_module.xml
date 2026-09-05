@@ -1,5 +1,5 @@
 <module id="driveway_module">
   <size width="1" height="1" />
   <effects airPollution="0" landValue="110" />
-  <render mesh="flat_surface" height="0.15" colorR="0.28" colorG="0.28" colorB="0.30" />
+  <render mesh="metric_driveway_module" height="0.04167" colorR="0.28" colorG="0.28" colorB="0.30" family="driveway" widthMeters="6.00" depthMeters="6.00" heightMeters="0.25" floors="1" seed="12" metric="true" stretch="true" />
 </module>

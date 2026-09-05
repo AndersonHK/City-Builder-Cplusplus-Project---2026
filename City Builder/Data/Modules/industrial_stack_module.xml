@@ -1,7 +1,7 @@
 <module id="industrial_stack_module" density="high">
   <size width="3" height="3" />
   <effects airPollution="1400" landValue="6250" />
-  <render mesh="smokestack" height="1.55" colorR="0.34" colorG="0.34" colorB="0.33" />
+  <render mesh="metric_industrial_stack_module" height="4.00000" colorR="0.34" colorG="0.34" colorB="0.33" family="stack" widthMeters="18.00" depthMeters="18.00" heightMeters="24.00" floors="1" seed="21" metric="true" stretch="false" />
   <parameters>
     <driver id="jobs.dirty_industry" amount="25" />
   </parameters>

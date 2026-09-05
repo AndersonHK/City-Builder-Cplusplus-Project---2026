@@ -1,7 +1,7 @@
 <module id="compact_house_module" density="low">
   <size width="2" height="2" />
   <effects airPollution="0" landValue="1100" />
-  <render mesh="gabled_roof" height="0.72" colorR="0.62" colorG="0.42" colorB="0.30" />
+  <render mesh="metric_compact_house_module" height="1.43333" colorR="0.62" colorG="0.42" colorB="0.30" family="house" widthMeters="9.10" depthMeters="9.50" heightMeters="8.60" floors="2" seed="3" metric="true" stretch="false" />
   <parameters>
     <driver id="residents.low_wealth" amount="5" />
   </parameters>

@@ -40,6 +40,7 @@ enum class CommuteCategory {
 };
 
 struct RuntimeOptions {
+    std::string assetDataDirectory; // Empty uses deployed Data; tools can review source assets.
     bool fastForward;
     bool detectL2CacheSize;
     std::size_t manualL2BytesPerLogicalThread;
@@ -306,6 +307,10 @@ public:
 
     bool buildLotPreviewInstances(const std::string& lotAssetId, int tileX, int tileY, int rotationSteps, std::vector<LotRenderInstance>& renderInstances, bool& isPlacementValid) const;
     bool canPlaceRoadStroke(const RoadStrokeCommand& roadStrokeCommand) const;
+    bool buildAssetPreview(const std::string& id, int width, int depth, int rotation, int variation, Lot& lot) const;
+    const std::vector<LotModule>& assetModules() const { return moduleAssets_; }
+    const std::vector<LotAsset>& assetLots() const { return lotAssets_; }
+    const std::vector<RenderMeshBinding>& assetMeshBindings() const { return renderMeshBindings_; }
     bool buildRciPlan(const RciTool& tool, int startTileX, int startTileY, int endTileX, int endTileY, RciPlanMode mode, RciPlan& plan) const;
     TileQueryResult queryTile(int tileX, int tileY) const;
     CitySaveState exportCitySaveState() const;

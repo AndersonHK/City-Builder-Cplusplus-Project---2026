@@ -1,5 +1,5 @@
 <module id="smokestack_row_module">
   <size width="4" height="1" />
   <effects airPollution="1040" landValue="1750" />
-  <render mesh="smokestack" height="1.55" colorR="0.20" colorG="0.20" colorB="0.20" />
+  <render mesh="metric_smokestack_row_module" height="3.66667" colorR="0.20" colorG="0.20" colorB="0.20" family="stack" widthMeters="24.00" depthMeters="6.00" heightMeters="22.00" floors="1" seed="57" metric="true" stretch="false" />
 </module>

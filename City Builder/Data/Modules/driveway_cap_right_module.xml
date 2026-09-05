@@ -1,0 +1,5 @@
+<module id="driveway_cap_right_module">
+  <size width="1" height="1" />
+  <effects airPollution="0" landValue="0" />
+  <render mesh="metric_driveway_cap_right_module" family="driveway_cap_right" metric="true" stretch="false" widthMeters="6.00" depthMeters="6.00" heightMeters="1.80" height="0.30000" floors="1" seed="0" colorR="0.31" colorG="0.33" colorB="0.33" />
+</module>

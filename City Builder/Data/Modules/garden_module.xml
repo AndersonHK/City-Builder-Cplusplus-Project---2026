@@ -1,5 +1,5 @@
 <module id="garden_module">
   <size width="1" height="1" />
   <effects airPollution="0" landValue="325" />
-  <render mesh="flat_surface" height="0.12" colorR="0.30" colorG="0.58" colorB="0.24" />
+  <render mesh="metric_garden_module" height="0.18333" colorR="0.30" colorG="0.58" colorB="0.24" family="garden" widthMeters="6.00" depthMeters="6.00" heightMeters="1.10" floors="1" seed="16" metric="true" stretch="true" />
 </module>

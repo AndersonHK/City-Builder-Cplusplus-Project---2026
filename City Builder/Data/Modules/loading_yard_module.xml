@@ -1,5 +1,5 @@
 <module id="loading_yard_module">
   <size width="3" height="2" />
   <effects airPollution="16" landValue="400" />
-  <render mesh="flat_surface" height="0.09" colorR="0.33" colorG="0.31" colorB="0.29" />
+  <render mesh="metric_loading_yard_module" height="0.30000" colorR="0.33" colorG="0.31" colorB="0.29" family="loading" widthMeters="18.00" depthMeters="12.00" heightMeters="1.80" floors="1" seed="26" metric="true" stretch="true" />
 </module>

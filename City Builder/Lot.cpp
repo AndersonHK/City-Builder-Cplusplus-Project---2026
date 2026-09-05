@@ -1,4 +1,5 @@
 #include "Lot.h"
+#include "LotAccessVisuals.h"
 
 #include "LotRenderSurfacePatterns.h"
 #include "LotModulePlacementGeometry.h"
@@ -477,6 +478,7 @@ LotRenderInstance Lot::buildRenderInstance() const {
 }
 
 void Lot::buildRenderInstances(std::vector<LotRenderInstance>& instances) const {
+    const size_t firstInstance=instances.size();
     float groundR = 0.0f;
     float groundG = 0.0f;
     float groundB = 0.0f;
@@ -490,7 +492,7 @@ void Lot::buildRenderInstances(std::vector<LotRenderInstance>& instances) const 
         groundInstance.originY = anchorTileY_ + occupiedOffsets_[occupiedIndex].y;
         groundInstance.width = 1;
         groundInstance.height = 1;
-        groundInstance.renderHeight = 0.055f;
+        groundInstance.renderHeight = 0.018f;
         groundInstance.colorR = groundR;
         groundInstance.colorG = groundG;
         groundInstance.colorB = groundB;
@@ -526,6 +528,27 @@ void Lot::buildRenderInstances(std::vector<LotRenderInstance>& instances) const 
         moduleInstance.colorG = placement.module->colorG;
         moduleInstance.colorB = placement.module->colorB;
         moduleInstance.renderMeshHandle = placement.module->renderMeshHandle;
+        if (placement.module->metricGeometry) {
+            moduleInstance.meshRotation = static_cast<std::uint8_t>(NormalizeLotModulePlacementRotation(rotationSteps_));
+            moduleInstance.colorR = moduleInstance.colorG = moduleInstance.colorB = 1.0f;
+            if (placement.module->id == "garden_module" || placement.module->id == "garden_tree_module") {
+                const unsigned int seed = static_cast<unsigned int>(moduleInstance.originX) * 73856093u ^ static_cast<unsigned int>(moduleInstance.originY) * 19349663u;
+                moduleInstance.meshRotation = static_cast<std::uint8_t>(seed % 4u);
+                const float tint = 0.94f + static_cast<float>(seed % 11u) * 0.01f;
+                moduleInstance.colorR = moduleInstance.colorG = moduleInstance.colorB = tint;
+            }
+            if (!placement.module->stretchGeometry) {
+                const bool swap = (rotationSteps_ & 1) != 0;
+                const float width = swap ? placement.module->naturalDepth : placement.module->naturalWidth;
+                const float depth = swap ? placement.module->naturalWidth : placement.module->naturalDepth;
+                // Saved visual overrides belonged to the old stretchable primitives.
+                // Keep the occupied parcel and center the new physical model inside it.
+                moduleInstance.renderWidth = width;
+                moduleInstance.renderHeightOverride = depth;
+                moduleInstance.renderOffsetX = (placement.footprintWidth - width) * 0.5f;
+                moduleInstance.renderOffsetY = (placement.footprintHeight - depth) * 0.5f;
+            }
+        }
         instances.push_back(moduleInstance);
 
         std::size_t propIndex = 0;
@@ -538,9 +561,7 @@ void Lot::buildRenderInstances(std::vector<LotRenderInstance>& instances) const 
 
             LotModulePlacementDefinition propPlacement;
             propPlacement.moduleId = propModule->id;
-            propPlacement.localOrigin = Int2(
-                placement.localOrigin.x + prop.localOrigin.x,
-                placement.localOrigin.y + prop.localOrigin.y);
+            propPlacement.localOrigin = prop.localOrigin;
             propPlacement.footprintWidth = prop.footprintWidth;
             propPlacement.footprintHeight = prop.footprintHeight;
             propPlacement.renderOffsetX = prop.renderOffsetX;
@@ -554,7 +575,11 @@ void Lot::buildRenderInstances(std::vector<LotRenderInstance>& instances) const 
             propPlacement.renderAlignX = prop.renderAlignX;
             propPlacement.renderAlignY = prop.renderAlignY;
 
-            const LotModulePlacementGeometry propGeometry = ResolveLotModulePlacementGeometry(propPlacement, *propModule);
+            LotModulePlacementGeometry propGeometry = RotateLotModulePlacementGeometry(ResolveLotModulePlacementGeometry(propPlacement, *propModule), rotationSteps_);
+            const bool swapped=(rotationSteps_ & 1)!=0;
+            const Int2 parentMinimum=RotatedLotModulePlacementMinimum(Int2(0,0),swapped?placement.footprintHeight:placement.footprintWidth,swapped?placement.footprintWidth:placement.footprintHeight,rotationSteps_);
+            propGeometry.localOrigin.x+=placement.localOrigin.x-parentMinimum.x;
+            propGeometry.localOrigin.y+=placement.localOrigin.y-parentMinimum.y;
             LotRenderInstance propInstance;
             propInstance.lotId = lotId_;
             propInstance.originX = anchorTileX_ + propGeometry.localOrigin.x;
@@ -570,9 +595,20 @@ void Lot::buildRenderInstances(std::vector<LotRenderInstance>& instances) const 
             propInstance.colorG = propModule->colorG;
             propInstance.colorB = propModule->colorB;
             propInstance.renderMeshHandle = propModule->renderMeshHandle;
+            if (propModule->metricGeometry) {
+                propInstance.meshRotation=static_cast<std::uint8_t>(NormalizeLotModulePlacementRotation(rotationSteps_));
+                if(!propModule->stretchGeometry){
+                    propInstance.renderWidth=swapped?propModule->naturalDepth:propModule->naturalWidth;
+                    propInstance.renderHeightOverride=swapped?propModule->naturalWidth:propModule->naturalDepth;
+                    propInstance.renderOffsetX=(propInstance.width-propInstance.renderWidth)*0.5f;
+                    propInstance.renderOffsetY=(propInstance.height-propInstance.renderHeightOverride)*0.5f;
+                }
+                propInstance.colorR = propInstance.colorG = propInstance.colorB = 1.0f;
+            }
             instances.push_back(propInstance);
         }
     }
+    LotAccessVisuals::Append(*this,firstInstance,instances);
 }
 
 // Produces a compact module count string for tile queries.

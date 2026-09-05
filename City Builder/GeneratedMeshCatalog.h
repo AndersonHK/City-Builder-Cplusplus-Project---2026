@@ -11,6 +11,13 @@ struct GeneratedMeshVertex {
     float colorR;
     float colorG;
     float colorB;
+    float normalX = 0.0f;
+    float normalY = 1.0f;
+    float normalZ = 0.0f;
+    float u = 0.0f;
+    float v = 0.0f;
+    float material = 0.0f;
+    float ambient = 1.0f;
 
     GeneratedMeshVertex()
         : x(0.0f),

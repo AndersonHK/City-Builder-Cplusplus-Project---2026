@@ -1,4 +1,5 @@
 #include "AssetLoader.h"
+#include "WorldScale.h"
 
 #include "CrashLogger.h"
 #include "LotAutoLayoutResolver.h"
@@ -665,6 +666,21 @@ LotModule LoadModuleAsset(const std::string& filePath, const std::string& fileNa
             module.colorB = ParseOptionalFloat(tag.attributes, "colorB", module.colorB);
             const std::string meshText = GetOptionalAttribute(tag.attributes, "mesh", GetOptionalAttribute(tag.attributes, "shape", GetOptionalAttribute(tag.attributes, "meshKey", GetOptionalAttribute(tag.attributes, "meshId", ""))));
             module.renderMeshKey = NormalizeRenderMeshKey(meshText);
+            module.metricGeometry = ParseOptionalBool(tag.attributes, "metric", false);
+            module.stretchGeometry = ParseOptionalBool(tag.attributes, "stretch", false);
+            module.artFamily = GetOptionalAttribute(tag.attributes, "family", "");
+            const std::string& family=module.artFamily;
+            module.hasPedestrianEntrance = family=="house" || family=="duplex" || family=="rowhouse" || family=="trailer" || family=="walkup" || family=="midrise" || family=="court" || family=="tower" || family=="factory" || family=="warehouse" || family=="workshop";
+            module.hasGarageEntrance = family=="tower" || family=="factory" || family=="warehouse" || family=="workshop";
+            if (module.metricGeometry) {
+                module.naturalWidth = MetersToTiles(ParseOptionalFloat(tag.attributes, "widthMeters", 0.0f));
+                module.naturalDepth = MetersToTiles(ParseOptionalFloat(tag.attributes, "depthMeters", 0.0f));
+                module.renderHeight = MetersToTiles(ParseOptionalFloat(tag.attributes, "heightMeters", 0.0f));
+                if (!(module.naturalWidth > 0 && module.naturalWidth <= module.width &&
+                      module.naturalDepth > 0 && module.naturalDepth <= module.height &&
+                      module.renderHeight > 0 && module.renderHeight <= 50))
+                    throw std::runtime_error("Metric dimensions must be positive and fit module '" + module.id + "'.");
+            }
             continue;
         }
 
@@ -1498,6 +1514,12 @@ void AssignRenderMeshHandles(std::vector<LotModule>& modules, std::vector<Render
     for (; moduleIndex < modules.size(); ++moduleIndex) {
         modules[moduleIndex].renderMeshKey = NormalizeRenderMeshKey(modules[moduleIndex].renderMeshKey);
         modules[moduleIndex].renderMeshHandle = ensureHandle(modules[moduleIndex].renderMeshKey);
+        if (modules[moduleIndex].metricGeometry) {
+            auto& m=modules[moduleIndex];
+            m.pathMeshHandle=ensureHandle("metric_pathway_module");m.driveMeshHandle=ensureHandle("metric_driveway_module");
+            m.grassMeshHandle=ensureHandle("metric_yard_module");m.gardenMeshHandle=ensureHandle("metric_garden_module");m.treeMeshHandle=ensureHandle("metric_garden_tree_module");m.fenceMeshHandle=ensureHandle("metric_fence_module");
+            m.accessPathHandle=ensureHandle("access_path");m.accessDriveHandle=ensureHandle("access_drive");m.driveMidHandle=ensureHandle("metric_driveway_mid_module");m.driveCapLeftHandle=ensureHandle("metric_driveway_cap_left_module");m.driveCapRightHandle=ensureHandle("metric_driveway_cap_right_module");
+        }
     }
 }
 

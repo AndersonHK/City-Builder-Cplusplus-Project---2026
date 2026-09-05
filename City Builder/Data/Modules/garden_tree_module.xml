@@ -1,5 +1,5 @@
 <module id="garden_tree_module">
   <size width="1" height="1" />
   <effects airPollution="0" parkEffect="18" landValue="325" />
-  <render mesh="pine_tree" height="0.95" colorR="0.30" colorG="0.58" colorB="0.24" />
+  <render mesh="metric_garden_tree_module" height="1.25000" colorR="0.30" colorG="0.58" colorB="0.24" family="tree" widthMeters="6.00" depthMeters="6.00" heightMeters="7.50" floors="1" seed="17" metric="true" stretch="false" />
 </module>

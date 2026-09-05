@@ -1,7 +1,7 @@
 <module id="shallow_walkup_module" density="medium">
   <size width="5" height="3" />
   <effects airPollution="0" landValue="4400" />
-  <render mesh="box" height="1.55" colorR="0.58" colorG="0.54" colorB="0.50" />
+  <render mesh="metric_shallow_walkup_module" height="1.76167" colorR="0.58" colorG="0.54" colorB="0.50" family="walkup" widthMeters="27.60" depthMeters="16.56" heightMeters="10.57" floors="3" seed="53" metric="true" stretch="false" />
   <parameters>
     <driver id="residents.low_wealth" amount="40" />
   </parameters>

@@ -2,6 +2,8 @@
 
 #include <fstream>
 #include <sstream>
+#include <cmath>
+#include "LotMaterials.h"
 
 bool GeneratedMeshCatalog::loadFromFile(const std::string& path, std::string& errorMessage) {
     clear();
@@ -15,7 +17,7 @@ bool GeneratedMeshCatalog::loadFromFile(const std::string& path, std::string& er
     std::string magic;
     int version = 0;
     stream >> magic >> version;
-    if (!stream || magic != "CBGM" || version != 1) {
+    if (!stream || magic != "CBGM" || (version != 1 && version != 2)) {
         errorMessage = "Generated mesh catalog has an unsupported header: " + path;
         clear();
         return false;
@@ -58,10 +60,19 @@ bool GeneratedMeshCatalog::loadFromFile(const std::string& path, std::string& er
 
             GeneratedMeshVertex vertex;
             stream >> vertex.x >> vertex.y >> vertex.z >> vertex.colorR >> vertex.colorG >> vertex.colorB;
+            if (version == 2) stream >> vertex.normalX >> vertex.normalY >> vertex.normalZ >> vertex.u >> vertex.v >> vertex.material >> vertex.ambient;
             if (!stream) {
                 errorMessage = "Generated mesh catalog contains a malformed vertex in mesh '" + meshName + "'.";
                 clear();
                 return false;
+            }
+            const float fields[] = {vertex.x,vertex.y,vertex.z,vertex.colorR,vertex.colorG,vertex.colorB,
+                vertex.normalX,vertex.normalY,vertex.normalZ,vertex.u,vertex.v,vertex.material,vertex.ambient};
+            for (float value : fields) if (!std::isfinite(value)) {
+                errorMessage = "Non-finite mesh vertex in '" + meshName + "'."; clear(); return false;
+            }
+            if (vertex.material < 0 || vertex.material >= MaterialCount || vertex.ambient < 0 || vertex.ambient > 1) {
+                errorMessage = "Invalid material/AO in '" + meshName + "'."; clear(); return false;
             }
             vertices_.push_back(vertex);
         }

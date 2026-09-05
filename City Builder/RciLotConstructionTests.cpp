@@ -18,6 +18,7 @@
 #include "GameSession.h"
 #include "LotAutoLayoutResolver.h"
 #include "LotModulePlacementGeometry.h"
+#include "LotAccessVisuals.h"
 #include "SimulationTime.h"
 #include "TestAssetXml.h"
 #include "Tile.h"
@@ -677,8 +678,10 @@ void TestLowResidentialRowhouseYardTemplateRules(TestRunner& runner) {
     runner.expect(gardenModule != 0, "garden module exists");
     runner.expect(yardModule != 0, "yard module exists");
     runner.expect(fenceModule != 0, "fence module exists");
-    runner.expect(FindModule(assets, "deep_rowhouse_module") == 0, "bespoke two-wide deep rowhouse module is not present");
-    runner.expect(FindModule(assets, "rci_residential_deep_rowhouse_3w_module") == 0, "bespoke three-wide deep rowhouse module is not present");
+    const auto* legacyTwo=FindModule(assets,"deep_rowhouse_module");
+    const auto* legacyThree=FindModule(assets,"rci_residential_deep_rowhouse_3w_module");
+    runner.expect(legacyTwo&&legacyTwo->metricGeometry&&legacyTwo->width==2&&legacyTwo->height==5&&ModuleParameterAmount(*legacyTwo,registry.residentsLowWealthId())==16,"legacy two-wide rowhouse saves retain footprint and capacity with metric art");
+    runner.expect(legacyThree&&legacyThree->metricGeometry&&legacyThree->width==3&&legacyThree->height==5&&ModuleParameterAmount(*legacyThree,registry.residentsLowWealthId())==24,"legacy three-wide rowhouse saves retain footprint and capacity with metric art");
     runner.expect(thinRowhouseModule != 0, "two-wide thin rowhouse module exists");
     runner.expect(wideThinRowhouseModule != 0, "three-wide thin rowhouse module exists");
     if (rowHouseModule != 0 && thinRowhouseModule != 0) {
@@ -689,9 +692,9 @@ void TestLowResidentialRowhouseYardTemplateRules(TestRunner& runner) {
                 ModuleParameterAmount(*rowHouseModule, registry.residentsLowWealthId()) == 8,
             "two-wide thin and full rowhouse capacities are 4 and 8");
         runner.expect(
-            rowHouseModule->renderMeshKey == "rowhouse_2_roof" &&
-                thinRowhouseModule->renderMeshKey == "rowhouse_2_roof",
-            "two-wide rowhouse modules share the segmented three-roof mesh");
+            rowHouseModule->renderMeshKey == "metric_row_house_module" &&
+                thinRowhouseModule->renderMeshKey == "metric_rci_residential_thin_rowhouse_2w_module",
+            "two-wide rowhouse modules use distinct metric models");
     }
     if (duplexModule != 0 && wideThinRowhouseModule != 0) {
         runner.expect(
@@ -701,9 +704,9 @@ void TestLowResidentialRowhouseYardTemplateRules(TestRunner& runner) {
                 ModuleParameterAmount(*duplexModule, registry.residentsLowWealthId()) == 12,
             "three-wide thin and full rowhouse capacities are 6 and 12");
         runner.expect(
-            duplexModule->renderMeshKey == "rowhouse_3_roof" &&
-                wideThinRowhouseModule->renderMeshKey == "rowhouse_3_roof",
-            "three-wide rowhouse modules share the segmented three-roof mesh");
+            duplexModule->renderMeshKey == "metric_duplex_module" &&
+                wideThinRowhouseModule->renderMeshKey == "metric_rci_residential_thin_rowhouse_3w_module",
+            "three-wide rowhouse modules use distinct metric models");
     }
     const LotModule* trailerModule = FindModule(assets, "trailer_module");
     runner.expect(
@@ -732,9 +735,9 @@ void TestLowResidentialRowhouseYardTemplateRules(TestRunner& runner) {
         runner.expect(
             houseVariant->width == 2 &&
                 houseVariant->height == 2 &&
-                houseVariant->renderMeshKey == "gabled_roof" &&
+                houseVariant->metricGeometry && houseVariant->renderMeshKey == std::string("metric_") + houseVariant->id &&
                 ModuleParameterAmount(*houseVariant, registry.residentsLowWealthId()) == houseVariantCapacities[houseVariantIndex],
-            std::string(houseVariantIds[houseVariantIndex]) + " is a two-by-two gabled low-density capacity step");
+            std::string(houseVariantIds[houseVariantIndex]) + " is a two-by-two metric low-density capacity step");
 
         bool foundGardenUnderlay = false;
         bool foundPathUnderlay = false;
@@ -1694,9 +1697,60 @@ void RunLargeLowDensityRciPlanCommitTest(TestRunner& runner) {
 }
 }
 
+void TestMetricLotAccess(TestRunner& runner) {
+    using namespace LotAccessVisuals;
+    LotModule home;home.artFamily="house";home.hasPedestrianEntrance=true;
+    const Rect house{2.1f,2.1f,1.8f,1.8f};
+    auto surfaces=Plan(6,6,{{house,&home}});
+    int middles=0,caps=0;Rect cap{};int capKind=0;
+    for(const auto& s:surfaces){
+        runner.expect(s.bounds.x>=-0.001f&&s.bounds.z>=-0.001f&&s.bounds.x+s.bounds.w<=6.001f&&s.bounds.z+s.bounds.d<=6.001f,"access remains inside parcel");
+        if(s.kind>=3){
+            runner.expect(s.bounds.w==1&&s.bounds.d==1&&std::floor(s.bounds.x)==s.bounds.x&&std::floor(s.bounds.z)==s.bounds.z,"driveway consists of unscaled integral 1x1 modules");
+            runner.expect(!Intersects(s.bounds,house),"driveway avoids building");
+            if(s.kind==3)++middles;else{++caps;cap=s.bounds;capKind=s.kind;}
+        }
+    }
+    runner.expect(middles==2&&caps==1,"deep garden has two middle pieces and one end cap");
+    runner.expect(cap.x>0&&cap.x<5,"driveway is placed beside house rather than lot corner");
+    auto contains=[](Rect r,float x,float z){return x>=r.x-0.001f&&x<=r.x+r.w+0.001f&&z>=r.z-0.001f&&z<=r.z+r.d+0.001f;};
+    std::vector<Rect> paths;for(const auto& s:surfaces)if(s.kind==0)paths.push_back(s.bounds);
+    paths.push_back({cap.x+(capKind==4?0.0f:0.5f),cap.z+0.75f,0.5f,0.25f});
+    std::vector<bool> reached(paths.size(),false);bool progress=true;
+    for(size_t i=0;i<paths.size();++i)if(paths[i].z<=0.001f)reached[i]=true;
+    while(progress){progress=false;for(size_t i=0;i<paths.size();++i)if(reached[i])for(size_t j=0;j<paths.size();++j)if(!reached[j]){
+        Rect r=paths[i];r.x-=0.002f;r.z-=0.002f;r.w+=0.004f;r.d+=0.004f;
+        if(Intersects(r,paths[j])){reached[j]=true;progress=true;}
+    }}
+    bool door=false;for(size_t i=0;i<paths.size();++i)if(reached[i]&&contains(paths[i],3,house.z+MetersToTiles(1.59f)))door=true;
+    runner.expect(door,"sidewalk path reaches actual house entrance");
+    runner.expect(reached.back(),"driveway end cap path joins sidewalk-to-door network");
+    home.artFamily="duplex";
+    auto narrow=Plan(3,6,{{{0.1f,0.1f,2.8f,1.8f},&home},{{0.1f,3.1f,2.8f,1.8f},&home}});
+    for(const auto& s:narrow)runner.expect(s.bounds.x>=0&&s.bounds.z>=0&&s.bounds.x+s.bounds.w<=3.001f&&s.bounds.z+s.bounds.d<=6.001f,"narrow entrance paving is clipped at sidewalk boundary");
+    for(float doorX:{0.8f,2.2f}){
+        bool connected=false;
+        for(const auto& s:narrow)if(s.kind==0&&contains(s.bounds,doorX,3.1f+MetersToTiles(1.59f)))connected=true;
+        runner.expect(connected,"rear duplex entrance receives a routed side passage on a narrow parcel");
+    }
+    home.artFamily="rowhouse";surfaces=Plan(6,6,{{house,&home}});
+    runner.expect(std::none_of(surfaces.begin(),surfaces.end(),[](const Surface& s){return s.kind!=0;}),"rowhouse has pedestrian access without forced driveway");
+    for(int rotation=0;rotation<4;++rotation){
+        Rect local{0.25f,1.5f,0.5f,2.0f};auto world=FromFront(local,10,20,rotation&1?6.f:4.f,rotation&1?4.f:6.f,rotation);
+        auto restored=ToFront(world,10,20,rotation&1?6.f:4.f,rotation&1?4.f:6.f,rotation);
+        runner.expect(std::abs(local.x-restored.x)+std::abs(local.z-restored.z)+std::abs(local.w-restored.w)+std::abs(local.d-restored.d)<0.001f,"access rotation preserves metric geometry and frontage");
+        LotModule metric;metric.id="metric_test";metric.metricGeometry=true;metric.width=metric.height=2;metric.naturalWidth=1.5f;metric.naturalDepth=1.8f;metric.renderHeight=1.4f;
+        Lot saved(7,"test",0,0,rotation);saved.addModule(metric,Int2(0,0),8,2,2,0.4f,0.3f,0.5f,0.8f);
+        std::vector<LotRenderInstance> render;saved.buildRenderInstances(render);const auto& body=render.back();
+        runner.expect(std::abs(body.renderWidth-(rotation&1?1.8f:1.5f))<0.001f&&std::abs(body.renderHeightOverride-(rotation&1?1.5f:1.8f))<0.001f,"legacy saved visual stretch does not deform metric building");
+        runner.expect(body.meshRotation==rotation&&saved.occupiedOffsets().size()==4,"metric presentation preserves rotation and saved simulation footprint");
+    }
+}
+
 int main() {
     InitializeCrashLogger("City Builder RciLotConstructionTests");
     TestRunner runner;
+    TestMetricLotAccess(runner);
     TestLotConstructionDurationLoading(runner);
     TestModulePlacementClaimedFootprintAndVisualAlignment(runner);
     TestDecorativePropPlacementsDoNotAffectSimulation(runner);

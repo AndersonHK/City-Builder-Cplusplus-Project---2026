@@ -25,6 +25,7 @@
 #include "City.h"
 #include "CrashLogger.h"
 #include "GeneratedMeshCatalog.h"
+#include "LotMaterials.h"
 #include "InGameWindow.h"
 #include "LotRenderSurfacePatterns.h"
 #include "RendererAlgorithms.h"
@@ -1601,6 +1602,10 @@ void ConfigureGeneratedLotVertexArray(GLuint vertexArrayId, GLuint meshVertexBuf
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(GeneratedMeshVertex), 0);
     glEnableVertexAttribArray(4);
     glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, sizeof(GeneratedMeshVertex), reinterpret_cast<void*>(sizeof(float) * 3));
+    glEnableVertexAttribArray(5);
+    glVertexAttribPointer(5, 3, GL_FLOAT, GL_FALSE, sizeof(GeneratedMeshVertex), reinterpret_cast<void*>(sizeof(float) * 6));
+    glEnableVertexAttribArray(6);
+    glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(GeneratedMeshVertex), reinterpret_cast<void*>(sizeof(float) * 9));
 
     glBindBuffer(GL_ARRAY_BUFFER, instanceBufferId);
     SetupInstanceAttribute(1, 4, sizeof(LotInstanceData), 0);
@@ -1729,7 +1734,7 @@ LotInstanceData BuildLotInstance(const LotRenderInstance& lot) {
     instance.colorB = lot.colorB;
     instance.surfacePattern = static_cast<float>(lot.surfacePattern);
     instance.surfaceDirection = static_cast<float>(lot.surfaceDirection);
-    instance.padding0 = 0.0f;
+    instance.padding0 = static_cast<float>(lot.meshRotation);
     instance.padding1 = 0.0f;
     return instance;
 }
@@ -1784,7 +1789,7 @@ std::vector<LotInstanceData> BuildLotInstances(const std::vector<LotRenderInstan
     return instances;
 }
 
-std::map<std::uint16_t, GeneratedMeshRange> BuildRuntimeMeshRanges(const GeneratedMeshCatalog& catalog, const std::vector<RenderMeshBinding>* bindings) {
+std::map<std::uint16_t, GeneratedMeshRange> BuildRuntimeMeshRanges(const GeneratedMeshCatalog& catalog, const std::vector<RenderMeshBinding>* bindings, bool distant = false) {
     std::map<std::uint16_t, GeneratedMeshRange> ranges;
     const GeneratedMeshRange* boxRange = catalog.findMesh("box");
     const GeneratedMeshRange* placeholderRange = catalog.findMesh("missing_mesh_placeholder");
@@ -1799,7 +1804,8 @@ std::map<std::uint16_t, GeneratedMeshRange> BuildRuntimeMeshRanges(const Generat
     std::size_t bindingIndex = 0;
     for (; bindingIndex < bindings->size(); ++bindingIndex) {
         const RenderMeshBinding& binding = (*bindings)[bindingIndex];
-        const GeneratedMeshRange* range = catalog.findMesh(binding.key);
+        const GeneratedMeshRange* range = distant ? catalog.findMesh(binding.key + "_distant") : nullptr;
+        if (!range) range = catalog.findMesh(binding.key);
         if (range == 0) {
             static std::set<std::string> warnedMissingMeshKeys;
             if (warnedMissingMeshKeys.insert(binding.key).second) {
@@ -3310,6 +3316,19 @@ int Renderer::run() {
 
     shaderProgram.bind();
     const GLint viewProjectionLocation = glGetUniformLocation(shaderProgram.programId(), "uViewProjection");
+    GLuint lotMaterialTexture = 0;
+    glGenTextures(1, &lotMaterialTexture);
+    glActiveTexture(GL_TEXTURE7);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, lotMaterialTexture);
+    const std::vector<unsigned char> lotMaterialPixels = BuildLotMaterialPixels();
+    glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, kLotTextureSize, kLotTextureSize, MaterialCount, 0, GL_RGBA, GL_UNSIGNED_BYTE, lotMaterialPixels.data());
+    glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glUniform1i(glGetUniformLocation(shaderProgram.programId(), "uLotMaterials"), 7);
+    glActiveTexture(GL_TEXTURE0);
     const GLint renderModeLocation = glGetUniformLocation(shaderProgram.programId(), "uRenderMode");
     const GLint tileTextureLocation = glGetUniformLocation(shaderProgram.programId(), "uTileStateTexture");
     const GLint tileLiftTextureLocation = glGetUniformLocation(shaderProgram.programId(), "uTileLiftTexture");
@@ -3423,6 +3442,7 @@ int Renderer::run() {
     drawLoadingScreen(startupLoadingStatus);
     appController_.loadRciToolsFromXmlFile(BuildDataPath("RCI\\rci_tools.xml"));
     std::uint64_t lastUploadedLotRevision = std::numeric_limits<std::uint64_t>::max();
+    bool lastUploadedLotsDistant = false;
     std::uint64_t lastUploadedZoningLotRevision = std::numeric_limits<std::uint64_t>::max();
     std::uint64_t lastUploadedRciParcelLotRevision = std::numeric_limits<std::uint64_t>::max();
     OverlayMode lastUploadedRciParcelOverlayMode = OverlayMode::None;
@@ -3617,7 +3637,7 @@ int Renderer::run() {
 
         if (snapshot.lots != 0) {
             const std::map<std::uint16_t, GeneratedMeshRange> meshRanges = generatedLotMeshesLoaded
-                ? BuildRuntimeMeshRanges(generatedMeshCatalog, snapshot.renderMeshBindings)
+                ? BuildRuntimeMeshRanges(generatedMeshCatalog, snapshot.renderMeshBindings, true)
                 : std::map<std::uint16_t, GeneratedMeshRange>();
             if (!generatedLotMeshesLoaded || !BuildGeneratedLotInstances(*snapshot.lots, meshRanges, false, lotInstances, lotMeshBatches)) {
                 lotInstances = BuildLotInstances(*snapshot.lots);
@@ -4083,7 +4103,7 @@ int Renderer::run() {
         if (hasLotGhostRequest) {
             if (hasLotGhostRenderInstances && lotGhostRenderInstances != 0) {
                 const std::map<std::uint16_t, GeneratedMeshRange> meshRanges = generatedLotMeshesLoaded
-                    ? BuildRuntimeMeshRanges(generatedMeshCatalog, snapshot.renderMeshBindings)
+                    ? BuildRuntimeMeshRanges(generatedMeshCatalog, snapshot.renderMeshBindings, viewState.visibleTiles > 64)
                     : std::map<std::uint16_t, GeneratedMeshRange>();
                 if (!generatedLotMeshesLoaded || !BuildGeneratedLotInstances(*lotGhostRenderInstances, meshRanges, false, lotGhostInstances, lotGhostMeshBatches)) {
                     std::size_t lotGhostIndex = 0;
@@ -4136,7 +4156,7 @@ int Renderer::run() {
             bulldozeLotMeshBatches.clear();
             if (snapshot.lots != 0) {
                 const std::map<std::uint16_t, GeneratedMeshRange> meshRanges = generatedLotMeshesLoaded
-                    ? BuildRuntimeMeshRanges(generatedMeshCatalog, snapshot.renderMeshBindings)
+                    ? BuildRuntimeMeshRanges(generatedMeshCatalog, snapshot.renderMeshBindings, viewState.visibleTiles > 64)
                     : std::map<std::uint16_t, GeneratedMeshRange>();
                 if (!generatedLotMeshesLoaded ||
                     !BuildGeneratedLotInstancesInTileRect(*snapshot.lots, bulldozeMinTileX, bulldozeMinTileY, bulldozeMaxTileX, bulldozeMaxTileY, meshRanges, bulldozeLotInstances, bulldozeLotMeshBatches)) {
@@ -4425,10 +4445,10 @@ int Renderer::run() {
             }
             frameMetrics.elevatedRoadUploadMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - elevatedRoadUploadStart).count();
 
-            if (snapshot.lots != 0 && (snapshot.lotRevision != lastUploadedLotRevision || viewState.overlayMode != lastUploadedLotOverlayMode)) {
+            if (snapshot.lots != 0 && (snapshot.lotRevision != lastUploadedLotRevision || viewState.overlayMode != lastUploadedLotOverlayMode || lastUploadedLotsDistant != (viewState.visibleTiles > 64))) {
                 const std::chrono::steady_clock::time_point lotUploadStart = std::chrono::steady_clock::now();
                 const std::map<std::uint16_t, GeneratedMeshRange> meshRanges = generatedLotMeshesLoaded
-                    ? BuildRuntimeMeshRanges(generatedMeshCatalog, snapshot.renderMeshBindings)
+                    ? BuildRuntimeMeshRanges(generatedMeshCatalog, snapshot.renderMeshBindings, viewState.visibleTiles > 64)
                     : std::map<std::uint16_t, GeneratedMeshRange>();
                 if (!generatedLotMeshesLoaded || !BuildGeneratedLotInstances(*snapshot.lots, meshRanges, rciOverlayActive, lotInstances, lotMeshBatches)) {
                     lotInstances = BuildLotInstances(*snapshot.lots, rciOverlayActive);
@@ -4441,6 +4461,7 @@ int Renderer::run() {
                     lotInstances.empty() ? 0 : &lotInstances[0],
                     GL_DYNAMIC_DRAW);
                 lastUploadedLotRevision = snapshot.lotRevision;
+                lastUploadedLotsDistant = viewState.visibleTiles > 64;
                 lastUploadedLotOverlayMode = viewState.overlayMode;
                 frameMetrics.lotUploadMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - lotUploadStart).count();
             }
@@ -4778,6 +4799,7 @@ int Renderer::run() {
     }
 
     gameSession_.clearLoadingPresenter();
+    glDeleteTextures(1, &lotMaterialTexture);
     gameSession_.clearCityPreviewRenderer();
     DestroyTileChunkCaches(chunkCaches);
     DestroyRoadChunkCaches(roadChunkCaches);

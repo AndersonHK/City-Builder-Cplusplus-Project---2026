@@ -1,7 +1,7 @@
 <module id="superblock_tower_module" density="high">
   <size width="5" height="7" />
   <effects airPollution="0" landValue="15000" />
-  <render mesh="box" height="6.80" colorR="0.66" colorG="0.69" colorB="0.72" />
+  <render mesh="metric_superblock_tower_module" height="5.48667" colorR="0.66" colorG="0.69" colorB="0.72" family="tower" widthMeters="26.40" depthMeters="36.96" heightMeters="51.22" floors="16" seed="59" metric="true" stretch="false" />
   <parameters>
     <driver id="residents.low_wealth" amount="280" />
   </parameters>

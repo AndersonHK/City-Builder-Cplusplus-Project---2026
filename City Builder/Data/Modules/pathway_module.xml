@@ -1,5 +1,5 @@
 <module id="pathway_module">
   <size width="1" height="1" />
   <effects airPollution="0" landValue="60" />
-  <render mesh="flat_surface" height="0.14" colorR="0.54" colorG="0.53" colorB="0.49" />
+  <render mesh="metric_pathway_module" height="0.04167" colorR="0.54" colorG="0.53" colorB="0.49" family="path" widthMeters="6.00" depthMeters="6.00" heightMeters="0.25" floors="1" seed="38" metric="true" stretch="true" />
 </module>

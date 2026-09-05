@@ -1,7 +1,7 @@
 <module id="compact_tower_module" density="high">
   <size width="2" height="2" />
   <effects airPollution="0" landValue="7500" />
-  <render mesh="box" height="3.40" colorR="0.63" colorG="0.64" colorB="0.66" />
+  <render mesh="metric_compact_tower_module" height="3.96167" colorR="0.63" colorG="0.64" colorB="0.66" family="tower" widthMeters="10.56" depthMeters="10.56" heightMeters="35.97" floors="11" seed="4" metric="true" stretch="false" />
   <parameters>
     <driver id="residents.low_wealth" amount="16" />
   </parameters>

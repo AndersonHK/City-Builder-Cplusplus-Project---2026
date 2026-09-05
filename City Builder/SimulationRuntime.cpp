@@ -843,6 +843,15 @@ bool SimulationRuntime::buildLotPreviewInstances(const std::string& lotAssetId, 
     return true;
 }
 
+bool SimulationRuntime::buildAssetPreview(const std::string& id, int width, int depth, int rotation, int variation, Lot& lot) const {
+    const LotAsset* asset = findLotAssetById(id);
+    if (!asset || width < 1 || depth < 1 || width > 8 || depth > 8) return false;
+    const bool swap = (rotation & 1) != 0;
+    if (!buildLotCandidateForParcel(*asset, 16, 16, rotation, variation, swap ? depth : width, swap ? width : depth, lot)) return false;
+    lot.setConstructionState(0, 0, mapWidth_);
+    return true;
+}
+
 bool SimulationRuntime::canPlaceRoadStroke(const RoadStrokeCommand& roadStrokeCommand) const {
     if (!isTileInsideMap(roadStrokeCommand.startTile.x, roadStrokeCommand.startTile.y) ||
         !isTileInsideMap(roadStrokeCommand.cornerTile.x, roadStrokeCommand.cornerTile.y) ||
@@ -1444,7 +1453,7 @@ void SimulationRuntime::loadAssets() {
     CrashScope crashScope("SimulationRuntime::loadAssets");
     LoadedGameAssets loadedAssets;
     std::string errorMessage;
-    if (!LoadGameAssets(RuntimeDataDirectory(), cityParameterRegistry_, loadedAssets, errorMessage)) {
+    if (!LoadGameAssets(runtimeOptions_.assetDataDirectory.empty() ? RuntimeDataDirectory() : runtimeOptions_.assetDataDirectory, cityParameterRegistry_, loadedAssets, errorMessage)) {
         LogError("SimulationRuntime::loadAssets", errorMessage);
         throw std::runtime_error(errorMessage);
     }

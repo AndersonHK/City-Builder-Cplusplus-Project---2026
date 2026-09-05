@@ -113,8 +113,8 @@
     </Link>
     <PostBuildEvent>
       <Command>copy /Y "$(ProjectDir)Basic.shader" "$(OutDir)Basic.shader"
-"$(SystemRoot)\System32\xcopy.exe" /Y /I /E "$(ProjectDir)Data" "$(OutDir)Data"
-"$(OutDir)CityBuilderAssetGenerator.exe" "$(OutDir)Data"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(ProjectDir)..\tools\deploy-assets.ps1" -SourceData "$(ProjectDir)Data" -OutputDirectory "$(OutDir)."
+if errorlevel 1 exit /b 1
 copy /Y "$(ProjectDir)..\DLLs\glew32.dll" "$(OutDir)glew32.dll"
 copy /Y "$(ProjectDir)..\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"</Command>
     </PostBuildEvent>
@@ -153,8 +153,8 @@ copy /Y "$(ProjectDir)..\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"</Command>
     </Link>
     <PostBuildEvent>
       <Command>copy /Y "$(ProjectDir)Basic.shader" "$(OutDir)Basic.shader"
-"$(SystemRoot)\System32\xcopy.exe" /Y /I /E "$(ProjectDir)Data" "$(OutDir)Data"
-"$(OutDir)CityBuilderAssetGenerator.exe" "$(OutDir)Data"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(ProjectDir)..\tools\deploy-assets.ps1" -SourceData "$(ProjectDir)Data" -OutputDirectory "$(OutDir)."
+if errorlevel 1 exit /b 1
 copy /Y "$(ProjectDir)..\DLLs\glew32.dll" "$(OutDir)glew32.dll"
 copy /Y "$(ProjectDir)..\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"</Command>
     </PostBuildEvent>
@@ -921,6 +921,12 @@ copy /Y "$(ProjectDir)..\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"</Command>
     <ProjectReference Include="CityBuilderAssetGenerator.vcxproj">
       <Project>{4E2B5E6E-0C08-49B2-B9CE-D46F98AD2C28}</Project>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="WorldScale.h" />
+    <ClInclude Include="LotMaterials.h" />
+    <ClInclude Include="LotMaterialShader.h" />
+    <ClInclude Include="LotAccessVisuals.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

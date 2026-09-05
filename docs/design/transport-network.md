@@ -39,7 +39,7 @@ Use this guide when changing road placement, lane topology, road render data, or
 - Perpendicular overlap is allowed as lane coexistence inside the same transport tile. Intersection behavior is resolved afterward from lane adjacency.
 - A resolved tile aggregates lane type masks, surface masks, costs, travel, exits, junction glyphs, lane graphics, and dividers for renderer/query consumers.
 - A pathing lane contributes only the outgoing directions it actually permits. If multiple lanes contribute to the same tile/layer/mode/direction, the cost map keeps the lower cost and accumulates capacity.
-- Transport costs are fixed-point seconds with 1000 cost units per second. Current tile-speed placeholders are slow 9 tiles/second, medium 11 tiles/second, fast 13 tiles/second, highway fast 14 tiles/second, and pedestrian 2 tiles/second. The tile length in meters is intentionally undecided.
+- Transport costs are fixed-point seconds with 1000 cost units per second. Current tile-speed placeholders are slow 9 tiles/second, medium 11 tiles/second, fast 13 tiles/second, highway fast 14 tiles/second, and pedestrian 2 tiles/second. The art/world scale is now 6 metres per tile; these legacy tile-speed values have not been recalibrated to physical travel speeds. See [metric art standard](metric-art-standard.md).
 - Current lane capacities are slow 240, medium 560, fast 840, and pedestrian 2400. These numbers are loaded from XML during asset load and applied to `RoadTemplateDefinition`.
 - Ground local sidewalks expose adjacent building access for pedestrian and car spawning. Highways, elevated lanes, underground lanes, and through-only lanes do not expose adjacent building access by default.
 

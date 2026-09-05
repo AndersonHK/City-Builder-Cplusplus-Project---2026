@@ -73,6 +73,14 @@
   <ItemGroup>
     <ClCompile Include="AssetGenerator.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="WorldScale.h" />
+    <ClInclude Include="LotMaterials.h" />
+    <ClInclude Include="LotMaterialShader.h" />
+    <ClInclude Include="LotAccessVisuals.h" />
+    <ClInclude Include="AssetMeshBuilder.h" />
+    <ClInclude Include="AssetPipeline.h" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

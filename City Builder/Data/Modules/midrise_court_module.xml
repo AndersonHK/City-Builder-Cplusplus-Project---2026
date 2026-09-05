@@ -1,7 +1,7 @@
 <module id="midrise_court_module" density="medium">
   <size width="5" height="5" />
   <effects airPollution="0" landValue="7900" />
-  <render mesh="box" height="2.70" colorR="0.61" colorG="0.62" colorB="0.59" />
+  <render mesh="metric_midrise_court_module" height="3.79500" colorR="0.61" colorG="0.62" colorB="0.59" family="court" widthMeters="27.60" depthMeters="27.60" heightMeters="22.77" floors="7" seed="30" metric="true" stretch="false" />
   <parameters>
     <driver id="residents.low_wealth" amount="100" />
   </parameters>

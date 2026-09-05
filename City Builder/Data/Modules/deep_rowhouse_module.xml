@@ -1,0 +1,7 @@
+<!-- Retained for cities saved with the older deep-rowhouse IDs. Not selected by new lot templates. -->
+<module id="deep_rowhouse_module" density="low">
+  <size width="2" height="5" />
+  <effects airPollution="0" landValue="2600" />
+  <render mesh="metric_deep_rowhouse_module" family="rowhouse" widthMeters="11.40" depthMeters="24.00" heightMeters="8.60" floors="2" seed="37" metric="true" stretch="false" height="1.43333" colorR="0.50" colorG="0.34" colorB="0.27" />
+  <parameters><driver id="residents.low_wealth" amount="16" /></parameters>
+</module>

@@ -1,5 +1,5 @@
 <module id="industrial_boxes_module">
   <size width="1" height="1" />
   <effects airPollution="0" parkEffect="0" landValue="20" />
-  <render mesh="industrial_props" height="0.42" colorR="0.46" colorG="0.46" colorB="0.43" />
+  <render mesh="metric_industrial_boxes_module" height="0.30000" colorR="0.46" colorG="0.46" colorB="0.43" family="props" widthMeters="6.00" depthMeters="6.00" heightMeters="1.80" floors="1" seed="20" metric="true" stretch="false" />
 </module>

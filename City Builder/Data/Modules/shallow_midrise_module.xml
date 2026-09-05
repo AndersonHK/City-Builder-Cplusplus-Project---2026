@@ -1,7 +1,7 @@
 <module id="shallow_midrise_module" density="medium">
   <size width="6" height="3" />
   <effects airPollution="0" landValue="7000" />
-  <render mesh="box" height="2.45" colorR="0.60" colorG="0.61" colorB="0.58" />
+  <render mesh="metric_shallow_midrise_module" height="2.77833" colorR="0.60" colorG="0.61" colorB="0.58" family="midrise" widthMeters="33.12" depthMeters="16.56" heightMeters="16.67" floors="5" seed="52" metric="true" stretch="false" />
   <parameters>
     <driver id="residents.low_wealth" amount="72" />
   </parameters>

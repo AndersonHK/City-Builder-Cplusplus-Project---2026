@@ -159,10 +159,10 @@ Vec2 ArrowIntentDirection(std::uint8_t laneIntent) {
 }
 
 bool SidewalkMask(float u, float v, std::uint8_t sidewalkEdges) {
-    return ((sidewalkEdges & kRoadDirectionNorth) != 0 && v < 0.16f) ||
-        ((sidewalkEdges & kRoadDirectionEast) != 0 && u > 0.84f) ||
-        ((sidewalkEdges & kRoadDirectionSouth) != 0 && v > 0.84f) ||
-        ((sidewalkEdges & kRoadDirectionWest) != 0 && u < 0.16f);
+    return ((sidewalkEdges & kRoadDirectionNorth) != 0 && v < 0.30f) ||
+        ((sidewalkEdges & kRoadDirectionEast) != 0 && u > 0.70f) ||
+        ((sidewalkEdges & kRoadDirectionSouth) != 0 && v > 0.70f) ||
+        ((sidewalkEdges & kRoadDirectionWest) != 0 && u < 0.30f);
 }
 
 bool CrosswalkMask(float u, float v, std::uint8_t crosswalkEdges) {

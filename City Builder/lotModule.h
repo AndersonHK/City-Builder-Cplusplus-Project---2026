@@ -105,6 +105,15 @@ struct LotModule {
     float colorB;
     std::string renderMeshKey;
     std::uint16_t renderMeshHandle;
+    std::string artFamily;
+    bool hasPedestrianEntrance = false;
+    bool hasGarageEntrance = false;
+    std::uint16_t pathMeshHandle=0, driveMeshHandle=0, grassMeshHandle=0, gardenMeshHandle=0, treeMeshHandle=0,fenceMeshHandle=0;
+    std::uint16_t accessPathHandle=0, accessDriveHandle=0, driveMidHandle=0,driveCapLeftHandle=0,driveCapRightHandle=0;
+    bool metricGeometry = false;
+    bool stretchGeometry = false;
+    float naturalWidth = 0.0f;
+    float naturalDepth = 0.0f;
     std::vector<CityParameterContribution> parameterContributions;
     std::vector<LotModulePropDefinition> props;
 

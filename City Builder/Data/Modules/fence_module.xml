@@ -1,5 +1,5 @@
 <module id="fence_module">
   <size width="1" height="1" />
   <effects airPollution="0" parkEffect="0" landValue="0" />
-  <render mesh="box" height="0.18" colorR="0.38" colorG="0.23" colorB="0.12" />
+  <render mesh="metric_fence_module" height="0.22500" colorR="0.38" colorG="0.23" colorB="0.12" family="fence" widthMeters="6.00" depthMeters="6.00" heightMeters="1.35" floors="1" seed="14" metric="true" stretch="true" />
 </module>

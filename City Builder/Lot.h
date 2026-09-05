@@ -26,6 +26,7 @@ struct LotRenderInstance {
     std::uint8_t surfaceDirection;
     std::uint16_t zoningType;
     std::uint16_t renderMeshHandle;
+    std::uint8_t meshRotation = 0;
 
     // Defaults to a small neutral placeholder prism.
     LotRenderInstance()

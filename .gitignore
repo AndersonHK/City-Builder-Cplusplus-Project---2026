@@ -9,3 +9,6 @@
 *.lastbuildstate
 *.log
 *.user
+
+/City Builder/Data/Generated/
+/City Builder/Data/**/*.bak

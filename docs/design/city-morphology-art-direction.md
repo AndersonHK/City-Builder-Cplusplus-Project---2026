@@ -1,6 +1,6 @@
 # City Morphology Art Direction
 
-Use this guide when designing low-poly buildings, lot footprints, parcel fitting, zoning growth, neighborhood composition, or camera-facing visual style.
+Use this guide when designing metric buildings, lot footprints, parcel fitting, zoning growth, neighborhood composition, or camera-facing visual style.
 
 ## Intent
 
@@ -8,7 +8,7 @@ Use this guide when designing low-poly buildings, lot footprints, parcel fitting
 - Build cities that feel familiar, pleasant, and naturally composed from an isometric angle while still surviving a 3D free camera.
 - Treat urban morphology as art direction: parcel grain, lot depth, frontage rhythm, setbacks, block structure, and asset repetition matter as much as individual building models.
 - Prefer controlled chaos over hero-object composition. A city should read first as a coherent block fabric, then as individual buildings.
-- Keep the art target between abstraction and realism: low-poly, readable, warm, and believable, not photorealistic or toy-like.
+- Keep the art target between abstraction and realism: mostly realistic, readable, warm, and believable, not photorealistic or toy-like.
 
 ## Core Thesis
 
@@ -16,9 +16,11 @@ SC4 works because it compresses real city structure into a disciplined visual sy
 
 Modern 3D city builders often lose that quality when buildings are treated as isolated square-footprint objects. The result can be technically detailed, but visually less city-like: each building announces itself, streetscapes lose rhythm, and blocks feel assembled from props rather than grown from property patterns.
 
-For this project, the goal is to spiritually adapt SC4's controlled chaos and realistic block proportions into a 3D, low-poly, freecam environment.
+For this project, the goal is to spiritually adapt SC4's controlled chaos and realistic block proportions into a 3D free-camera environment.
 
 ## Tile Scale Note
+
+**The physical scale is 6 m per tile**, fixed on 2026-09-05. See [metric art standard](metric-art-standard.md). The SC4 comparisons below describe approximate parcel grain, not a conversion to override this value.
 
 All footprint sizes in this document use this project's tile scale unless explicitly labeled as SC4 scale. This project uses tiles that are roughly half the length of an SC4 tile, so an SC4 `1x2` lot reads approximately like a project `2x4` lot, an SC4 `2x2` lot reads like project `4x4`, an SC4 `3x2` tower lot reads like project `6x4`, and an SC4 `4x4` high-density lot reads like project `8x8`.
 

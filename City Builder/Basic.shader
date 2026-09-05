@@ -6,6 +6,8 @@ layout(location = 1) in vec4 aInstanceData0;
 layout(location = 2) in vec4 aInstanceData1;
 layout(location = 3) in vec4 aInstanceData2;
 layout(location = 4) in vec3 aMeshColor;
+layout(location = 5) in vec3 aMeshNormal;
+layout(location = 6) in vec4 aMeshSurface;
 
 uniform mat4 uViewProjection;
 uniform int uRenderMode;
@@ -20,6 +22,8 @@ out vec2 vRoadMasks;
 out vec3 vRouteColor;
 out vec4 vUiColor;
 out float vSurfaceLift;
+out vec3 vMeshNormal;
+out vec4 vMeshSurface;
 flat out int vRenderMode;
 
 void main()
@@ -55,10 +59,18 @@ void main()
         vUiColor = vec4(0.0);
         vSurfaceLift = 0.0;
     } else if (uRenderMode == 9) {
+        int rotation = int(aInstanceData2.z + 0.5);
+        vec3 local = aLocalPosition;
+        vec3 normal = aMeshNormal;
+        if (rotation == 1) { local.xz = vec2(1.0-local.z,local.x); normal.xz=vec2(-normal.z,normal.x); }
+        if (rotation == 2) { local.xz = vec2(1.0-local.x,1.0-local.z); normal.xz=-normal.xz; }
+        if (rotation == 3) { local.xz = vec2(local.z,1.0-local.x); normal.xz=vec2(normal.z,-normal.x); }
+        vMeshNormal = normal;
+        vMeshSurface = aMeshSurface;
         vec3 scaledPosition = vec3(
-            aLocalPosition.x * aInstanceData0.z,
-            aLocalPosition.y * aInstanceData1.x,
-            aLocalPosition.z * aInstanceData0.w);
+            local.x * aInstanceData0.z,
+            local.y * aInstanceData1.x,
+            local.z * aInstanceData0.w);
         worldPosition = vec3(aInstanceData0.x, 0.0, aInstanceData0.y) + scaledPosition;
         vTileUv = vec2(0.0);
         vLocalUv = aLocalPosition.xz;
@@ -154,6 +166,7 @@ void main()
 
 #shader fragment
 #version 460 core
+// LOT_MATERIAL_SHADER
 
 layout(location = 0) out vec4 color;
 
@@ -178,6 +191,8 @@ uniform int uTileOverlayGradientDirection;
 in vec2 vTileUv;
 in vec2 vLocalUv;
 in vec3 vLotColor;
+in vec3 vMeshNormal;
+in vec4 vMeshSurface;
 in vec2 vRoadGlyphs;
 in vec2 vRoadMasks;
 in vec3 vRouteColor;
@@ -364,7 +379,8 @@ void main()
     }
 
     if (vRenderMode == 1 || vRenderMode == 9) {
-        vec3 finalColor = mix(vLotColor, uLotTintColor, clamp(uLotTintStrength, 0.0, 1.0));
+        vec3 litColor = vRenderMode == 9 ? shadeLotMaterial(vLotColor, vMeshNormal, vMeshSurface.xy, vMeshSurface.z, vMeshSurface.w) : vLotColor;
+        vec3 finalColor = mix(litColor, uLotTintColor, clamp(uLotTintStrength, 0.0, 1.0));
         int surfacePattern = int(floor(vRoadMasks.x + 0.5));
         int surfaceDirection = int(floor(vRoadMasks.y + 0.5));
         if (surfacePattern == 1) {

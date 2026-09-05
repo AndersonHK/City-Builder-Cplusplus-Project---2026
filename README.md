@@ -2,6 +2,16 @@
 
 Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: tile-first, systems-driven, cache-aware, and staged toward richer 3D presentation without making rendering the source of truth.
 
+## Metric assets and editor
+
+The lot art now uses a fixed **6 m tile**, metric buildings with textured
+facades, and composable driveway tiles with connected entrance paths.
+Build `City Builder/AssetManager.vcxproj` to obtain
+`Distributable/x64/Release/AssetManager.exe`, a native lot/module viewer and XML
+editor. Existing city saves use the new physical geometry when reopened.
+See [asset pipeline and editor instructions](docs/design/visual-asset-pipeline.md)
+and [metric art standard](docs/design/metric-art-standard.md).
+
 ## Current state
 - `SimulationRuntime` owns authoritative world state, chunked simulation passes, triple buffering, published render snapshots, timing instrumentation, and a multi-layer transport network for roads.
 - `GameSession` owns the boot mode, the default 3x3 `Region`, the reusable active `SimulationRuntime`, and alpha autoslot save/load.
@@ -20,7 +30,7 @@ Modern C++ city-builder prototype aimed at an SC2000/SC4-style simulation core: 
   - alpha-tinted ghost lot preview while a lot placement tool is active
   - red bulldoze area overlay and selected-building tint while dragging
   - persistent low-density residential, high-density residential, and industrial zoning semantic overlays plus matching drag previews
-  - separate lot prism instancing
+  - instanced textured metric lot meshes with near/distant detail levels
   - top-left simulation date display and top-right city population counter sourced from published simulation snapshots
   - top-left date widget speed controls for paused, play, fast, and fast-forward simulation pacing
   - top-right region population counter sourced from summed city parameter metadata
