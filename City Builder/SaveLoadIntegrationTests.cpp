@@ -396,9 +396,25 @@ void RunSaveLoadRoundTripTest(TestRunner& runner) {
         runner.expect(baseline.width == 32 && baseline.height == 32, "baseline state uses sandbox dimensions");
         runner.expect(!baseline.transport.tiles.empty(), "baseline state includes authored transport tile lanes");
 
+        const auto beforeSaveRenderRevision=session.renderStateRevision();
+        int thumbnailCalls=0;
+        session.setCityPreviewRenderer([&](const CitySaveState& state,std::vector<std::uint8_t>&) {
+            ++thumbnailCalls;
+            // Reproduce the thumbnail renderer borrowing the active runtime for
+            // another city; its road payload and revision numbers are replaced.
+            auto empty=City::createDefaultSaveState(17u,state.width,state.height);
+            session.runtime().importCitySaveState(empty,false);
+            return false;
+        });
         runner.expect(session.saveAutoslot(), "sandbox autoslot saves to temporary directory");
+        runner.expect(thumbnailCalls>0,"saving exercises thumbnail rendering while staying in city");
+        runner.expect(session.renderStateRevision()>beforeSaveRenderRevision,"save-without-exit invalidates live GPU cache revisions");
+        runner.expect(session.mode()==GameMode::City,"saving keeps active city mode");
+        session.clearCityPreviewRenderer();
         runner.expect(FileExists(saveDirectory + "\\city_0_0.preview.bin"), "sandbox autoslot writes mandatory city preview cache");
         session.runtime().stop();
+        auto afterSave=ExportActiveSessionState(session);std::string liveDifference;
+        runner.expect(EqualCitySaveState(baseline,afterSave,liveDifference),"saving without exit restores the full live city, including roads: "+liveDifference);
 
         GameSession loadedSession(options);
         loadedSession.setSaveDirectoryOverride(saveDirectory);

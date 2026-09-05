@@ -895,7 +895,7 @@ bool GameSession::saveAutoslot() {
                 }
                 runtime_->start();
             }
-            finishLoadingStage(false);
+            finishLoadingStage(shouldRestartRuntime);
             return saved;
         } catch (...) {
             if (shouldRestartRuntime) {
@@ -904,7 +904,7 @@ bool GameSession::saveAutoslot() {
                 }
                 runtime_->start();
             }
-            finishLoadingStage(false);
+            finishLoadingStage(shouldRestartRuntime);
             throw;
         }
     }
@@ -912,13 +912,13 @@ bool GameSession::saveAutoslot() {
     try {
         updateLoadingStage("Writing autoslot", 0.20f);
         const bool saved = saveRegionToDisk(0.22f, 0.94f);
-        finishLoadingStage(false);
+        finishLoadingStage(shouldRestartRuntime);
         return saved;
     } catch (...) {
         if (shouldRestartRuntime) {
             runtime_->start();
         }
-        finishLoadingStage(false);
+        finishLoadingStage(shouldRestartRuntime);
         throw;
     }
 }

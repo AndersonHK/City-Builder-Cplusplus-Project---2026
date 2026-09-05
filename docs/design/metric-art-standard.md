@@ -51,14 +51,20 @@ Dense rowhouses and walkups do not acquire suburban driveways merely because
 some grass remains. Tower podiums can have a garage apron.
 
 Long driveways compose `driveway_mid_module` and a
-`driveway_cap_left_module` or `driveway_cap_right_module`. Every piece is one
+`driveway_cap_left_module`, `driveway_cap_right_module`, or
+`driveway_cap_both_module`. Every piece is one
 tile square. Only the middle repeats. Caps keep the car at a fixed scale and
 provide a side path at the inner end. The planner prefers contiguous space
 beside the house and chooses length from the setback, then joins the cap to
-the entrance path. A constrained parcel can legitimately omit a vehicle bay.
+the entrance path. Cap depth ends near the front entrance so the connection
+does not need to circle the house. A constrained parcel can legitimately omit a vehicle bay.
 
 Pedestrian paving is routed from the front sidewalk to the actual building
-entrance zone, around other buildings. Landscaping is cleared from that route.
+entrance zone, around buildings and fixed prop footprints. Each tile has nine
+2 m ownership sub-tiles. Access is reserved before random landscaping; trees and
+shrubs can coexist with paths in unclaimed cells. The trunk/root area blocks
+pedestrians, rather than the overhead canopy. Optional props use nearby free
+sub-tiles or are omitted when no valid position remains.
 The same reconstruction applies to older saved lots, whose primitive-era
 visual stretches and short path stubs are superseded at render time. Access
 geometry is presentation data; it does not add residents or occupied tiles.

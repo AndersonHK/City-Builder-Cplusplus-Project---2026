@@ -5,4 +5,9 @@
   <parameters>
     <driver id="jobs.dirty_industry" amount="10" />
   </parameters>
+  <variations>
+    <variation id="weathered_brick" weight="3" seed="1" wallMaterial="brick" colorR="0.48" colorG="0.33" colorB="0.26" />
+    <variation id="light_cladding" weight="2" seed="2" wallMaterial="metal" colorR="0.64" colorG="0.66" colorB="0.63" />
+    <variation id="painted_masonry" weight="1" seed="3" wallMaterial="render" colorR="0.53" colorG="0.55" colorB="0.47" />
+  </variations>
 </module>

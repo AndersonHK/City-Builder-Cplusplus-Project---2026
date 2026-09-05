@@ -9,4 +9,8 @@
   <parameters>
     <driver id="residents.low_wealth" amount="5" />
   </parameters>
+  <variations>
+    <variation id="warm_brick" weight="3" seed="1" wallMaterial="brick" colorR="0.53" colorG="0.38" colorB="0.28" />
+    <variation id="cream_render" weight="1" seed="4" wallMaterial="render" colorR="0.72" colorG="0.68" colorB="0.55" />
+  </variations>
 </module>

@@ -1,6 +1,7 @@
 #pragma once
 #include "AssetMeshBuilder.h"
 #include "SimpleXml.h"
+#include "AssetVariation.h"
 #include "WorldScale.h"
 #include <windows.h>
 #include <fstream>
@@ -10,7 +11,7 @@
 
 namespace AssetArt {
 struct Recipe {
-    std::string id, family, path;
+    std::string id, family, path, wallMaterial="inherit", carStyle="sedan", treeStyle="oak";
     float width=1, depth=1, height=1;
     int floors=1, capacity=0, seed=0;
     C wall=C(0.62f,0.48f,0.36f);
@@ -28,11 +29,15 @@ inline Recipe ReadRecipe(const std::string& path){
     r.floors=XmlAttributeIntValue(t,"floors",1);r.seed=XmlAttributeIntValue(t,"seed",0);
     r.wall=C(XmlAttributeFloatValue(t,"colorR",0.6f),XmlAttributeFloatValue(t,"colorG",0.5f),XmlAttributeFloatValue(t,"colorB",0.4f));
     r.capacity=XmlAttributeIntValue(Tag(xml,"driver"),"amount",0);
-    const std::vector<std::string> families={"house","duplex","rowhouse","trailer","walkup","midrise","court","tower","warehouse","factory","workshop","stack","tree","park","fence","concrete","path","parking","driveway","loading","yard","props","garden","grass","driveway_mid","driveway_cap_left","driveway_cap_right"};
+    const std::vector<std::string> families={"house","duplex","rowhouse","trailer","walkup","midrise","court","tower","warehouse","factory","workshop","stack","tree","park","fence","concrete","path","parking","driveway","loading","yard","props","garden","grass","driveway_mid","driveway_cap_left","driveway_cap_right","driveway_cap_both","parking_crossing","parking_aisle","parking_stalls","parking_island","industrial_service"};
     if(std::find(families.begin(),families.end(),r.family)==families.end())throw std::runtime_error("Unknown art family in "+path);
     if(r.family.empty()||!std::isfinite(r.width)||!std::isfinite(r.depth)||!std::isfinite(r.height)||r.width<=0||r.depth<=0||r.height<=0||r.width>100||r.depth>100||r.height>300||r.floors<1||r.floors>80)
         throw std::runtime_error("Invalid metric recipe: "+path);
     return r;
+}
+inline Recipe VariantRecipe(Recipe r,const AssetVariation& v){
+    r.id+="__"+v.id;r.seed=v.seed;r.wallMaterial=v.wallMaterial;r.carStyle=v.carStyle;r.treeStyle=v.treeStyle;
+    if(v.red>=0)r.wall.x=v.red;if(v.green>=0)r.wall.y=v.green;if(v.blue>=0)r.wall.z=v.blue;return r;
 }
 inline void FlatRoof(Mesh& m,float x,float z,float w,float d,float h){
     m.box(x,h,z,w,0.16f,d,roof,Roof);
@@ -48,7 +53,11 @@ inline void Building(Mesh& m,const Recipe& r,float x,float z,float w,float d,int
     float base=0.32f,h=base+fh*floors;
     m.box(x,0.12f,z,w,0.34f,d,concrete,Concrete);
     int wallMat=industrial?Brick:((r.seed%4==0)?Render:Brick);
+    if(r.wallMaterial!="inherit")wallMat=r.wallMaterial=="metal"?Metal:(r.wallMaterial=="render"?Render:Brick);
     m.box(x,base,z,w,h-base,d,r.wall,wallMat);
+    if(industrial&&wallMat==Metal&&m.detailed)for(int side=0;side<4;++side){float span=side%2==0?w:d;
+        for(float u=.3f;u<span-.1f;u+=.45f)m.face(side,x,z,w,d,u,base,.035f,h-base,.005f,.035f,r.wall,Metal);}
+
     for(int side=0;side<4;++side){
         float span=side%2==0?w:d;
         int bays=std::max(1,int(span/2.8f));float step=span/bays;
@@ -68,11 +77,16 @@ inline void Building(Mesh& m,const Recipe& r,float x,float z,float w,float d,int
         m.face(side,x,z,w,d,0.04f,base,0.12f,h-base,0.015f,0.13f,trim);
         m.face(side,x,z,w,d,span-0.20f,base,0.10f,h-base,0.015f,0.13f,iron,Metal);
     }
+    if(industrial){
+        for(float y=.5f;y<3.5f;y+=.35f)m.face(0,x,z,w,d,.22f,y,3.16f,.035f,.15f,.025f,iron,Metal);
+        m.box(x+.05f,3.82f,z-.85f,3.5f,.15f,.95f,iron,Metal);
+        for(float u:{.10f,3.36f})m.face(0,x,z,w,d,u,.25f,.12f,1.1f,.23f,.12f,C(.74f,.59f,.20f));
+    }
     float doorX=std::max(0.35f,w*0.5f-0.525f);
     m.door(0,x,z,w,d,doorX);
     if((r.family=="tower" || industrial) && w>6) {
-        m.face(0,x,z,w,d,0.1f,0.25f,2.9f,2.6f,0.02f,0.08f,trim,Concrete);
-        m.face(0,x,z,w,d,0.2f,0.25f,2.7f,2.45f,0.11f,0.035f,C(0.24f,0.28f,0.28f),Metal);
+        m.face(0,x,z,w,d,0.1f,0.25f,industrial?3.4f:2.9f,industrial?3.5f:2.6f,0.02f,0.08f,trim,Concrete);
+        m.face(0,x,z,w,d,0.2f,0.25f,industrial?3.2f:2.7f,industrial?3.35f:2.45f,0.11f,0.035f,C(0.24f,0.28f,0.28f),Metal);
     }
     m.box(x+doorX-0.25f,0.08f,z-0.78f,1.55f,0.15f,0.82f,concrete,Concrete);
     m.box(x+doorX-0.2f,0.23f,z-0.42f,1.45f,0.10f,0.46f,concrete,Concrete);
@@ -85,7 +99,7 @@ inline void Building(Mesh& m,const Recipe& r,float x,float z,float w,float d,int
     }else FlatRoof(m,x,z,w,d,h);
 }
 inline Mesh BuildRecipe(const Recipe& r,bool detailed=true){
-    Mesh m;m.detailed=detailed;float W=r.width,D=r.depth,H=r.height;
+    Mesh m;m.detailed=detailed;m.treeStyle=r.treeStyle;m.carStyle=r.carStyle;float W=r.width,D=r.depth,H=r.height;
     const auto& f=r.family;
     if(f=="house"||f=="duplex"||f=="rowhouse"||f=="trailer"){
         int units=f=="duplex"?2:(f=="rowhouse"?std::max(1,int(W/4.8f)):1);
@@ -132,7 +146,11 @@ inline Mesh BuildRecipe(const Recipe& r,bool detailed=true){
         }
         for(float zz=2.0f;zz<d-1;zz+=4){
             m.box(x+0.8f,h+0.17f,z+zz,w-1.6f,0.18f,0.9f,iron,Metal);
-            m.box(x+0.95f,h+0.35f,z+zz+0.12f,w-1.9f,0.09f,0.65f,C(0.46f,0.57f,0.58f),Glass);
+            // Raised north-light strips, with glazing and metal end closures.
+            float a=x+.95f,b=x+w-.95f,za=z+zz+.12f,zb=za+.65f;
+            m.quad(V(a,h+.36f,za),V(a,h+.80f,zb),V(b,h+.80f,zb),V(b,h+.36f,za),C(.46f,.57f,.58f),Glass);
+            m.box(a,h+.36f,zb,b-a,.44f,.08f,iron,Metal);
+            for(float xx=a;xx<b-.04f;xx+=2.5f)m.box(xx,h+.36f,za,.045f,.43f,.66f,trim,Metal);
         }
         if(f=="factory"){
             m.cylinder(W-1.7f,h,D-1.9f,0.5f,1.8f,iron,Metal,24);
@@ -148,13 +166,55 @@ inline Mesh BuildRecipe(const Recipe& r,bool detailed=true){
             m.cylinder(x,H-0.095f,z,rad*0.63f,0.015f,C(0.04f,0.04f,0.04f),Plain,32);
             for(float y=1;y<H-0.5f;y+=0.45f)m.box(x+rad,y,z-0.28f,0.06f,0.05f,0.56f,iron,Metal);
         }
-    } else if(f=="driveway_mid"||f=="driveway_cap_left"||f=="driveway_cap_right"){
+    } else if(f=="driveway_mid"||f=="driveway_cap_left"||f=="driveway_cap_right"||f=="driveway_cap_both"){
         m.box(0,0.12f,0,6,0.085f,6,C(0.40f,0.48f,0.29f),Grass);
         m.box(1.5f,0.12f,0,3,0.11f,6,C(0.31f,0.33f,0.33f),Asphalt);
         for(float edge:{1.4f,4.5f})m.box(edge,0.20f,0,0.1f,0.035f,6,concrete,Concrete);
         if(f!="driveway_mid"){
-            m.box(f=="driveway_cap_left"?0.0f:3.0f,0.22f,4.5f,3.0f,0.03f,1.5f,concrete,Concrete);
-            m.car(2.10f,0.20f,C(0.35f,0.41f,0.44f));
+            m.box(f=="driveway_cap_right"?3.0f:0.0f,0.22f,4.5f,f=="driveway_cap_both"?6.0f:3.0f,0.03f,1.5f,concrete,Concrete);
+            m.car(2.10f,0.20f,r.wall);
+        }
+    } else if(f=="parking_crossing"||f=="parking_aisle"||f=="parking_stalls"||f=="parking_island"){
+        m.box(0,0.12f,0,6,0.11f,6,C(0.30f,0.32f,0.32f),Asphalt);
+        if(f=="parking_crossing")for(float zz=.25f;zz<6;zz+=.85f)m.box(0,.235f,zz,6,.015f,.35f,trim);
+        if(f=="parking_aisle")m.box(0,.23f,0,6,.055f,.18f,concrete,Concrete);
+        if(f=="parking_stalls"){
+            // Two 2.7m x 5.1m bays face the adjoining six-metre aisle.
+            m.box(0,0.23f,5.35f,6,0.055f,0.65f,concrete,Concrete);
+            for(float x:{0.30f,3.0f,5.70f})m.box(x,0.235f,0.12f,0.10f,0.015f,5.10f,trim);
+            for(float x:{0.72f,3.42f}){
+                m.box(x,0.25f,4.85f,1.75f,0.15f,0.16f,concrete,Concrete);
+                if((r.seed+(x>3?2:0))%4!=0)m.car(x,0.40f,x>3?C(.57f,.58f,.55f):r.wall);
+            }
+        }else if(f=="parking_island"){
+            m.box(0.25f,0.22f,0.25f,5.5f,0.17f,5.5f,concrete,Concrete);
+            m.box(0.40f,0.39f,0.40f,5.20f,0.02f,5.20f,C(.36f,.43f,.27f),Grass);
+            m.tree(3,3,4.8f,1.75f);
+            m.cylinder(0.80f,.40f,1.0f,.07f,4.8f,iron,Metal,8);
+            m.box(.68f,5.1f,.60f,.24f,.13f,.70f,iron,Metal);
+        }
+    } else if(f=="industrial_service"){
+        m.box(0,.12f,0,6,.09f,6,concrete,Concrete);
+        if(r.seed%3==0){
+            // Container with ribs, corner castings and double rear doors.
+            m.box(.45f,.35f,.55f,2.44f,2.59f,4.9f,r.wall,Metal);
+            for(float zz=.65f;zz<5.4f;zz+=.30f)for(float xx:{.43f,2.88f})m.box(xx,.42f,zz,.05f,2.44f,.055f,iron,Metal);
+            for(float xx:{.6f,1.7f}){m.box(xx,.45f,.50f,1.03f,2.35f,.08f,r.wall,Metal);m.box(xx+.5f,.5f,.40f,.045f,2.2f,.08f,trim,Metal);}
+            for(float zz:{1.0f,2.5f,4.0f})m.cylinder(4.3f,.22f,zz,.4f,.95f,C(.48f,.30f,.18f),Metal,16);
+        }else if(r.seed%3==1){
+            // Pump skid and two vessels, linked by pipework.
+            m.box(.45f,.21f,.45f,5.1f,.18f,5.1f,concrete,Concrete);
+            for(float xx:{1.55f,4.0f}){m.cylinder(xx,.4f,3.9f,.9f,2.3f,r.wall,Metal,24);m.ellipsoid(V(xx,2.7f,3.9f),V(.9f,.35f,.9f),r.wall,Metal,5,16);}
+            m.box(1.45f,.6f,1.4f,2.7f,.22f,.22f,iron,Metal);
+            for(float xx:{1.5f,4.0f})m.box(xx,.6f,1.4f,.18f,.18f,2.7f,iron,Metal);
+            m.box(2.3f,.4f,.6f,1.2f,.65f,.7f,C(.29f,.37f,.36f),Metal);
+        }else{
+            // Pallet racks, timber packs and a lidded skip.
+            for(float xx:{.6f,3.2f})for(float zz:{.6f,2.4f}){
+                for(float yy:{.22f,.90f}){m.box(xx,yy,zz,1.8f,.15f,1.2f,iron,Metal);m.box(xx+.1f,yy+.15f,zz+.1f,1.6f,.50f,1.0f,C(.56f,.43f,.28f),Wood);}
+                for(float dx:{0.0f,1.72f})m.box(xx+dx,.22f,zz,.08f,1.5f,1.2f,iron,Metal);
+            }
+            m.box(.6f,.25f,4.3f,3.0f,1.3f,1.2f,r.wall,Metal);m.box(.55f,1.55f,4.25f,3.1f,.1f,1.3f,iron,Metal);
         }
     } else if(f=="tree"){
         m.box(0,0.12f,0,W,0.08f,D,C(0.40f,0.48f,0.29f),Grass);m.tree(W/2,D/2,H,std::min(W,D)*0.43f);
@@ -173,17 +233,20 @@ inline Mesh BuildRecipe(const Recipe& r,bool detailed=true){
         if(f=="yard"||f=="props"){mat=Gravel;col=C(0.47f,0.44f,0.37f);}
         m.box(0,0.12f,0,W,0.07f,D,col,mat);
         if(f=="garden"){
-            m.box(0.35f,0.2f,D-1.6f,1.7f,0.06f,1.2f,C(0.30f,0.26f,0.20f),Gravel);
-            for(float x:{0.8f,1.55f})m.ellipsoid(V(x,0.58f,D-0.95f),V(0.40f,0.37f,0.42f),C(0.37f,0.45f,0.24f),Foliage,5,10);
+            m.box(0.20f,0.2f,D-1.6f,1.7f,0.06f,1.2f,C(0.30f,0.26f,0.20f),Gravel);
+            for(float x:{0.65f,1.40f})m.ellipsoid(V(x,0.58f,D-0.95f),V(0.40f,0.37f,0.42f),C(0.37f,0.45f,0.24f),Foliage,5,10);
         }
         if(f=="parking"||f=="loading"){
             for(float x=0.25f;x<W;x+=2.5f)m.box(x,0.195f,0.2f,0.09f,0.015f,std::min(5.0f,D-0.4f),trim);
-            if(W>=5&&D>=5)m.car(0.65f,0.45f,C(0.51f,0.28f,0.22f));
+            if(W>=5&&D>=5)m.car(0.65f,0.45f,r.wall);
         }
         if(f=="props"){
+            size_t propsStart=m.vertices.size();
             m.box(0.4f,0.2f,0.5f,1.7f,1.25f,1.2f,C(0.52f,0.41f,0.27f),Wood);
             m.box(W-2.1f,0.2f,D-1.9f,1.7f,1.35f,1.45f,C(0.28f,0.35f,0.31f),Metal);
-            for(float x:{0.9f,1.65f})m.cylinder(x,0.2f,D-1,0.31f,0.85f,C(0.40f,0.29f,0.22f),Metal,16);
+            for(float x:{0.9f,1.65f})m.cylinder(x,0.2f,D-1,0.31f,0.85f,r.wall,Metal,16);
+            for(size_t i=propsStart;i<m.vertices.size();++i){auto& v=m.vertices[i];if(r.seed%2){v.x=W-v.x;v.z=D-v.z;v.normalX=-v.normalX;v.normalZ=-v.normalZ;}}
+
         }
     }
     for(auto& v:m.vertices){v.x/=W;v.y/=H;v.z/=D;}
@@ -213,6 +276,8 @@ inline void GenerateAssetCatalog(const std::string& data){
     for(const auto& path:XmlFiles(data+"\\Modules")){
         auto r=ReadRecipe(path);auto m=BuildRecipe(r);WriteMesh(out,"metric_"+r.id,m);
         auto distant=BuildRecipe(r,false);WriteMesh(out,"metric_"+r.id+"_distant",distant);
+        for(const auto& v:ReadAssetVariations(XmlReadFileToString(path))){auto vr=VariantRecipe(r,v);auto vm=BuildRecipe(vr),vd=BuildRecipe(vr,false);WriteMesh(out,"metric_"+vr.id,vm);WriteMesh(out,"metric_"+vr.id+"_distant",vd);
+            report<<vr.id<<','<<vr.family<<','<<vr.width<<','<<vr.depth<<','<<vr.height<<','<<vr.floors<<','<<vr.capacity<<','<<vm.vertices.size()/3<<','<<vd.vertices.size()/3<<'\n';}
         report<<r.id<<','<<r.family<<','<<r.width<<','<<r.depth<<','<<r.height<<','<<r.floors<<','<<r.capacity<<','<<m.vertices.size()/3<<','<<distant.vertices.size()/3<<'\n';
     }
     out.close();if(!out)throw std::runtime_error("Failed writing catalog");

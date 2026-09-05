@@ -98,7 +98,19 @@ public:
         face(side,x,z,w,d,u+0.15f,y+1.18f,ww-0.3f,0.62f,0.16f,0.02f,glass,Glass);
         face(side,x,z,w,d,u+ww-0.18f,y+0.93f,0.055f,0.14f,0.19f,0.05f,trim);
     }
+    std::string treeStyle="oak",carStyle="sedan";
     void tree(float x,float z,float h=7,float radius=2.25f){
+        if(treeStyle=="conifer"){
+            cylinder(x,.12f,z,.14f,h*.7f,C(.31f,.25f,.19f),Wood,8);
+            for(int i=0;i<4;++i){float yy=h*(.35f+.11f*i),rr=radius*(1-.19f*i);cylinder(x,yy,z,rr,h*.30f,C(.24f+.02f*i,.37f+.015f*i,.27f),Foliage,detailed?20:8,.03f);}return;
+        }
+        if(treeStyle=="birch"){
+            for(float dx:{-.22f,.20f}){
+                cylinder(x+dx,.12f,z,.095f,h*.83f,trim,Wood,10,.045f);
+                for(float y=.7f;y<h*.7f;y+=.55f)box(x+dx-.10f,y,z-.085f,.19f,.045f,.025f,iron,Wood);
+            }
+            for(int i=0;i<5;++i){float a=i*1.2566f;ellipsoid(V(x+std::cos(a)*radius*.27f,h*(.58f+.06f*i),z+std::sin(a)*radius*.27f),V(radius*.60f,h*.17f,radius*.6f),C(.43f,.52f,.29f),Foliage,detailed?8:3,detailed?16:6);}return;
+        }
         cylinder(x,0.12f,z,0.18f,h*0.68f,C(0.30f,0.25f,0.18f),Wood,10,0.09f);
         ellipsoid(V(x,h*0.79f,z),V(radius*0.70f,h*0.20f,radius*0.67f),C(0.37f,0.46f,0.25f),Foliage,detailed?7:3,detailed?14:6);
         for(int i=0;i<5;++i){float a=i*1.2566f;
@@ -112,8 +124,13 @@ public:
     }
     void car(float x,float z,C c){
         box(x,0.42f,z,1.78f,0.65f,4.25f,c,Metal);
-        box(x+0.13f,1.07f,z+1.05f,1.52f,0.53f,2.0f,glass,Glass);
-        box(x+0.12f,1.60f,z+1.18f,1.54f,0.08f,1.70f,c,Metal);
+        float cabin=carStyle=="wagon"?2.75f:(carStyle=="pickup"?1.45f:2.0f);
+        box(x+0.13f,1.07f,z+1.05f,1.52f,0.53f,cabin,glass,Glass);
+        box(x+0.12f,1.60f,z+1.18f,1.54f,0.08f,cabin-.30f,c,Metal);
+        if(carStyle=="pickup")box(x+.12f,1.075f,z+2.65f,1.54f,.025f,1.35f,iron,Metal);
+        for(float dz:{1.12f,2.15f})for(float dx:{.12f,1.61f})box(x+dx,1.07f,z+dz,.055f,.53f,.07f,c,Metal);
+        box(x+.1f,.45f,z-.025f,1.58f,.12f,.08f,trim,Metal);
+        for(float dx:{.13f,1.30f})box(x+dx,.80f,z+4.24f,.30f,.15f,.04f,C(.6f,.12f,.08f));
         for(float dx:{-0.05f,1.64f})for(float dz:{0.65f,3.0f})box(x+dx,0.23f,z+dz,0.20f,0.50f,0.58f,C(0.09f,0.10f,0.10f));
         box(x+0.15f,0.8f,z-0.02f,0.35f,0.13f,0.04f,trim);box(x+1.25f,0.8f,z-0.02f,0.35f,0.13f,0.04f,trim);
     }

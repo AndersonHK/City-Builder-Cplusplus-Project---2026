@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "CityParameters.h"
+#include "AssetVariation.h"
 
 struct Int2 {
     int x;
@@ -91,6 +92,8 @@ struct LotModulePropDefinition {
     }
 };
 
+struct LotPathBlocker {float xMeters=0,zMeters=0,widthMeters=0,depthMeters=0;};
+
 struct LotModule {
     std::string id;
     std::string density;
@@ -106,10 +109,16 @@ struct LotModule {
     std::string renderMeshKey;
     std::uint16_t renderMeshHandle;
     std::string artFamily;
+    std::vector<AssetVariation> variations;
+    std::shared_ptr<const AssetVariationBindings> variationBindings;
+    std::uint16_t parkingCrossingHandle=0,parkingAisleHandle=0,parkingStallsHandle=0,parkingIslandHandle=0,industrialYardHandle=0,concreteHandle=0;
     bool hasPedestrianEntrance = false;
+    bool pathPassable = false;
+    bool optionalLandscape = false;
+    std::vector<LotPathBlocker> pathBlockers;
     bool hasGarageEntrance = false;
     std::uint16_t pathMeshHandle=0, driveMeshHandle=0, grassMeshHandle=0, gardenMeshHandle=0, treeMeshHandle=0,fenceMeshHandle=0;
-    std::uint16_t accessPathHandle=0, accessDriveHandle=0, driveMidHandle=0,driveCapLeftHandle=0,driveCapRightHandle=0;
+    std::uint16_t accessPathHandle=0, accessDriveHandle=0, driveMidHandle=0,driveCapLeftHandle=0,driveCapRightHandle=0,driveCapBothHandle=0;
     bool metricGeometry = false;
     bool stretchGeometry = false;
     float naturalWidth = 0.0f;

@@ -2,6 +2,12 @@
 
 Use this guide when changing commute routing scalability, traffic load storage, flat route-search behavior, route budgeting, or future hierarchical routing/topology caches.
 
+## September 2026 Architecture Review
+
+Read [Routing architecture assessment](transport-routing-architecture-assessment.md) for the revised recommendation targeting **300 TPS on the user's i9-13900K with an initial 20 GB RAM budget**. It supersedes the implementation priority below: bring incremental vacancy/access indexes and route validity forward, retain the resumable flat-search/API split, then evaluate compact routing topology, shared metric snapshots, customizable hierarchy, and service fields. These are recommendations, not implemented improvements or measured speedups.
+
+Source inspection also found two important qualifications to this document's cost model: ordinary ticks validate every stored route's steps, adding `O(R * p)` work outside selected-source searches; and traffic load **updates** are sparse while their backing movement-load arrays remain dense. The assessment includes updated allocation estimates and distinguishes an empty vacancy market (no search, but repeated destination scans today) from vacancies that require exhaustive unsuccessful searches.
+
 ## Implemented Checkpoint - May 2026
 - Option A is implemented: `SimulationRuntime` keeps persistent `TransportPathScratch` for commute routing, so ordinary route searches no longer allocate map-sized scratch.
 - The first large part of Option B is implemented without the later chunk-owned sparse topology cache. `TransportCostMap` still uses dense `(tile, layer, mode)` topology nodes for base cost/capacity/access, but traffic loads now live in separate mutable `Morning` and `Evening` load states keyed by edge identity.

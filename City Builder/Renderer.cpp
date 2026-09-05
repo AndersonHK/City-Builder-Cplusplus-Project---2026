@@ -3584,6 +3584,9 @@ int Renderer::run() {
         if (!cityPreviewFramebufferComplete) {
             return false;
         }
+        // Thumbnails borrow the live textures and instance buffers. Leave all
+        // revision stamps invalid even when import/rendering exits early.
+        invalidateCityRenderCaches();
         previewPixels.resize(static_cast<std::size_t>(City::kPreviewWidth) * static_cast<std::size_t>(City::kPreviewHeight) * 4u);
 
         simulationRuntime.stop();

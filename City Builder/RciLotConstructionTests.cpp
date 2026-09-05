@@ -1711,8 +1711,10 @@ void TestMetricLotAccess(TestRunner& runner) {
             if(s.kind==3)++middles;else{++caps;cap=s.bounds;capKind=s.kind;}
         }
     }
-    runner.expect(middles==2&&caps==1,"deep garden has two middle pieces and one end cap");
+    runner.expect(middles==1&&caps==1,"two-tile front setback has a middle piece and an end cap beside the entrance");
     runner.expect(cap.x>0&&cap.x<5,"driveway is placed beside house rather than lot corner");
+    auto deep=Plan(8,8,{{{3.1f,3.1f,1.8f,1.8f},&home}});
+    runner.expect(std::count_if(deep.begin(),deep.end(),[](const Surface& s){return s.kind==3;})==2,"three-tile setback repeats two middle pieces before the cap");
     auto contains=[](Rect r,float x,float z){return x>=r.x-0.001f&&x<=r.x+r.w+0.001f&&z>=r.z-0.001f&&z<=r.z+r.d+0.001f;};
     std::vector<Rect> paths;for(const auto& s:surfaces)if(s.kind==0)paths.push_back(s.bounds);
     paths.push_back({cap.x+(capKind==4?0.0f:0.5f),cap.z+0.75f,0.5f,0.25f});
@@ -1747,10 +1749,68 @@ void TestMetricLotAccess(TestRunner& runner) {
     }
 }
 
+void TestAccessObstaclesAndVariations(TestRunner& runner){
+    using namespace LotAccessVisuals;
+    LotSubtileOccupancy ownership(1,1);
+    ownership.reserve(0,0,1.f/3,1);
+    runner.expect(!ownership.free(.10f,.4f,.10f,.1f),"a path owns its full two-metre sub-tile column");
+    runner.expect(ownership.free(2.25f/6,2.25f/6,1.5f/6,1.5f/6),"tree trunk and path can share a six-metre tile in separate sub-tiles");
+    ownership.reserve(2.25f/6,2.25f/6,1.5f/6,1.5f/6);
+    runner.expect(ownership.free(4.25f/6,.25f/6,1.5f/6,1.5f/6),"a shrub can occupy a third unclaimed sub-tile on the same tile");
+    runner.expect(!ownership.free(2.1f/6,2.1f/6,.1f,.1f),"a second prop cannot take the tree's occupied sub-tile");
+    LotModule tree;tree.metricGeometry=true;tree.naturalWidth=tree.naturalDepth=1;LotPathBlocker trunk;trunk.xMeters=1;trunk.zMeters=3;trunk.widthMeters=trunk.depthMeters=1.5f;tree.pathBlockers.push_back(trunk);
+    for(int rot=0;rot<4;++rot){LotRenderInstance prop;prop.originX=10;prop.originY=20;prop.renderWidth=prop.renderHeightOverride=1;prop.meshRotation=rot;
+        auto blocks=ModuleBlockers(tree,prop);auto local=ToFront(blocks.front(),10,20,1,1,rot);
+        runner.expect(std::abs(local.x-1.f/6)<.001f&&std::abs(local.z-.5f)<.001f&&std::abs(local.w-.25f)<.001f,"sub-tile prop footprint rotates with its mesh without occupying the canopy tile");}
+    LotModule house;house.artFamily="house";house.hasPedestrianEntrance=true;
+    LotModule factory;factory.artFamily="factory";factory.hasPedestrianEntrance=factory.hasGarageEntrance=true;
+    auto check=[&](const std::vector<Surface>& plan,const std::vector<Rect>& obstacles){
+        bool valid=true,hasPath=false;
+        for(const auto& path:plan)if(path.kind==0){hasPath=true;
+            for(const auto& obstacle:obstacles)if(Intersects(path.bounds,obstacle))valid=false;
+            for(const auto& surface:plan){
+                if(surface.kind==1||surface.kind==3||surface.kind==6||surface.kind==7||surface.kind==8||surface.kind==9||surface.kind==10){if(Intersects(path.bounds,surface.bounds))valid=false;}
+                if(surface.kind==4||surface.kind==5||surface.kind==11){auto blocked=surface.bounds;blocked.d=.75f;if(Intersects(path.bounds,blocked))valid=false;
+                    if(surface.kind!=11){blocked=surface.bounds;blocked.z+=.75f;blocked.d=.25f;blocked.w=.5f;if(surface.kind==4)blocked.x+=.5f;if(Intersects(path.bounds,blocked))valid=false;}}
+            }
+        }
+        runner.expect(hasPath,"obstacle-aware layout retains a pedestrian route");
+        runner.expect(valid,"paths avoid solid props, planted islands, loading lanes, stalls and driveway car areas");
+    };
+    // Container, tree and fence footprints interrupt the direct sidewalk route.
+    std::vector<Rect> obstacles{{2.4f,.7f,1,1},{4.5f,1.2f,.8f,.8f},{1.5f,1.85f,2.2f,.04f}};
+    auto residential=Plan(7,7,{{{2.1f,3.1f,1.8f,1.8f},&house}},obstacles);check(residential,obstacles);
+    auto industrial=Plan(8,8,{{{2.15f,2.15f,4.7f,4.7f},&factory}});check(industrial,{});
+    runner.expect(std::any_of(industrial.begin(),industrial.end(),[](const Surface& s){return s.kind==7;}),"large industrial parcel has modular commercial stalls");
+    runner.expect(std::any_of(industrial.begin(),industrial.end(),[](const Surface& s){return s.kind==12;}),"industrial pedestrians cross the aisle on an authored crossing");
+    auto sideCourt=Plan(8,8,{{{3.1f,.1f,1.8f,1.8f},&factory}});check(sideCourt,{});
+    runner.expect(std::any_of(sideCourt.begin(),sideCourt.end(),[](const Surface& s){return s.kind==7;}),"industrial buildings at the street receive side parking courts when space permits");
+    runner.expect(std::none_of(industrial.begin(),industrial.end(),[](const Surface& s){return s.kind==3||s.kind==4||s.kind==5||s.kind==11;}),"industry does not use residential driveways");
+    auto shared=Plan(7,7,{{{.1f,2.1f,1.8f,1.8f},&house},{{3.1f,2.1f,1.8f,1.8f},&house}});check(shared,{});
+    runner.expect(std::any_of(shared.begin(),shared.end(),[](const Surface& s){return s.kind==11;}),"a driveway between homes uses the cap with two pedestrian exits");
+    for(int size=2;size<=8;++size){auto compact=Plan(float(size),float(size),{{{.1f,.1f,float(size)-.2f,float(size)-.2f},&factory}});check(compact,{});}
+    for(const auto& invalid:{"<variation id=\"bad\" weight=\"0\" />","<variation id=\"bad\" colorR=\"nan\" />","<variation id=\"bad\" carStyle=\"boat\" />","<variation id=\"bad\" treeStyle=\"unknown\" />"}){
+        bool rejected=false;try{ReadAssetVariation(invalid);}catch(const std::exception&){rejected=true;}runner.expect(rejected,"invalid declared visual variation is rejected");
+    }
+    auto variants=ReadAssetVariations("<variations><!-- <variation id=\"ignored\" /> --><variation\n id=\"first\" weight=\"1\" /><variation id=\"second\" weight=\"3\" /></variations>");
+    runner.expect(variants.size()==2,"variation parser supports whitespace and ignores comments");
+    variants[0].meshHandle=11;variants[1].meshHandle=12;
+    int first=0,second=0;for(unsigned seed=0;seed<400;++seed){auto handle=SelectAssetVariation(variants,seed,0);first+=handle==11;second+=handle==12;}
+    runner.expect(first==100&&second==300,"declared weights select the expected proportions");
+    LotModule module;module.id="variant_fixture";module.metricGeometry=true;module.width=module.height=1;module.naturalWidth=module.naturalDepth=1;module.renderMeshHandle=5;
+    variants[0].moduleId=variants[1].moduleId=module.id;
+    auto table=std::make_shared<AssetVariationBindings>();(*table)[5]=variants;module.variationBindings=table;
+    std::uint16_t stable=0;
+    for(int rotation=0;rotation<4;++rotation){Lot lot(77,"fixture",0,0,rotation);lot.addModule(module,Int2(),8);std::vector<LotRenderInstance> a,b;lot.buildRenderInstances(a);lot.buildRenderInstances(b);
+        if(rotation==0)stable=a.front().renderMeshHandle;
+        runner.expect(a.front().renderMeshHandle==stable&&b.front().renderMeshHandle==stable,"visual choice is stable on recreation, repeat renders and lot rotation");}
+}
+
 int main() {
     InitializeCrashLogger("City Builder RciLotConstructionTests");
     TestRunner runner;
     TestMetricLotAccess(runner);
+    TestAccessObstaclesAndVariations(runner);
     TestLotConstructionDurationLoading(runner);
     TestModulePlacementClaimedFootprintAndVisualAlignment(runner);
     TestDecorativePropPlacementsDoNotAffectSimulation(runner);

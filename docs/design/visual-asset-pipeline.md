@@ -5,8 +5,8 @@ Implemented revision: 2026-09-05. The physical contract is [6 m per tile](metric
 ## Authored data and cooking
 
 `City Builder/Data/Modules/*.xml` contains stable module IDs, simulation stats,
-and metric render recipes. The catalog has 80 modules: the existing 75, three composable driveway tiles, and two
-legacy rowhouse IDs retained for save compatibility. `Data/Lots` contains the existing lot layouts;
+and metric render recipes. The catalog has 86 modules, including six additional driveway, commercial parking and industrial service pieces. Two
+legacy rowhouse IDs remain available for save compatibility. `Data/Lots` contains the existing lot layouts;
 15 are active and the low-court template remains intentionally disabled.
 
 The render recipe declares `family`, `widthMeters`, `depthMeters`,
@@ -47,17 +47,88 @@ Decorative props inherit the parent orientation without affecting capacity.
 
 `LotAccessVisuals.h` reconstructs entrance paths and type-appropriate vehicle
 access using physical building bounds. Long private drives are built from
-1x1 middle pieces and left/right path caps; cars are never stretched with
+1x1 middle pieces and left/right/both-side path caps; cars are never stretched with
 length. Old short path and driveway instances are replaced in the presentation
-snapshot. Trees and planted beds are cleared where new access runs.
+snapshot. Access reserves a 3x3 grid of 2 m sub-tiles per game tile before optional
+landscaping is admitted. Props can share a tile with paths when their ground
+footprints occupy different cells; nearby free sub-tiles are tried before a
+conflicting optional prop is omitted. Fixed props remain routing obstacles.
+
+## Declared visual variations
+
+A metric module can declare up to 32 weighted variations. With a declared list,
+only entries in that list participate; without one, the base mesh is used.
+Variations inherit the module's physical dimensions, doors and simulation data.
+They do not change capacity, effects, occupied tiles or the save format.
+
+```xml
+<variations>
+  <variation id="brick" weight="3" seed="1" wallMaterial="brick"
+             colorR="0.48" colorG="0.33" colorB="0.26" />
+  <variation id="cladding" weight="1" seed="2" wallMaterial="metal"
+             colorR="0.64" colorG="0.66" colorB="0.63" />
+</variations>
+```
+
+`wallMaterial` accepts `inherit`, `brick`, `render`, or `metal`. `carStyle`
+accepts `sedan`, `wagon`, or `pickup`; `treeStyle` accepts `oak`, `birch`, or
+`conifer`. RGB overrides are optional and must be 0–1. Weight is 1–10000;
+seed is 0–1000000. IDs must be unique lowercase letters/digits/underscore/hyphen.
+A seed also varies service-pad arrangements and parking occupancy. Family-specific
+styles apply only to geometry used by that family. Changing a material selects
+the actual brick, plaster or metal texture layer, not just a tint.
+
+Cooking writes `metric_<module>__<variation>` and its `_distant` partner.
+The runtime hashes lot identity, module identity and lot-relative placement
+coordinates. Choices remain deterministic across redraws and save/reload;
+editing the declared list or weights intentionally changes the selection pool.
+The first sets cover house finishes, industrial facades, cars, trees and yard props.
+
+## Sub-tile footprints and access ownership
+
+Declare ground clearance in metres relative to the module's unrotated front:
+
+```xml
+<pathBlocker xMeters="2.25" zMeters="2.25"
+             widthMeters="1.5" depthMeters="1.5" />
+```
+
+This tree trunk/root footprint owns the centre 2 m cell of a 6 m tile. Its canopy
+can overhang a neighboring path above pedestrian height. Shrub beds and fence
+lines use their own bounds. Multiple blockers are supported. They rotate and
+scale with the module's presentation geometry. Missing footprints conservatively
+block the whole module. `pathPassable="true"` on a render recipe is intended for
+bare ground; never apply it to a solid prop to hide a collision.
+
+The lot reserves its building and access cells first. Modules explicitly marked
+`optionalLandscape="true"` can then occupy free sub-tiles. They try nearby 2 m
+positions at unchanged model scale, with full mesh bounds kept inside the lot
+and out of buildings. A conflicting optional prop is omitted from presentation;
+its saved module and simulation contributions are unchanged. Fixed props own
+the 2 m cells touched by their blockers and are routed around.
+
+The ownership grid is separate from the finer pedestrian routing grid and
+physical door/cap connections. Vehicle pavement is never a generic pedestrian
+shortcut. Driveway caps provide explicit path portals; commercial aisles provide
+marked crossings. Paths are checked against solid footprints at every supported
+parcel size and orientation. Ground decoration is not used as a canopy-sized
+collision box.
+
+Industrial lots compose 1x1 commercial stall, aisle, crossing and planted-island
+modules. Stalls and aisles occupy separate rows; buildings at the street can have
+side parking courts. A clear service aisle, loading-door approach and equipment
+pads replace the former residential driveway and repeated loose boxes. The
+service variants include ribbed containers, vessels/pumps and pallet racks/skips.
+All of this is visual reconstruction, including for existing saved lots.
 
 ## Runtime cost
 
 Each module also cooks a `_distant` mesh with the same dimensions and silhouette.
 The game switches to those meshes above 64 visible tiles and uses them for
 region thumbnails. High-detail facades retain physical window/trim geometry;
-distant facades use simple window planes. The reviewed catalog totals 440,212
-near triangles versus 52,976 distant triangles (88% fewer). Draws remain
+distant facades use simple window planes. The expanded catalog, including all 82 declared variants, totals 584,822
+near triangles versus 99,778 distant triangles (83% fewer across the complete
+catalog). A placement selects one variant, rather than drawing them all. Draws remain
 instanced and batched by mesh. Large-save frame-time benchmarking remains a
 separate useful check; triangle reduction alone is not a frame-rate guarantee.
 
@@ -73,16 +144,23 @@ source `City Builder/Data`; when copied with the game it edits adjacent Data.
   and wheel to zoom. Lots use the production parcel fitter and render instances.
 - Inspect stats, capacity, physical dimensions and triangle count. Toggle scale
   props, wireframe or distant LOD. The reference street is 12 m wide.
-- In a lot, select a module from �Edit module in lot� to edit metric dimensions,
+- In a lot, select a module from “Edit module in lot” to edit metric dimensions,
   floors, capacity, palette and effects with the fields. Save fields validates
   and regenerates; advanced Save XML also edits layout rules and metadata.
+- Select a declared variation in the dropdown to preview it explicitly. Its RGB
+  fields edit that finish. Add variant inserts an editable declaration in the XML;
+  set its weight/material/styles there and Save XML. Automatic returns to weighted
+  selection. The main Variation button rerolls the complete lot.
+- Toggle **2 m sub-tiles / footprints** to inspect ownership cells and ground
+  blocker outlines without treating the entire tree canopy as an obstacle.
 - Saving stages the whole data tree, validates references and geometry, keeps
   an XML `.bak`, and replaces the source and catalog. Concurrent source changes
   and ID changes are rejected. Module edits affect every lot using that module.
 - Deploy to game publishes saved definitions and cooked art next to the game.
   Restart the game to load them. Save/load of cities remains in the game.
 - Export BMP captures the current OpenGL viewport. `--capture <directory>`
-  exports every module, both lot orientations, compact parcels, a distant tower,
+  exports every module, selected explicit variations, 8x8 industrial parcels,
+  both lot orientations, compact parcels, a distant tower,
   and the manager UI. It compiles the actual game shader during initialization.
 
 The manager adds a reference road and planar contact shadows for inspection.
@@ -112,3 +190,25 @@ edit isolation, conflict detection and stable IDs. RCI tests cover the connected
 sidewalk/door/cap graph, integral driveway pieces and the rowhouse exception.
 Run RendererTests and SaveLoadIntegrationTests alongside RciLotConstructionTests
 when changing the catalog format, instance transforms or snapshot behavior.
+
+## Save-without-exiting regression
+
+Region thumbnail generation temporarily imports another city into the live
+runtime and borrows its GPU buffers. Saving now increments the render-state
+revision after restoring an active city, and thumbnail rendering invalidates all
+live renderer cache stamps. The next city frame uploads its own roads and lots.
+The integration regression borrows the runtime for an empty thumbnail city,
+then checks restoration of the complete city and cache invalidation without
+leaving city mode.
+
+Reviewed captures: [industrial lots and 2 m sub-tiles](../art/industry-subtile-review.png),
+[declared car/tree variants](../art/declared-asset-variations.png), and
+[the updated asset manager](../art/industry-asset-manager.png).
+
+Final verification: 86 module definitions, 82 declared variants, both LODs,
+3,180 supported parcel/rotation combinations, and 26,850 path segments checked
+against solid footprints. Optional props are also checked against access-owned
+2 m cells. RCI construction/access tests: 1,615 checks; renderer tests: 228;
+save/load integration tests: 38. Editor save/backup/invalid-edit/concurrency/ID
+checks passed using an isolated data fixture. Release/x64 game and AssetManager
+were rebuilt and deployed to their canonical executable paths.

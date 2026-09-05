@@ -609,6 +609,20 @@ void Lot::buildRenderInstances(std::vector<LotRenderInstance>& instances) const 
         }
     }
     LotAccessVisuals::Append(*this,firstInstance,instances);
+    // Resolve after access planning, which works with canonical mesh identities.
+    // Lot-relative front coordinates keep choices stable across rotations/reloads.
+    const AssetVariationBindings* variants=nullptr;
+    for(const auto& p:modules_)if(p.module&&p.module->variationBindings){variants=p.module->variationBindings.get();break;}
+    if(variants)for(size_t index=firstInstance;index<instances.size();++index){
+        auto& inst=instances[index];auto found=variants->find(inst.renderMeshHandle);if(found==variants->end())continue;
+        auto rect=LotAccessVisuals::ToFront(LotAccessVisuals::Bounds(inst),float(minimumTileX()),float(minimumTileY()),float(footprintWidth()),float(footprintHeight()),rotationSteps());
+        std::uint32_t seed=AssetVisualHash(2166136261u,static_cast<std::uint32_t>(id()));
+        seed=AssetVisualHash(seed,static_cast<std::uint32_t>(std::lround(rect.x*256)));
+        seed=AssetVisualHash(seed,static_cast<std::uint32_t>(std::lround(rect.z*256)));
+        // Hash declared identity, not the transient mesh handle/catalog order.
+        for(char c:found->second.front().moduleId)seed=AssetVisualHash(seed,static_cast<unsigned char>(c));
+        inst.renderMeshHandle=SelectAssetVariation(found->second,seed,inst.renderMeshHandle);
+    }
 }
 
 // Produces a compact module count string for tile queries.

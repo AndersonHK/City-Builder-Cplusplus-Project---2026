@@ -622,11 +622,13 @@ LotModule LoadModuleAsset(const std::string& filePath, const std::string& fileNa
     bool hasEffects = false;
     bool isInsideParametersBlock = false;
     bool isInsidePropsBlock = false;
+    bool isInsideVariationsBlock = false;
 
     std::size_t tokenIndex = 1;
     for (; tokenIndex < tokens.size(); ++tokenIndex) {
         const ParsedTag tag = ParseTag(tokens[tokenIndex]);
         if (tag.isClosing) {
+            if(tag.name=="variations"){isInsideVariationsBlock=false;continue;}
             if (tag.name == "parameters") {
                 isInsideParametersBlock = false;
                 continue;
@@ -644,6 +646,19 @@ LotModule LoadModuleAsset(const std::string& filePath, const std::string& fileNa
             break;
         }
 
+        if(tag.name=="pathBlocker"&&tag.isSelfClosing){
+            LotPathBlocker b;b.xMeters=ParseOptionalFloat(tag.attributes,"xMeters",-1);b.zMeters=ParseOptionalFloat(tag.attributes,"zMeters",-1);
+            b.widthMeters=ParseOptionalFloat(tag.attributes,"widthMeters",0);b.depthMeters=ParseOptionalFloat(tag.attributes,"depthMeters",0);
+            if(!std::isfinite(b.xMeters)||!std::isfinite(b.zMeters)||!std::isfinite(b.widthMeters)||!std::isfinite(b.depthMeters)||b.xMeters<0||b.zMeters<0||b.widthMeters<=0||b.depthMeters<=0)throw std::runtime_error("Invalid path blocker in "+filePath);
+            module.pathBlockers.push_back(b);continue;
+        }
+        if(tag.name=="variations"&&!tag.isSelfClosing){isInsideVariationsBlock=true;continue;}
+        if(tag.name=="variation"&&tag.isSelfClosing&&isInsideVariationsBlock){
+            auto v=ReadAssetVariation(tokens[tokenIndex]);
+            for(const auto& existing:module.variations)if(existing.id==v.id)throw std::runtime_error("Duplicate variation ID: "+v.id);
+            if(module.variations.size()>=32)throw std::runtime_error("Too many module variations.");
+            module.variations.push_back(v);continue;
+        }
         if (tag.name == "size" && tag.isSelfClosing) {
             module.width = ParseRequiredInt(tag.attributes, "width");
             module.height = ParseRequiredInt(tag.attributes, "height");
@@ -671,6 +686,8 @@ LotModule LoadModuleAsset(const std::string& filePath, const std::string& fileNa
             module.artFamily = GetOptionalAttribute(tag.attributes, "family", "");
             const std::string& family=module.artFamily;
             module.hasPedestrianEntrance = family=="house" || family=="duplex" || family=="rowhouse" || family=="trailer" || family=="walkup" || family=="midrise" || family=="court" || family=="tower" || family=="factory" || family=="warehouse" || family=="workshop";
+            module.optionalLandscape=ParseOptionalBool(tag.attributes,"optionalLandscape",false);
+            module.pathPassable=ParseOptionalBool(tag.attributes,"pathPassable",family=="grass"||family=="yard"||family=="concrete"||family=="path");
             module.hasGarageEntrance = family=="tower" || family=="factory" || family=="warehouse" || family=="workshop";
             if (module.metricGeometry) {
                 module.naturalWidth = MetersToTiles(ParseOptionalFloat(tag.attributes, "widthMeters", 0.0f));
@@ -758,6 +775,8 @@ LotModule LoadModuleAsset(const std::string& filePath, const std::string& fileNa
         throw std::runtime_error("Module dimensions must be positive: " + filePath);
     }
 
+    for(const auto& b:module.pathBlockers)if(!module.metricGeometry||b.xMeters+b.widthMeters>module.naturalWidth*6+.001f||b.zMeters+b.depthMeters>module.naturalDepth*6+.001f)
+        throw std::runtime_error("Path blocker exceeds declared module dimensions: "+module.id);
     return module;
 }
 
@@ -1510,15 +1529,23 @@ void AssignRenderMeshHandles(std::vector<LotModule>& modules, std::vector<Render
     };
 
     ensureHandle("box");
+    auto variationBindings=std::make_shared<AssetVariationBindings>();
     std::size_t moduleIndex = 0;
     for (; moduleIndex < modules.size(); ++moduleIndex) {
         modules[moduleIndex].renderMeshKey = NormalizeRenderMeshKey(modules[moduleIndex].renderMeshKey);
         modules[moduleIndex].renderMeshHandle = ensureHandle(modules[moduleIndex].renderMeshKey);
+        auto& authored=modules[moduleIndex];
+        if(!authored.variations.empty()&&!authored.metricGeometry)throw std::runtime_error("Visual variations require a metric module: "+authored.id);
+        for(auto& v:authored.variations){v.moduleId=authored.id;v.meshHandle=ensureHandle(authored.renderMeshKey+"__"+v.id);}
+        if(!authored.variations.empty())(*variationBindings)[authored.renderMeshHandle]=authored.variations;
+        authored.variationBindings=variationBindings;
         if (modules[moduleIndex].metricGeometry) {
             auto& m=modules[moduleIndex];
             m.pathMeshHandle=ensureHandle("metric_pathway_module");m.driveMeshHandle=ensureHandle("metric_driveway_module");
             m.grassMeshHandle=ensureHandle("metric_yard_module");m.gardenMeshHandle=ensureHandle("metric_garden_module");m.treeMeshHandle=ensureHandle("metric_garden_tree_module");m.fenceMeshHandle=ensureHandle("metric_fence_module");
-            m.accessPathHandle=ensureHandle("access_path");m.accessDriveHandle=ensureHandle("access_drive");m.driveMidHandle=ensureHandle("metric_driveway_mid_module");m.driveCapLeftHandle=ensureHandle("metric_driveway_cap_left_module");m.driveCapRightHandle=ensureHandle("metric_driveway_cap_right_module");
+            m.parkingCrossingHandle=ensureHandle("metric_commercial_parking_crossing_module");
+            m.parkingAisleHandle=ensureHandle("metric_commercial_parking_aisle_module");m.parkingStallsHandle=ensureHandle("metric_commercial_parking_stalls_module");m.parkingIslandHandle=ensureHandle("metric_commercial_parking_island_module");m.industrialYardHandle=ensureHandle("metric_industrial_service_module");m.concreteHandle=ensureHandle("metric_concrete_floor_module");
+            m.accessPathHandle=ensureHandle("access_path");m.accessDriveHandle=ensureHandle("access_drive");m.driveMidHandle=ensureHandle("metric_driveway_mid_module");m.driveCapLeftHandle=ensureHandle("metric_driveway_cap_left_module");m.driveCapRightHandle=ensureHandle("metric_driveway_cap_right_module");m.driveCapBothHandle=ensureHandle("metric_driveway_cap_both_module");
         }
     }
 }
