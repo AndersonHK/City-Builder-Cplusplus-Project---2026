@@ -95,6 +95,7 @@
     <ClCompile Include="SaveLoadIntegrationTests.cpp" />
     <ClCompile Include="SimulationRuntime.cpp" />
     <ClCompile Include="TransportCostMap.cpp" />
+    <ClCompile Include="TransportRouter.cpp" />
     <ClCompile Include="TransportNetwork.cpp" />
     <ClCompile Include="TransportTile.cpp" />
     <ClCompile Include="TransportTypes.cpp" />
@@ -121,6 +122,7 @@
     <ClInclude Include="SimulationTime.h" />
     <ClInclude Include="Tile.h" />
     <ClInclude Include="TransportCostMap.h" />
+    <ClInclude Include="TransportRouter.h" />
     <ClInclude Include="TransportNetwork.h" />
     <ClInclude Include="TransportTile.h" />
     <ClInclude Include="TransportTypes.h" />

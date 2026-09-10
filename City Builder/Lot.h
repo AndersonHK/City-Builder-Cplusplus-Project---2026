@@ -343,6 +343,9 @@ public:
     std::string complaintSummary() const;
     void clearCommutes();
     void clearCommuteRoutes();
+    // Simulation owner only; update route records in place, then refresh summaries once.
+    std::vector<CommuteRouteRecord>& commuteRoutesForMutation() { return commuteRoutes_; }
+    void refreshCommuteSummary() { rebuildCommuteRouteSummary(); }
     void setLowWealthResidentsTotal(int residents);
     void setLowWealthJobsTotal(int jobs);
     void setLowWealthJobsFilled(int jobs);

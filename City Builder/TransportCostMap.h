@@ -28,16 +28,16 @@ struct TransportCostCell {
 };
 
 struct TransportTrafficLoadCell {
-    std::uint16_t oldLoads[kRoadDirectionCount];
-    std::uint16_t newLoads[kRoadDirectionCount];
+    std::uint32_t oldLoads[kRoadDirectionCount];
+    std::uint32_t newLoads[kRoadDirectionCount];
 
     TransportTrafficLoadCell();
     void clearLoads();
 };
 
 struct TransportTrafficTransferLoad {
-    std::uint16_t oldLoad;
-    std::uint16_t newLoad;
+    std::uint32_t oldLoad;
+    std::uint32_t newLoad;
 
     TransportTrafficTransferLoad();
 };
@@ -105,6 +105,8 @@ struct TransportPathRequest {
     std::uint16_t demand;
     float maximumCost;
     bool useCongestion;
+    // Legacy callers retain additive diversity; shared routing uses a common metric.
+    bool useRouteJitter;
     CommuteTimeOfDay commuteTimeOfDay;
 
     TransportPathRequest();
@@ -185,14 +187,18 @@ public:
     void applyPathLoad(CommuteTimeOfDay commuteTimeOfDay, const TransportPathResult& pathResult, std::uint16_t demand, bool addLoad);
 
     bool findPath(const TransportPathRequest& request, TransportPathScratch& scratch, TransportPathResult& result) const;
+    float routingStepCost(const TransportPathStep& step, CommuteTimeOfDay time, bool congestion = true) const;
+    std::uint64_t topologyRevision() const { return topologyRevision_; }
+    std::uint64_t transferTopologyRevision() const { return transferTopologyRevision_; }
     void buildTrafficOverlay(std::vector<RendererScalarPayload>& overlayPayloads) const;
     void buildTrafficOverlayForTiles(const std::vector<int>& tileIndices, std::vector<RendererScalarPayload>& overlayPayloads) const;
 
 private:
+    friend class TransportRouter;
+    struct RoutingMetricChange { std::uint32_t node; CommuteTimeOfDay time; };
+    void recordRoutingMetricChange(std::uint32_t node, CommuteTimeOfDay time);
     bool isTileInsideMap(int tileX, int tileY) const;
     bool tryNeighborTile(int tileIndex, std::uint8_t roadDirection, int& neighborTileIndex) const;
-    float movementCostWithCongestion(const TransportCostCell& cell, const TransportTrafficLoadState& loadState, int directionIndex, std::uint32_t routeSeed, std::uint32_t nodeIdValue) const;
-    float transferCostWithCongestion(const TransportTransferEdge& transferEdge, const TransportTrafficTransferLoad& transferLoad, std::uint32_t routeSeed, std::uint32_t nodeIdValue) const;
     float routeJitter(std::uint32_t routeSeed, std::uint32_t nodeIdValue, std::uint32_t edgeSalt) const;
     void reconstructPath(std::uint32_t reachedNodeId, const TransportPathScratch& scratch, TransportPathResult& result) const;
     std::size_t commuteTimeIndex(CommuteTimeOfDay commuteTimeOfDay) const;
@@ -209,4 +215,8 @@ private:
     std::array<TransportTrafficLoadState, static_cast<std::size_t>(CommuteTimeOfDay::Count)> trafficLoadStates_;
     TransportCongestionCurve congestionCurve_;
     bool transferOffsetsDirty_;
+    std::uint64_t topologyRevision_ = 1;
+    std::uint64_t transferTopologyRevision_ = 1;
+    std::uint64_t routingMetricReset_ = 1;
+    std::vector<RoutingMetricChange> routingMetricChanges_;
 };

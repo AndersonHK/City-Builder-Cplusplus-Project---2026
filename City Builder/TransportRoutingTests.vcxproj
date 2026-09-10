@@ -11,8 +11,8 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{6B425DF1-6DE4-4012-8E6A-3D6A3AE89E03}</ProjectGuid>
-    <RootNamespace>CityBuilderTransportNetworkTests</RootNamespace>
+    <ProjectGuid>{95D37F91-53DB-4F98-960B-34E871EDE137}</ProjectGuid>
+    <RootNamespace>CityBuilderTransportRoutingTests</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -71,24 +71,6 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="AssetLoader.cpp" />
-    <ClCompile Include="CityParameters.cpp" />
-    <ClCompile Include="CrashLogger.cpp" />
-    <ClCompile Include="Lot.cpp" />
-    <ClCompile Include="Road.cpp" />
-    <ClCompile Include="RoadGraphic.cpp" />
-    <ClCompile Include="RoadLane.cpp" />
-    <ClCompile Include="RoadLaneCell.cpp" />
-    <ClCompile Include="RoadTemplateDefinition.cpp" />
-    <ClCompile Include="RoadRenderState.cpp" />
-    <ClCompile Include="RoadToolSandbox.cpp" />
-    <ClCompile Include="TestAssetXml.cpp" />
-    <ClCompile Include="TransportCostMap.cpp" />
-    <ClCompile Include="TransportRouter.cpp" />
-    <ClCompile Include="TransportNetwork.cpp" />
-    <ClCompile Include="TransportNetworkTests.cpp" />
-    <ClCompile Include="TransportTile.cpp" />
-    <ClCompile Include="TransportTypes.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AssetLoader.h" />
@@ -114,6 +96,7 @@
     <ClInclude Include="TransportTile.h" />
     <ClInclude Include="TransportTypes.h" />
   </ItemGroup>
+  <ItemGroup><ClCompile Include="TransportCostMap.cpp" /><ClCompile Include="TransportTypes.cpp" /><ClCompile Include="TransportRouter.cpp" /><ClCompile Include="TransportRoutingTests.cpp" /></ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

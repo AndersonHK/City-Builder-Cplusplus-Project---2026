@@ -2,6 +2,10 @@
 
 Use this guide when changing commute routing scalability, traffic load storage, flat route-search behavior, route budgeting, or future hierarchical routing/topology caches.
 
+## September 9, 2026 Implementation
+
+The compact shared routing engine, resumable destination discovery, A* repairs, incremental commute indexes, deterministic routing workers, and shared-field APIs are now implemented. See [implementation plan and measured results](transport-routing-implementation-plan.md) for the current state, policy changes, validation commands, and manual review limits. The exact region-overlay prototype was measured and remains experimental because it lost to compact A* on the dense-grid fixture. The older roadmap below is historical context, not the current implementation checklist.
+
 ## September 2026 Architecture Review
 
 Read [Routing architecture assessment](transport-routing-architecture-assessment.md) for the revised recommendation targeting **300 TPS on the user's i9-13900K with an initial 20 GB RAM budget**. It supersedes the implementation priority below: bring incremental vacancy/access indexes and route validity forward, retain the resumable flat-search/API split, then evaluate compact routing topology, shared metric snapshots, customizable hierarchy, and service fields. These are recommendations, not implemented improvements or measured speedups.

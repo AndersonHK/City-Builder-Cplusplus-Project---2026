@@ -11,6 +11,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "AssetLoader.h"
@@ -24,6 +25,7 @@
 #include "RendererPayload.h"
 #include "Tile.h"
 #include "TransportNetwork.h"
+#include "TransportRouter.h"
 
 enum class GameSpeed {
     Paused,
@@ -48,6 +50,7 @@ struct RuntimeOptions {
     int mapWidth;
     int mapHeight;
     bool showNonFatalAssetWarningDialogs;
+    int routingWorkers = 4; // Includes the calling simulation thread.
     std::function<void(const std::string&, const std::string&)> nonFatalAssetWarningHandler;
 
     // Defaults to fast simulation and detected cache sizing.
@@ -258,6 +261,8 @@ struct PublishedWorldSnapshot {
 };
 
 struct RuntimeTimingSnapshot {
+    long long commuteMicros = 0, commuteSetupMicros = 0, commuteSearchMicros = 0, commuteCommitMicros = 0;
+    std::uint64_t commuteSearches = 0, commuteSettled = 0, commuteCandidates = 0, commuteAccessRefreshes = 0;
     long long neighborPassMicros;
     long long commandPassMicros;
     long long lotEffectsMicros;
@@ -343,6 +348,7 @@ public:
     RuntimeTimingSnapshot timingSnapshot() const;
 
 private:
+    friend struct TransportCommuteTestAccess;
     struct TileBuffer {
         std::vector<Tile> tiles;
         std::vector<LotRenderInstance> publishedLots;
@@ -474,10 +480,12 @@ private:
     void rebuildCityParameters(const TileBuffer& writeBuffer);
     void refreshCityPopulation();
     void runCommuteAssignment(const TileBuffer& writeBuffer);
-    void queueCommuteRecalculationForLot(int lotId);
+    void queueCommuteRecalculationForLot(int lotId, bool invalidateAccess = true);
     void queueCommuteSourcesForDestination(int destinationLotId);
     void queueCommuteRecalculationForRoadTopologyChange(const std::vector<int>& dirtyTileIndices);
     void removeCommuteLoadsForLot(const Lot& lot);
+    void removeCommuteDependencies(int sourceLotId);
+    void indexCommuteDependencies(const Lot& lot);
     void runLocalTilePass(std::vector<Tile>& writeTiles);
     void enqueueCommand(const PlayerCommand& playerCommand);
     void publishCompletedBuffer();
@@ -573,10 +581,6 @@ private:
     int lotActualDerivedParameterAmount(const Lot& lot, const LotAsset* lotAsset, int parameterId, const TileBuffer& writeBuffer) const;
     void collectLotAccessNodes(const Lot& lot, const LotAsset& lotAsset, std::uint8_t allowedModeMask, std::vector<std::uint32_t>& accessNodes) const;
     std::vector<CommuteRouteSegment> buildCommuteRouteSegments(const TransportPathResult& pathResult, std::uint16_t demand, CommuteTimeOfDay timeOfDay) const;
-    bool commuteRouteIsStillValid(const CommuteRouteRecord& route) const;
-    bool commuteRouteTouchesTiles(const CommuteRouteRecord& route, const std::vector<int>& sortedTileIndices) const;
-    bool commutePathTouchesTiles(const TransportPathResult& pathResult, const std::vector<int>& sortedTileIndices) const;
-    bool lotAccessMayTouchTiles(const Lot& lot, const std::vector<int>& sortedTileIndices) const;
     bool isTileInsideMap(int tileX, int tileY) const;
     int tileIndex(int tileX, int tileY) const;
 
@@ -647,9 +651,36 @@ private:
     bool commutesDirty_;
     std::vector<int> forcedCommuteLotIds_;
     std::size_t commuteRebalanceCursor_;
-    // Simulation-thread-only A* scratch. Keeping it persistent lets the stamped
-    // arrays in TransportPathScratch amortize their map-sized allocation.
-    TransportPathScratch commutePathScratch_;
+    // Immutable during worker batches; compact stamped scratch is reused.
+    TransportRouter commuteRouter_;
+    TransportRoutingScratch commuteNearestScratch_;
+    std::unique_ptr<TransportRoutingPool> commuteRoutingPool_;
+    TransportDestinationIndex commuteDestinations_;
+    struct CommuteAccessCache {
+        bool dirty = true;
+        std::vector<std::uint32_t> nodes;
+        std::vector<int> regions;
+    };
+    struct CommuteDependencies { std::vector<int> destinations, regions; };
+    std::unordered_map<int, CommuteAccessCache> commuteAccess_;
+    std::unordered_map<int, CommuteDependencies> commuteDependencies_;
+    std::unordered_map<int, std::unordered_set<int>> commuteSourcesByDestination_, commuteSourcesByRegion_, commuteAccessByRegion_;
+    std::unordered_map<int, int> commuteFilledJobs_;
+    std::unordered_map<int, std::size_t> commuteLotById_, commuteDestinationById_;
+    std::vector<std::size_t> commuteSources_;
+    std::vector<TransportRoutingDestination> commuteDestinationRecords_;
+    std::vector<std::pair<int, int>> commuteLotAmounts_;
+    std::uint64_t commuteLotsRevision_ = 0;
+    bool commuteDemandStateDirty_ = true, commuteAccessDirty_ = true, commuteVacanciesDirty_ = true;
+    int commuteSatisfiedTotal_ = 0;
+    std::unordered_set<int> forcedCommuteLotSet_;
+    std::uint64_t commuteMarketGraph_ = 0;
+    std::uint64_t commuteTransferTopology_ = 0;
+    struct CommuteFailure { std::uint64_t snapshot = 0, availability = 0; };
+    std::unordered_map<int, CommuteFailure> commuteFailures_;
+    std::uint64_t commuteAvailabilityRevision_ = 0;
+    std::atomic<long long> commuteMicros_{0}, commuteSetupMicros_{0}, commuteSearchMicros_{0}, commuteCommitMicros_{0};
+    std::atomic<std::uint64_t> commuteSearchCount_{0}, commuteSettledCount_{0}, commuteCandidateCount_{0}, commuteAccessRefreshCount_{0};
     TransportNetwork transportNetwork_;
 
     std::deque<PlayerCommand> pendingCommands_;

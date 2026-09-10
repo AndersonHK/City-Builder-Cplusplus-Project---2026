@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <queue>
+#include <stdexcept>
 
 namespace {
 const float kMinimumCongestedSpeedMultiplier = 0.01f;
@@ -18,11 +19,7 @@ std::uint16_t SaturatingAdd(std::uint16_t left, std::uint16_t right) {
     return sum > kTransportMaxLoad ? kTransportMaxLoad : static_cast<std::uint16_t>(sum);
 }
 
-std::uint16_t SaturatingSubtract(std::uint16_t left, std::uint16_t right) {
-    return right > left ? 0u : static_cast<std::uint16_t>(left - right);
-}
-
-float CongestionSpeedMultiplier(const TransportCongestionCurve& congestionCurve, std::uint16_t load, std::uint16_t capacity) {
+float CongestionSpeedMultiplier(const TransportCongestionCurve& congestionCurve, std::uint32_t load, std::uint16_t capacity) {
     if (capacity == 0u) {
         return 1.0f;
     }
@@ -247,6 +244,7 @@ TransportPathRequest::TransportPathRequest()
       demand(1),
       maximumCost(static_cast<float>(kTransportMaxCost)),
       useCongestion(true),
+      useRouteJitter(true),
       commuteTimeOfDay(CommuteTimeOfDay::Morning) {
 }
 
@@ -293,6 +291,8 @@ TransportCostMap::TransportCostMap()
 }
 
 void TransportCostMap::initialize(int width, int height) {
+    ++topologyRevision_;
+    ++transferTopologyRevision_;
     width_ = width;
     height_ = height;
     totalTileCount_ = static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_);
@@ -314,6 +314,7 @@ void TransportCostMap::clear() {
 }
 
 void TransportCostMap::clearCosts() {
+    ++topologyRevision_;
     std::size_t cellIndex = 0;
     for (; cellIndex < cells_.size(); ++cellIndex) {
         cells_[cellIndex].clearCosts();
@@ -332,6 +333,8 @@ void TransportCostMap::clearCostsForTile(TransportLayerId layer, int tileIndex) 
 }
 
 void TransportCostMap::clearLoads() {
+    ++routingMetricReset_;
+    routingMetricChanges_.clear();
     std::size_t commuteTimeIndexValue = 0;
     for (; commuteTimeIndexValue < trafficLoadStates_.size(); ++commuteTimeIndexValue) {
         trafficLoadStates_[commuteTimeIndexValue].clearLoads();
@@ -383,6 +386,7 @@ const TransportCostCell& TransportCostMap::cell(TransportLayerId layer, Transpor
 }
 
 TransportCostCell& TransportCostMap::cellForMutation(TransportLayerId layer, TransportMode mode, int tileIndex) {
+    ++topologyRevision_;
     return cells_[nodeId(layer, mode, tileIndex)];
 }
 
@@ -391,6 +395,8 @@ const TransportTrafficLoadState& TransportCostMap::trafficLoadState(CommuteTimeO
 }
 
 TransportTrafficLoadState& TransportCostMap::trafficLoadStateForMutation(CommuteTimeOfDay commuteTimeOfDay) {
+    ++routingMetricReset_;
+    routingMetricChanges_.clear();
     return trafficLoadStates_[commuteTimeIndex(commuteTimeOfDay)];
 }
 
@@ -425,12 +431,16 @@ std::uint32_t TransportCostMap::addTransferEdge(std::uint32_t fromNodeId, std::u
     transferEdge.toNodeId = toNodeId;
     transferEdge.cost = cost;
     transferEdge.capacity = capacity;
+    ++topologyRevision_;
     transferEdges_.push_back(transferEdge);
+    ++transferTopologyRevision_;
     transferOffsetsDirty_ = true;
     return static_cast<std::uint32_t>(transferEdges_.size() - 1u);
 }
 
 void TransportCostMap::clearTransferEdges() {
+    ++topologyRevision_;
+    if (!transferEdges_.empty()) ++transferTopologyRevision_;
     transferEdges_.clear();
     transferOffsets_.assign(totalNodeCount_ + 1u, 0u);
     std::size_t commuteTimeIndexValue = 0;
@@ -443,6 +453,8 @@ void TransportCostMap::clearTransferEdges() {
 }
 
 void TransportCostMap::finalizeTransferEdges() {
+    ++topologyRevision_;
+    if (transferOffsetsDirty_) ++transferTopologyRevision_;
     std::sort(transferEdges_.begin(), transferEdges_.end(), [](const TransportTransferEdge& left, const TransportTransferEdge& right) {
         if (left.fromNodeId != right.fromNodeId) {
             return left.fromNodeId < right.fromNodeId;
@@ -530,6 +542,8 @@ void TransportCostMap::collectBuildingAccessNodes(int footprintX, int footprintY
 }
 
 void TransportCostMap::setCongestionCurve(const TransportCongestionCurve& congestionCurve) {
+    ++routingMetricReset_;
+    routingMetricChanges_.clear();
     congestionCurve_ = congestionCurve;
     std::sort(congestionCurve_.points.begin(), congestionCurve_.points.end(), [](const TransportCongestionPoint& left, const TransportCongestionPoint& right) {
         return left.utilization < right.utilization;
@@ -537,20 +551,22 @@ void TransportCostMap::setCongestionCurve(const TransportCongestionCurve& conges
 }
 
 void TransportCostMap::beginNextLoadFromOldLoad(CommuteTimeOfDay commuteTimeOfDay) {
-    trafficLoadStateForMutation(commuteTimeOfDay).resetTouchedLoads(false);
+    trafficLoadStates_[commuteTimeIndex(commuteTimeOfDay)].resetTouchedLoads(false);
 }
 
 void TransportCostMap::beginNextLoadFromZero(CommuteTimeOfDay commuteTimeOfDay) {
-    trafficLoadStateForMutation(commuteTimeOfDay).resetTouchedLoads(true);
+    trafficLoadStates_[commuteTimeIndex(commuteTimeOfDay)].resetTouchedLoads(true);
 }
 
 void TransportCostMap::commitNextLoad(CommuteTimeOfDay commuteTimeOfDay, std::vector<int>* touchedTileIndices) {
-    TransportTrafficLoadState& loadState = trafficLoadStateForMutation(commuteTimeOfDay);
+    TransportTrafficLoadState& loadState = trafficLoadStates_[commuteTimeIndex(commuteTimeOfDay)];
     if (touchedTileIndices != 0) {
         touchedTileIndices->clear();
     }
 
     if (loadState.nextLoadStartsFromZero) {
+        ++routingMetricReset_;
+        routingMetricChanges_.clear();
         std::size_t cellIndex = 0;
         for (; cellIndex < loadState.cells.size(); ++cellIndex) {
             std::size_t directionIndex = 0;
@@ -572,6 +588,9 @@ void TransportCostMap::commitNextLoad(CommuteTimeOfDay commuteTimeOfDay, std::ve
             continue;
         }
 
+        if (loadState.cells[touchedLoad.nodeId].oldLoads[touchedLoad.directionIndex] != loadState.cells[touchedLoad.nodeId].newLoads[touchedLoad.directionIndex]) {
+            recordRoutingMetricChange(touchedLoad.nodeId, commuteTimeOfDay);
+        }
         loadState.cells[touchedLoad.nodeId].oldLoads[touchedLoad.directionIndex] = loadState.cells[touchedLoad.nodeId].newLoads[touchedLoad.directionIndex];
         if (touchedTileIndices != 0) {
             touchedTileIndices->push_back(nodeTileIndex(touchedLoad.nodeId));
@@ -584,6 +603,9 @@ void TransportCostMap::commitNextLoad(CommuteTimeOfDay commuteTimeOfDay, std::ve
             continue;
         }
 
+        if (transferIndex < transferEdges_.size() && loadState.transferLoads[transferIndex].oldLoad != loadState.transferLoads[transferIndex].newLoad) {
+            recordRoutingMetricChange(transferEdges_[transferIndex].fromNodeId, commuteTimeOfDay);
+        }
         loadState.transferLoads[transferIndex].oldLoad = loadState.transferLoads[transferIndex].newLoad;
         if (touchedTileIndices != 0 && transferIndex < transferEdges_.size()) {
             touchedTileIndices->push_back(nodeTileIndex(transferEdges_[transferIndex].fromNodeId));
@@ -611,7 +633,7 @@ void TransportCostMap::applyPathLoad(CommuteTimeOfDay commuteTimeOfDay, const Tr
         return;
     }
 
-    TransportTrafficLoadState& loadState = trafficLoadStateForMutation(commuteTimeOfDay);
+    TransportTrafficLoadState& loadState = trafficLoadStates_[commuteTimeIndex(commuteTimeOfDay)];
     std::size_t stepIndex = 0;
     for (; stepIndex < pathResult.steps.size(); ++stepIndex) {
         const TransportPathStep& step = pathResult.steps[stepIndex];
@@ -622,12 +644,14 @@ void TransportCostMap::applyPathLoad(CommuteTimeOfDay commuteTimeOfDay, const Tr
             }
 
             touchMovementLoad(loadState, step.fromNodeId, directionIndex);
-            std::uint16_t& load = loadState.cells[step.fromNodeId].newLoads[directionIndex];
-            load = addLoad ? SaturatingAdd(load, demand) : SaturatingSubtract(load, demand);
+            std::uint32_t& load = loadState.cells[step.fromNodeId].newLoads[directionIndex];
+            if (addLoad && load > std::numeric_limits<std::uint32_t>::max() - demand) throw std::overflow_error("Transport load exceeds 32-bit capacity");
+            load = addLoad ? load + demand : (load > demand ? load - demand : 0u);
         } else if (step.transferEdgeIndex < loadState.transferLoads.size()) {
             touchTransferLoad(loadState, step.transferEdgeIndex);
-            std::uint16_t& load = loadState.transferLoads[step.transferEdgeIndex].newLoad;
-            load = addLoad ? SaturatingAdd(load, demand) : SaturatingSubtract(load, demand);
+            std::uint32_t& load = loadState.transferLoads[step.transferEdgeIndex].newLoad;
+            if (addLoad && load > std::numeric_limits<std::uint32_t>::max() - demand) throw std::overflow_error("Transport load exceeds 32-bit capacity");
+            load = addLoad ? load + demand : (load > demand ? load - demand : 0u);
         }
     }
 }
@@ -713,9 +737,10 @@ bool TransportCostMap::findPath(const TransportPathRequest& request, TransportPa
             }
 
             const std::uint32_t neighborNodeId = nodeId(currentLayer, currentMode, neighborTileIndex);
-            const float edgeCost = request.useCongestion
-                ? movementCostWithCongestion(currentCell, loadState, static_cast<int>(directionIndex), request.routeSeed, currentNodeId)
-                : static_cast<float>(currentCell.costs[directionIndex]) + routeJitter(request.routeSeed, currentNodeId, roadDirection);
+            const float baseWeight = request.useCongestion
+                ? static_cast<float>(currentCell.costs[directionIndex]) / CongestionSpeedMultiplier(congestionCurve_, loadState.cells[currentNodeId].oldLoads[directionIndex], currentCell.capacities[directionIndex])
+                : static_cast<float>(currentCell.costs[directionIndex]);
+            const float edgeCost = baseWeight + (request.useRouteJitter ? routeJitter(request.routeSeed, currentNodeId, roadDirection) : 0.0f);
             const float candidateCost = scratch.costs[currentNodeId] + edgeCost;
             if (candidateCost > request.maximumCost) {
                 continue;
@@ -745,9 +770,10 @@ bool TransportCostMap::findPath(const TransportPathRequest& request, TransportPa
             const TransportTransferEdge& transferEdge = transferEdges_[transferIndex];
             const TransportTrafficTransferLoad emptyTransferLoad;
             const TransportTrafficTransferLoad& transferLoad = transferIndex < loadState.transferLoads.size() ? loadState.transferLoads[transferIndex] : emptyTransferLoad;
-            const float edgeCost = request.useCongestion
-                ? transferCostWithCongestion(transferEdge, transferLoad, request.routeSeed, currentNodeId)
-                : static_cast<float>(transferEdge.cost) + routeJitter(request.routeSeed, currentNodeId, transferIndex + 257u);
+            const float baseWeight = request.useCongestion
+                ? static_cast<float>(transferEdge.cost) / CongestionSpeedMultiplier(congestionCurve_, transferLoad.oldLoad, transferEdge.capacity)
+                : static_cast<float>(transferEdge.cost);
+            const float edgeCost = baseWeight + (request.useRouteJitter ? routeJitter(request.routeSeed, currentNodeId, request.useCongestion ? transferEdge.toNodeId : transferIndex + 257u) : 0.0f);
             const float candidateCost = scratch.costs[currentNodeId] + edgeCost;
             const std::uint32_t neighborNodeId = transferEdge.toNodeId;
             if (candidateCost > request.maximumCost) {
@@ -824,19 +850,6 @@ bool TransportCostMap::tryNeighborTile(int tileIndex, std::uint8_t roadDirection
     return true;
 }
 
-float TransportCostMap::movementCostWithCongestion(const TransportCostCell& cell, const TransportTrafficLoadState& loadState, int directionIndex, std::uint32_t routeSeed, std::uint32_t nodeIdValue) const {
-    const float baseCost = static_cast<float>(cell.costs[directionIndex]);
-    const std::uint16_t load = nodeIdValue < loadState.cells.size() ? loadState.cells[nodeIdValue].oldLoads[directionIndex] : 0u;
-    return (baseCost / CongestionSpeedMultiplier(congestionCurve_, load, cell.capacities[directionIndex])) +
-        routeJitter(routeSeed, nodeIdValue, RoadDirectionFromIndex(directionIndex));
-}
-
-float TransportCostMap::transferCostWithCongestion(const TransportTransferEdge& transferEdge, const TransportTrafficTransferLoad& transferLoad, std::uint32_t routeSeed, std::uint32_t nodeIdValue) const {
-    const float baseCost = static_cast<float>(transferEdge.cost);
-    return (baseCost / CongestionSpeedMultiplier(congestionCurve_, transferLoad.oldLoad, transferEdge.capacity)) +
-        routeJitter(routeSeed, nodeIdValue, transferEdge.toNodeId);
-}
-
 float TransportCostMap::routeJitter(std::uint32_t routeSeed, std::uint32_t nodeIdValue, std::uint32_t edgeSalt) const {
     std::uint32_t value = routeSeed ^ (nodeIdValue * 0x9E3779B9u) ^ (edgeSalt * 0x85EBCA6Bu);
     value ^= value >> 16;
@@ -897,4 +910,31 @@ void TransportCostMap::touchTransferLoad(TransportTrafficLoadState& loadState, s
     loadState.touchedTransferFlags[transferEdgeIndex] = true;
     loadState.touchedTransferLoads.push_back(transferEdgeIndex);
     loadState.transferLoads[transferEdgeIndex].newLoad = loadState.nextLoadStartsFromZero ? 0u : loadState.transferLoads[transferEdgeIndex].oldLoad;
+}
+
+void TransportCostMap::recordRoutingMetricChange(std::uint32_t node, CommuteTimeOfDay time) {
+    // Bounded multi-reader journal. Readers falling behind refresh all active edges.
+    if (routingMetricChanges_.size() >= 262144u) {
+        routingMetricChanges_.clear();
+        ++routingMetricReset_;
+    }
+    routingMetricChanges_.push_back({ node, time });
+}
+
+float TransportCostMap::routingStepCost(const TransportPathStep& step, CommuteTimeOfDay time, bool congestion) const {
+    if (step.fromNodeId >= totalNodeCount_ || step.toNodeId >= totalNodeCount_) return std::numeric_limits<float>::infinity();
+    const auto& loads = trafficLoadState(time);
+    if (step.kind == TransportPathStepKind::Movement) {
+        const int dir = RoadDirectionIndex(step.roadDirection);
+        int neighbor = 0;
+        if (dir < 0 || !tryNeighborTile(nodeTileIndex(step.fromNodeId), step.roadDirection, neighbor) ||
+            nodeId(nodeLayer(step.fromNodeId), nodeMode(step.fromNodeId), neighbor) != step.toNodeId) return std::numeric_limits<float>::infinity();
+        const auto& cell = cells_[step.fromNodeId];
+        if (!cell.costs[dir]) return std::numeric_limits<float>::infinity();
+        return congestion ? static_cast<float>(cell.costs[dir]) / CongestionSpeedMultiplier(congestionCurve_, loads.cells[step.fromNodeId].oldLoads[dir], cell.capacities[dir]) : static_cast<float>(cell.costs[dir]);
+    }
+    if (step.transferEdgeIndex >= transferEdges_.size()) return std::numeric_limits<float>::infinity();
+    const auto& edge = transferEdges_[step.transferEdgeIndex];
+    if (edge.fromNodeId != step.fromNodeId || edge.toNodeId != step.toNodeId) return std::numeric_limits<float>::infinity();
+    return congestion ? static_cast<float>(edge.cost) / CongestionSpeedMultiplier(congestionCurve_, loads.transferLoads[step.transferEdgeIndex].oldLoad, edge.capacity) : static_cast<float>(edge.cost);
 }

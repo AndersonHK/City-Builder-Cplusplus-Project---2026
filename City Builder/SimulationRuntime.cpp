@@ -1277,7 +1277,7 @@ void SimulationRuntime::importCitySaveState(const CitySaveState& saveState, bool
     ++zoningLotsRevision_;
     ++commuteRevision_;
     commutesDirty_ = true;
-    forcedCommuteLotIds_.clear();
+    forcedCommuteLotIds_.clear(); forcedCommuteLotSet_.clear();
     commuteRebalanceCursor_ = 0u;
     runCommuteAssignment(tileBuffers_[simulationReadBufferIndex_]);
     refreshPublishedLotSnapshot(tileBuffers_[simulationReadBufferIndex_]);
@@ -1442,6 +1442,10 @@ RuntimeTimingSnapshot SimulationRuntime::timingSnapshot() const {
     snapshot.neighborPassMicros = neighborPassMicros_.load();
     snapshot.commandPassMicros = commandPassMicros_.load();
     snapshot.lotEffectsMicros = lotEffectsMicros_.load();
+    snapshot.commuteMicros = commuteMicros_.load(); snapshot.commuteSetupMicros = commuteSetupMicros_.load();
+    snapshot.commuteSearchMicros = commuteSearchMicros_.load(); snapshot.commuteCommitMicros = commuteCommitMicros_.load();
+    snapshot.commuteSearches = commuteSearchCount_.load(); snapshot.commuteSettled = commuteSettledCount_.load();
+    snapshot.commuteCandidates = commuteCandidateCount_.load(); snapshot.commuteAccessRefreshes = commuteAccessRefreshCount_.load();
     snapshot.localPassMicros = localPassMicros_.load();
     snapshot.publishMicros = publishMicros_.load();
     snapshot.writeBufferWaitMicros = writeBufferWaitMicros_.load();
@@ -1583,7 +1587,7 @@ void SimulationRuntime::initializeWorld() {
     simulationTick_ = 0;
     cityPopulation_ = 0;
     commutesDirty_ = true;
-    forcedCommuteLotIds_.clear();
+    forcedCommuteLotIds_.clear(); forcedCommuteLotSet_.clear();
     commuteRebalanceCursor_ = 0u;
     oldCityParameters_.assign(cityParameterRegistry_.count(), 0.0f);
     nextCityParameters_.assign(cityParameterRegistry_.count(), 0.0f);
@@ -2131,6 +2135,7 @@ void SimulationRuntime::rebuildCityParameters(const TileBuffer& writeBuffer) {
         cityParameterDeltaBuffers_[bufferIndex].assign(parameterCount, 0.0f);
     }
 
+    commuteLotAmounts_.resize(lots_.size(), {0, 0});
     std::size_t lotIndex = 0;
     for (; lotIndex < lots_.size(); ++lotIndex) {
         std::vector<float>& deltaBuffer = cityParameterDeltaBuffers_[lotIndex % cityParameterDeltaBuffers_.size()];
@@ -2140,6 +2145,7 @@ void SimulationRuntime::rebuildCityParameters(const TileBuffer& writeBuffer) {
         const bool scalesByDesirability = lotAsset != 0 && IsRciZoningType(lotZoningType);
         const int desirability = scalesByDesirability ? rciDesirabilityForCandidate(lot, *lotAsset, writeBuffer) : kRciDesirabilityDisplayCap;
         const std::vector<CityParameterContribution>& contributions = lot.parameterContributions();
+        int commuteResidents = 0; float commuteJobs = 0;
         std::size_t contributionIndex = 0;
         for (; contributionIndex < contributions.size(); ++contributionIndex) {
             const CityParameterContribution& contribution = contributions[contributionIndex];
@@ -2148,8 +2154,15 @@ void SimulationRuntime::rebuildCityParameters(const TileBuffer& writeBuffer) {
                     ? RciActualCapacityFromDesirability(contribution.amount, desirability)
                     : contribution.amount;
                 deltaBuffer[contribution.parameterId] += static_cast<float>(amount);
+                if (contribution.parameterId == cityParameterRegistry_.residentsLowWealthId()) commuteResidents += amount;
+                if (contribution.parameterId == cityParameterRegistry_.jobsLowWealthId()) commuteJobs += static_cast<float>(amount);
+                for (const auto& impact : cityParameterRegistry_.definition(contribution.parameterId).impacts) {
+                    if (impact.targetParameterId == cityParameterRegistry_.jobsLowWealthId()) commuteJobs += static_cast<float>(amount) * impact.multiplier;
+                }
             }
         }
+        const std::pair<int,int> amounts(commuteResidents,RoundToNearestInt(commuteJobs));
+        if (commuteLotAmounts_[lotIndex] != amounts) { commuteLotAmounts_[lotIndex] = amounts; commuteDemandStateDirty_ = true; }
     }
 
     for (bufferIndex = 0; bufferIndex < cityParameterDeltaBuffers_.size(); ++bufferIndex) {
@@ -2181,69 +2194,119 @@ void SimulationRuntime::refreshCityPopulation() {
     cityPopulation_ = CalculatePopulationFromCityParameters(oldCityParameters_, cityParameterRegistry_);
 }
 
-void SimulationRuntime::queueCommuteRecalculationForLot(int lotId) {
-    if (lotId == kInvalidLotId) {
+void SimulationRuntime::queueCommuteRecalculationForLot(int lotId, bool invalidateAccess) {
+    if (lotId == kInvalidLotId)
         return;
+    if (invalidateAccess) {
+        commuteAccess_[lotId].dirty = true;
+        commuteAccessDirty_ = true;
     }
-
-    if (std::find(forcedCommuteLotIds_.begin(), forcedCommuteLotIds_.end(), lotId) == forcedCommuteLotIds_.end()) {
+    commuteFailures_.erase(lotId);
+    if (forcedCommuteLotSet_.insert(lotId).second)
         forcedCommuteLotIds_.push_back(lotId);
-    }
 }
 
 void SimulationRuntime::queueCommuteSourcesForDestination(int destinationLotId) {
-    if (destinationLotId == kInvalidLotId) {
+    const auto it = commuteSourcesByDestination_.find(destinationLotId);
+    if (it == commuteSourcesByDestination_.end())
         return;
-    }
+    // Hash indexes provide membership only; queue order remains deterministic.
+    std::vector<int> sources(it->second.begin(), it->second.end());
+    std::sort(sources.begin(), sources.end());
+    for (int id : sources)
+        queueCommuteRecalculationForLot(id, false);
+}
 
-    std::size_t lotIndex = 0;
-    for (; lotIndex < lots_.size(); ++lotIndex) {
-        const std::vector<CommuteRouteRecord>& routes = lots_[lotIndex].commuteRoutes();
-        std::size_t routeIndex = 0;
-        for (; routeIndex < routes.size(); ++routeIndex) {
-            if (routes[routeIndex].destinationLotId == destinationLotId) {
-                queueCommuteRecalculationForLot(lots_[lotIndex].id());
-                break;
-            }
-        }
+void SimulationRuntime::queueCommuteRecalculationForRoadTopologyChange(const std::vector<int> &dirtyTileIndices) {
+    const int width = (mapWidth_ + 31) / 32;
+    std::vector<int> affected;
+    std::unordered_set<int> regions;
+    for (int tile : dirtyTileIndices)
+        if (tile >= 0 && tile < mapWidth_ * mapHeight_)
+            regions.insert(((tile / mapWidth_) / 32) * width + (tile % mapWidth_) / 32);
+    for (int region : regions) {
+        const auto routes = commuteSourcesByRegion_.find(region);
+        if (routes != commuteSourcesByRegion_.end())
+            affected.insert(affected.end(), routes->second.begin(), routes->second.end());
+        const auto access = commuteAccessByRegion_.find(region);
+        if (access != commuteAccessByRegion_.end())
+            affected.insert(affected.end(), access->second.begin(), access->second.end());
+    }
+    std::sort(affected.begin(), affected.end());
+    affected.erase(std::unique(affected.begin(), affected.end()), affected.end());
+    for (int id : affected) {
+        queueCommuteRecalculationForLot(id);
+        queueCommuteSourcesForDestination(id);
     }
 }
 
-void SimulationRuntime::queueCommuteRecalculationForRoadTopologyChange(const std::vector<int>& dirtyTileIndices) {
-    if (dirtyTileIndices.empty()) {
+void SimulationRuntime::removeCommuteDependencies(int sourceLotId) {
+    const auto it = commuteDependencies_.find(sourceLotId);
+    if (it == commuteDependencies_.end())
         return;
+    for (int id : it->second.destinations) {
+        auto &set = commuteSourcesByDestination_[id];
+        set.erase(sourceLotId);
+        if (set.empty())
+            commuteSourcesByDestination_.erase(id);
     }
+    for (int region : it->second.regions) {
+        auto &set = commuteSourcesByRegion_[region];
+        set.erase(sourceLotId);
+        if (set.empty())
+            commuteSourcesByRegion_.erase(region);
+    }
+    commuteDependencies_.erase(it);
+}
 
-    std::vector<int> sortedTileIndices = dirtyTileIndices;
-    std::sort(sortedTileIndices.begin(), sortedTileIndices.end());
-    sortedTileIndices.erase(std::unique(sortedTileIndices.begin(), sortedTileIndices.end()), sortedTileIndices.end());
-
-    std::size_t lotIndex = 0;
-    for (; lotIndex < lots_.size(); ++lotIndex) {
-        Lot& lot = lots_[lotIndex];
-        bool shouldRecalculate = lotAccessMayTouchTiles(lot, sortedTileIndices);
-        if (!shouldRecalculate) {
-            const std::vector<CommuteRouteRecord>& routes = lot.commuteRoutes();
-            std::size_t routeIndex = 0;
-            for (; routeIndex < routes.size(); ++routeIndex) {
-                if (commuteRouteTouchesTiles(routes[routeIndex], sortedTileIndices)) {
-                    shouldRecalculate = true;
-                    break;
+void SimulationRuntime::indexCommuteDependencies(const Lot &lot) {
+    removeCommuteDependencies(lot.id());
+    CommuteDependencies dependencies;
+    const int width = (mapWidth_ + 31) / 32;
+    for (const auto &route : lot.commuteRoutes()) {
+        dependencies.destinations.push_back(route.destinationLotId);
+        for (const auto *path : {&route.morningPathResult, &route.eveningPathResult})
+            for (const auto &step : path->steps) {
+                for (auto node : {step.fromNodeId, step.toNodeId}) {
+                    const int tile = transportNetwork_.costMap().nodeTileIndex(node);
+                    dependencies.regions.push_back(((tile / mapWidth_) / 32) * width + (tile % mapWidth_) / 32);
                 }
             }
-        }
-
-        if (!shouldRecalculate) {
-            continue;
-        }
-
-        queueCommuteRecalculationForLot(lot.id());
-        queueCommuteSourcesForDestination(lot.id());
     }
+    const auto unique = [](std::vector<int> &ids) {
+        std::sort(ids.begin(), ids.end());
+        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+    };
+    unique(dependencies.destinations);
+    unique(dependencies.regions);
+    for (int id : dependencies.destinations)
+        commuteSourcesByDestination_[id].insert(lot.id());
+    for (int region : dependencies.regions)
+        commuteSourcesByRegion_[region].insert(lot.id());
+    commuteDependencies_[lot.id()] = std::move(dependencies);
 }
 
-void SimulationRuntime::removeCommuteLoadsForLot(const Lot& lot) {
-    const std::vector<CommuteRouteRecord>& routes = lot.commuteRoutes();
+void SimulationRuntime::removeCommuteLoadsForLot(const Lot &lot) {
+    commuteSatisfiedTotal_ -= lot.commuteSatisfied();
+    commuteVacanciesDirty_ = true;
+    commuteAccessDirty_ = true;
+    removeCommuteDependencies(lot.id());
+    const auto access = commuteAccess_.find(lot.id());
+    if (access != commuteAccess_.end()) {
+        for (int region : access->second.regions)
+            commuteAccessByRegion_[region].erase(lot.id());
+        commuteAccess_.erase(access);
+    }
+    commuteFailures_.erase(lot.id());
+    for (const auto &route : lot.commuteRoutes()) {
+        auto &filled = commuteFilledJobs_[route.destinationLotId];
+        filled = std::max(0, filled - route.demand);
+        if (auto *destination = findLotById(route.destinationLotId))
+            destination->setLowWealthJobsFilled(filled);
+    }
+    ++commuteAvailabilityRevision_;
+
+    const std::vector<CommuteRouteRecord> &routes = lot.commuteRoutes();
     if (routes.empty()) {
         return;
     }
@@ -2252,579 +2315,443 @@ void SimulationRuntime::removeCommuteLoadsForLot(const Lot& lot) {
     transportNetwork_.beginTrafficAssignmentFromOldLoad(CommuteTimeOfDay::Evening);
     std::size_t routeIndex = 0;
     for (; routeIndex < routes.size(); ++routeIndex) {
-        transportNetwork_.applyTrafficPathLoad(CommuteTimeOfDay::Morning, routes[routeIndex].morningPathResult, routes[routeIndex].transportLoad, false);
-        transportNetwork_.applyTrafficPathLoad(CommuteTimeOfDay::Evening, routes[routeIndex].eveningPathResult, routes[routeIndex].transportLoad, false);
+        transportNetwork_.applyTrafficPathLoad(CommuteTimeOfDay::Morning, routes[routeIndex].morningPathResult,
+                                               routes[routeIndex].transportLoad, false);
+        transportNetwork_.applyTrafficPathLoad(CommuteTimeOfDay::Evening, routes[routeIndex].eveningPathResult,
+                                               routes[routeIndex].transportLoad, false);
     }
     transportNetwork_.commitTrafficAssignment(CommuteTimeOfDay::Morning);
     transportNetwork_.commitTrafficAssignment(CommuteTimeOfDay::Evening);
     ++commuteRevision_;
 }
 
-void SimulationRuntime::runCommuteAssignment(const TileBuffer& writeBuffer) {
+void SimulationRuntime::runCommuteAssignment(const TileBuffer &writeBuffer) {
+    const auto started = std::chrono::steady_clock::now();
     rebuildCityParameters(writeBuffer);
-
-    enum class CommuteCostClass {
-        Invalid = 0,
-        Short,
-        Medium,
-        Long
-    };
-
-    struct CommuteSource {
-        std::size_t lotIndex;
-        int lotId;
-        int demand;
-        std::vector<std::uint32_t> accessNodes;
-
-        CommuteSource()
-            : lotIndex(0u),
-              lotId(-1),
-              demand(0),
-              accessNodes() {
-        }
-    };
-
-    struct JobDestination {
-        std::size_t lotIndex;
-        int lotId;
-        int remainingCapacity;
-        std::vector<std::uint32_t> accessNodes;
-
-        JobDestination()
-            : lotIndex(0u),
-              lotId(-1),
-              remainingCapacity(0),
-              accessNodes() {
-        }
-    };
-
-    const CommuteTimeOfDay activeCommuteTime = (simulationTick_ % SimulationTime::ticksPerDay()) == 0u
-        ? CommuteTimeOfDay::Morning
-        : CommuteTimeOfDay::Evening;
-    const TransportCostMap& costMap = transportNetwork_.costMap();
-    std::vector<CommuteSource> sources;
-    std::vector<JobDestination> destinations;
-    std::unordered_map<int, std::size_t> lotIndexById;
-    std::unordered_map<int, std::size_t> destinationIndexByLotId;
-    const std::uint8_t allowedModeMask = kTransportModeCar | kTransportModePedestrian;
-    bool commuteStateChanged = commutesDirty_;
-    int totalResidentDemand = 0;
-
-    std::size_t lotIndex = 0;
-    for (; lotIndex < lots_.size(); ++lotIndex) {
-        Lot& lot = lots_[lotIndex];
-        if (commutesDirty_) {
+    // Transfer indices are sorted by the authoritative map. Until transfers have
+    // stable external IDs, a changed transfer table needs a full load/route reset.
+    const auto transferTopology = transportNetwork_.costMap().transferTopologyRevision();
+    if (commuteTransferTopology_ != 0 && commuteTransferTopology_ != transferTopology)
+        commutesDirty_ = true;
+    commuteTransferTopology_ = transferTopology;
+    const bool fullReset = commutesDirty_;
+    bool changed = fullReset;
+    if (fullReset) {
+        commuteSatisfiedTotal_ = 0;
+        commuteAccess_.clear();
+        commuteDependencies_.clear();
+        commuteSourcesByDestination_.clear();
+        commuteSourcesByRegion_.clear();
+        commuteAccessByRegion_.clear();
+        commuteFilledJobs_.clear();
+        commuteMarketGraph_ = 0;
+        commuteFailures_.clear();
+        for (auto &lot : lots_)
             lot.clearCommutes();
-        }
-
-        lotIndexById[lot.id()] = lotIndex;
-
-        std::vector<std::uint32_t> accessNodes;
-        const LotAsset* lotAsset = findLotAssetById(lot.assetId());
-        if (lotAsset != 0) {
-            collectLotAccessNodes(lot, *lotAsset, allowedModeMask, accessNodes);
-        }
-
-        const int residentDemand = lotActualParameterAmount(lot, lotAsset, cityParameterRegistry_.residentsLowWealthId(), writeBuffer);
-        const int previousResidentDemand = lot.lowWealthResidentsTotal();
-        const int previousCommuteDemand = lot.commuteDemand();
-        lot.setLowWealthResidentsTotal(residentDemand);
-        lot.setLowWealthResidentsRoadAccess(residentDemand <= 0 || !accessNodes.empty());
-        lot.setCommuteDemand(residentDemand);
-        totalResidentDemand += std::max(0, residentDemand);
-        if (residentDemand > 0) {
-            if (!commutesDirty_ &&
-                (previousResidentDemand != residentDemand ||
-                    previousCommuteDemand != residentDemand ||
-                    accessNodes.empty() ||
-                    lot.commuteSatisfied() > residentDemand)) {
-                queueCommuteRecalculationForLot(lot.id());
+    }
+    commuteRouter_.prepare(transportNetwork_.costMap());
+    if (!commuteRoutingPool_)
+        commuteRoutingPool_.reset(new TransportRoutingPool(
+            static_cast<std::size_t>(std::max(1, std::min(8, runtimeOptions_.routingWorkers)))));
+    const auto activeTime = simulationTick_ % 2 == 0 ? CommuteTimeOfDay::Morning : CommuteTimeOfDay::Evening;
+    const int regionWidth = (mapWidth_ + 31) / 32;
+    auto &lotById = commuteLotById_;
+    auto &destinationById = commuteDestinationById_;
+    auto &sources = commuteSources_;
+    auto &destinations = commuteDestinationRecords_;
+    bool rebuildRecords = fullReset || commuteLotsRevision_ != lotsRevision_ || lotById.size() != lots_.size();
+    std::uint64_t accessRefreshes = 0;
+    bool rebuildMarket = commuteMarketGraph_ != commuteRouter_.graphSnapshot();
+    const bool refreshLots = rebuildRecords || commuteDemandStateDirty_ || commuteAccessDirty_;
+    if (refreshLots)
+        for (std::size_t i = 0; i < lots_.size(); ++i) {
+            auto &lot = lots_[i];
+            const int id = lot.id();
+            const auto *asset = findLotAssetById(lot.assetId());
+            auto &access = commuteAccess_[id];
+            if (access.dirty) {
+                for (int region : access.regions)
+                    commuteAccessByRegion_[region].erase(id);
+                access.regions.clear();
+                access.nodes.clear();
+                if (asset)
+                    collectLotAccessNodes(lot, *asset, kTransportModeCar | kTransportModePedestrian, access.nodes);
+                const int minX = std::max(0, lot.minimumTileX() - 1) / 32,
+                          minY = std::max(0, lot.minimumTileY() - 1) / 32;
+                const int maxX = std::min(mapWidth_ - 1, lot.minimumTileX() + lot.footprintWidth()) / 32;
+                const int maxY = std::min(mapHeight_ - 1, lot.minimumTileY() + lot.footprintHeight()) / 32;
+                for (int y = minY; y <= maxY; ++y)
+                    for (int x = minX; x <= maxX; ++x) {
+                        const int region = y * regionWidth + x;
+                        access.regions.push_back(region);
+                        commuteAccessByRegion_[region].insert(id);
+                    }
+                access.dirty = false;
+                ++accessRefreshes;
+                rebuildMarket = true;
             }
-
-            CommuteSource source;
-            source.lotIndex = lotIndex;
-            source.lotId = lot.id();
-            source.demand = residentDemand;
-            source.accessNodes = accessNodes;
-            sources.push_back(source);
-        } else if (!commutesDirty_ && !lot.commuteRoutes().empty()) {
-            queueCommuteRecalculationForLot(lot.id());
+            const int demand = commuteLotAmounts_[i].first;
+            const int capacity = commuteLotAmounts_[i].second;
+            if ((demand > 0) != (lot.commuteDemand() > 0) || (capacity > 0) != (lot.lowWealthJobsTotal() > 0))
+                rebuildRecords = true;
+            if (!fullReset && (lot.commuteDemand() != demand || lot.commuteSatisfied() > demand))
+                queueCommuteRecalculationForLot(id, false);
+            if (!fullReset && lot.lowWealthJobsTotal() != capacity) {
+                changed = true;
+                queueCommuteSourcesForDestination(id);
+                ++commuteAvailabilityRevision_;
+            }
+            lot.setLowWealthResidentsTotal(demand);
+            lot.setCommuteDemand(demand);
+            lot.setLowWealthResidentsRoadAccess(demand <= 0 || !access.nodes.empty());
+            lot.setLowWealthJobsTotal(capacity);
+            lot.setLowWealthJobsRoadAccess(capacity <= 0 || !access.nodes.empty());
+            if (demand <= 0 && !lot.commuteRoutes().empty())
+                queueCommuteRecalculationForLot(id, false);
         }
-
-        const int lowWealthJobCapacity = lotActualDerivedParameterAmount(lot, lotAsset, cityParameterRegistry_.jobsLowWealthId(), writeBuffer);
-        const int previousJobCapacity = lot.lowWealthJobsTotal();
-        lot.setLowWealthJobsTotal(lowWealthJobCapacity);
-        lot.setLowWealthJobsRoadAccess(lowWealthJobCapacity <= 0 || !accessNodes.empty());
-        if (!commutesDirty_ && previousJobCapacity != lowWealthJobCapacity) {
-            queueCommuteSourcesForDestination(lot.id());
+    if (rebuildRecords) {
+        lotById.clear();
+        destinationById.clear();
+        sources.clear();
+        destinations.clear();
+        for (std::size_t i = 0; i < lots_.size(); ++i) {
+            const auto &lot = lots_[i];
+            lotById[lot.id()] = i;
+            if (lot.commuteDemand() > 0)
+                sources.push_back(i);
+            if (lot.lowWealthJobsTotal() > 0) {
+                destinationById[lot.id()] = destinations.size();
+                destinations.push_back({lot.id(), 0, {}});
+            }
         }
-
-        if (lowWealthJobCapacity > 0) {
-            JobDestination destination;
-            destination.lotIndex = lotIndex;
-            destination.lotId = lot.id();
-            destination.remainingCapacity = lowWealthJobCapacity;
-            destination.accessNodes = accessNodes;
-            destinationIndexByLotId[destination.lotId] = destinations.size();
-            destinations.push_back(destination);
+        commuteLotsRevision_ = lotsRevision_;
+        rebuildMarket = true;
+    }
+    if (refreshLots || commuteVacanciesDirty_ || rebuildMarket)
+        for (auto &destination : destinations)
+            destination.capacity = std::max(0, lots_[lotById.at(destination.lotId)].lowWealthJobsTotal() -
+                                                   commuteFilledJobs_[destination.lotId]);
+    if (rebuildMarket) {
+        for (auto &destination : destinations)
+            destination.accessNodes = commuteAccess_[destination.lotId].nodes;
+        commuteDestinations_.build(commuteRouter_, destinations);
+        commuteMarketGraph_ = commuteRouter_.graphSnapshot();
+        ++commuteAvailabilityRevision_;
+    } else if (refreshLots || commuteVacanciesDirty_) {
+        for (std::size_t i = 0; i < destinations.size(); ++i) {
+            const int capacity = commuteAccess_[destinations[i].lotId].nodes.empty() ? 0 : destinations[i].capacity;
+            if (capacity > commuteDestinations_.remaining(i))
+                ++commuteAvailabilityRevision_;
+            commuteDestinations_.setCapacity(i, capacity);
         }
     }
-
-    if (!commutesDirty_) {
-        for (lotIndex = 0; lotIndex < lots_.size(); ++lotIndex) {
-            const std::vector<CommuteRouteRecord>& routes = lots_[lotIndex].commuteRoutes();
-            std::size_t routeIndex = 0;
-            for (; routeIndex < routes.size(); ++routeIndex) {
-                if (lotIndexById.find(routes[routeIndex].destinationLotId) == lotIndexById.end() ||
-                    !commuteRouteIsStillValid(routes[routeIndex])) {
-                    queueCommuteRecalculationForLot(lots_[lotIndex].id());
-                    break;
-                }
-            }
-        }
-    }
-
-    std::vector<std::size_t> selectedSourceIndices;
-    std::vector<std::size_t> selectedLotIndices;
+    commuteDemandStateDirty_ = false;
+    commuteAccessDirty_ = false;
+    commuteVacanciesDirty_ = false;
+    std::unordered_set<int> changedDestinations;
+    std::vector<std::size_t> selected;
     std::vector<bool> selectedLot(lots_.size(), false);
-    if (commutesDirty_) {
-        std::size_t sourceIndex = 0;
-        for (; sourceIndex < sources.size(); ++sourceIndex) {
-            selectedSourceIndices.push_back(sourceIndex);
-            selectedLot[sources[sourceIndex].lotIndex] = true;
-        }
-    } else {
-        std::size_t forcedIndex = 0;
-        for (; forcedIndex < forcedCommuteLotIds_.size(); ++forcedIndex) {
-            const std::unordered_map<int, std::size_t>::const_iterator lotIterator = lotIndexById.find(forcedCommuteLotIds_[forcedIndex]);
-            if (lotIterator == lotIndexById.end()) {
-                continue;
-            }
-
-            if (!selectedLot[lotIterator->second]) {
-                selectedLot[lotIterator->second] = true;
-                selectedLotIndices.push_back(lotIterator->second);
-            }
-
-            std::size_t sourceIndex = 0;
-            for (; sourceIndex < sources.size(); ++sourceIndex) {
-                if (sources[sourceIndex].lotIndex == lotIterator->second) {
-                    selectedSourceIndices.push_back(sourceIndex);
-                    break;
-                }
-            }
-        }
-
-        if (!sources.empty() && totalResidentDemand > 0) {
-            int routineSourceBudget = std::max(1, (static_cast<int>(sources.size()) + 99) / 100);
-            std::size_t scannedSourceCount = 0;
-            if (commuteRebalanceCursor_ >= sources.size()) {
-                commuteRebalanceCursor_ = 0u;
-            }
-
-            for (; scannedSourceCount < sources.size() && routineSourceBudget > 0; ++scannedSourceCount) {
-                const std::size_t sourceIndex = (commuteRebalanceCursor_ + scannedSourceCount) % sources.size();
-                const std::size_t sourceLotIndex = sources[sourceIndex].lotIndex;
-                if (selectedLot[sourceLotIndex] || sources[sourceIndex].accessNodes.empty()) {
-                    continue;
-                }
-
-                selectedSourceIndices.push_back(sourceIndex);
-                selectedLot[sourceLotIndex] = true;
-                selectedLotIndices.push_back(sourceLotIndex);
-                --routineSourceBudget;
-            }
-
-            commuteRebalanceCursor_ = (commuteRebalanceCursor_ + std::max<std::size_t>(1u, scannedSourceCount)) % sources.size();
-        }
-    }
-
-    const auto updateCommuteSatisfactionParameters = [this]() {
-        int totalSatisfied = 0;
-        std::size_t satisfiedLotIndex = 0;
-        for (; satisfiedLotIndex < lots_.size(); ++satisfiedLotIndex) {
-            totalSatisfied += lots_[satisfiedLotIndex].commuteSatisfied();
-        }
-
-        if (cityParameterRegistry_.satisfactionLowWealthCommuteId() >= 0 &&
-            cityParameterRegistry_.satisfactionLowWealthCommuteId() < static_cast<int>(nextCityParameters_.size())) {
-            nextCityParameters_[cityParameterRegistry_.satisfactionLowWealthCommuteId()] = static_cast<float>(totalSatisfied);
-        }
-        if (cityParameterRegistry_.satisfactionDirtyIndustryStaffingId() >= 0 &&
-            cityParameterRegistry_.satisfactionDirtyIndustryStaffingId() < static_cast<int>(nextCityParameters_.size())) {
-            nextCityParameters_[cityParameterRegistry_.satisfactionDirtyIndustryStaffingId()] = static_cast<float>(totalSatisfied);
+    const auto select = [&](std::size_t i) {
+        if (!selectedLot[i]) {
+            selectedLot[i] = true;
+            selected.push_back(i);
         }
     };
-
-    if (selectedLotIndices.empty() && !commutesDirty_) {
-        updateCommuteSatisfactionParameters();
-        oldCityParameters_ = nextCityParameters_;
-        refreshCityPopulation();
-        if (!forcedCommuteLotIds_.empty()) {
-            forcedCommuteLotIds_.clear();
+    if (fullReset) {
+        for (auto i : sources)
+            select(i);
+    } else {
+        for (int id : forcedCommuteLotIds_) {
+            const auto it = lotById.find(id);
+            if (it != lotById.end())
+                select(it->second);
         }
-        return;
+        if (!sources.empty()) {
+            const std::size_t budget = (sources.size() + 99) / 100;
+            std::size_t scanned = 0, added = 0;
+            commuteRebalanceCursor_ %= sources.size();
+            for (; scanned < sources.size() && added < budget; ++scanned) {
+                const auto i = sources[(commuteRebalanceCursor_ + scanned) % sources.size()];
+                if (!selectedLot[i] && !commuteAccess_[lots_[i].id()].nodes.empty()) {
+                    select(i);
+                    ++added;
+                }
+            }
+            commuteRebalanceCursor_ = (commuteRebalanceCursor_ + std::max<std::size_t>(1, scanned)) % sources.size();
+        }
     }
-
-    if (commutesDirty_) {
+    // Release only capacity for all selected sources, preserving the existing allocation order.
+    // Traffic remains committed until an actual path/demand change is accepted below.
+    for (auto i : selected)
+        for (const auto &route : lots_[i].commuteRoutes()) {
+            changedDestinations.insert(route.destinationLotId);
+            auto &filled = commuteFilledJobs_[route.destinationLotId];
+            filled = std::max(0, filled - route.demand);
+            const auto it = destinationById.find(route.destinationLotId);
+            if (it != destinationById.end()) {
+                const auto d = it->second;
+                const int capacity = lots_[lotById[route.destinationLotId]].lowWealthJobsTotal();
+                commuteDestinations_.setCapacity(
+                    d, commuteAccess_[route.destinationLotId].nodes.empty() ? 0 : std::max(0, capacity - filled));
+            }
+            ++commuteAvailabilityRevision_;
+        }
+    struct Maintained {
+        bool valid = false;
+        float morningCost = 0, eveningCost = 0;
+        bool morningRetry = false, eveningRetry = false;
+        TransportPathResult morningRepair, eveningRepair;
+        TransportRoutingStats stats;
+    };
+    std::vector<std::vector<Maintained>> maintained(selected.size());
+    const auto makeRequest = [](const std::vector<std::uint32_t> &starts, const std::vector<std::uint32_t> &goals,
+                                CommuteTimeOfDay time) {
+        TransportPathRequest r;
+        r.startNodeIds = starts;
+        r.goalNodeIds = goals;
+        r.maximumCost = kMaximumCommuteCost;
+        r.useRouteJitter = false;
+        r.commuteTimeOfDay = time;
+        return r;
+    };
+    const auto setupEnd = std::chrono::steady_clock::now();
+    commuteRoutingPool_->run(selected.size(), [&](std::size_t job, TransportRoutingScratch &scratch) {
+        const auto &lot = lots_[selected[job]];
+        const auto &old = lot.commuteRoutes();
+        maintained[job].resize(old.size());
+        for (std::size_t j = 0; j < old.size(); ++j) {
+            const auto &route = old[j];
+            auto &keep = maintained[job][j];
+            const auto destination = destinationById.find(route.destinationLotId);
+            if (destination == destinationById.end() || route.destinationLotId == lot.id())
+                continue;
+            const auto &sourceAccess = commuteAccess_.at(lot.id()).nodes;
+            const auto &targetAccess = commuteAccess_.at(route.destinationLotId).nodes;
+            if (sourceAccess.empty() || targetAccess.empty())
+                continue;
+            const auto endpointMatches = [](const TransportPathResult &path, const std::vector<std::uint32_t> &starts,
+                                            const std::vector<std::uint32_t> &goals) {
+                const auto start = path.steps.empty() ? path.reachedNodeId : path.steps.front().fromNodeId;
+                return std::binary_search(starts.begin(), starts.end(), start) &&
+                       std::binary_search(goals.begin(), goals.end(), path.reachedNodeId);
+            };
+            if (!endpointMatches(route.morningPathResult, sourceAccess, targetAccess) ||
+                !endpointMatches(route.eveningPathResult, targetAccess, sourceAccess))
+                continue;
+            keep.morningCost = route.costSnapshot == commuteRouter_.snapshot()
+                                   ? route.morningPathResult.totalCost
+                                   : commuteRouter_.pathCost(route.morningPathResult, CommuteTimeOfDay::Morning);
+            keep.eveningCost = route.costSnapshot == commuteRouter_.snapshot()
+                                   ? route.eveningPathResult.totalCost
+                                   : commuteRouter_.pathCost(route.eveningPathResult, CommuteTimeOfDay::Evening);
+            if (keep.morningCost > kMaximumCommuteCost || keep.eveningCost > kMaximumCommuteCost)
+                continue;
+            const bool morningMedium = keep.morningCost >= kLongCommuteComplaintCost,
+                       eveningMedium = keep.eveningCost >= kLongCommuteComplaintCost;
+            if ((morningMedium && route.morningMediumRetry) || (eveningMedium && route.eveningMediumRetry))
+                continue;
+            keep.valid = true;
+            if (morningMedium && activeTime == CommuteTimeOfDay::Morning) {
+                keep.valid = commuteRouter_.findPath(makeRequest(sourceAccess, targetAccess, CommuteTimeOfDay::Morning),
+                                                     scratch, keep.morningRepair);
+                keep.stats.add(scratch.stats);
+                keep.morningCost = keep.morningRepair.totalCost;
+                keep.morningRetry = keep.morningCost >= kLongCommuteComplaintCost;
+            }
+            if (keep.valid && eveningMedium && activeTime == CommuteTimeOfDay::Evening) {
+                keep.valid = commuteRouter_.findPath(makeRequest(targetAccess, sourceAccess, CommuteTimeOfDay::Evening),
+                                                     scratch, keep.eveningRepair);
+                keep.stats.add(scratch.stats);
+                keep.eveningCost = keep.eveningRepair.totalCost;
+                keep.eveningRetry = keep.eveningCost >= kLongCommuteComplaintCost;
+            }
+        }
+    });
+    if (fullReset) {
         transportNetwork_.beginTrafficAssignmentFromZero(CommuteTimeOfDay::Morning);
         transportNetwork_.beginTrafficAssignmentFromZero(CommuteTimeOfDay::Evening);
     } else {
         transportNetwork_.beginTrafficAssignmentFromOldLoad(CommuteTimeOfDay::Morning);
         transportNetwork_.beginTrafficAssignmentFromOldLoad(CommuteTimeOfDay::Evening);
     }
-
-    std::unordered_map<int, std::vector<CommuteRouteRecord> > selectedExistingRoutesByLotId;
-    if (!commutesDirty_) {
-        std::size_t selectedIndex = 0;
-        for (; selectedIndex < selectedLotIndices.size(); ++selectedIndex) {
-            Lot& sourceLot = lots_[selectedLotIndices[selectedIndex]];
-            const std::vector<CommuteRouteRecord>& existingRoutes = sourceLot.commuteRoutes();
-            if (!existingRoutes.empty()) {
-                selectedExistingRoutesByLotId[sourceLot.id()] = existingRoutes;
-            }
-
-            std::size_t routeIndex = 0;
-            for (; routeIndex < existingRoutes.size(); ++routeIndex) {
-                transportNetwork_.applyTrafficPathLoad(CommuteTimeOfDay::Morning, existingRoutes[routeIndex].morningPathResult, existingRoutes[routeIndex].transportLoad, false);
-                transportNetwork_.applyTrafficPathLoad(CommuteTimeOfDay::Evening, existingRoutes[routeIndex].eveningPathResult, existingRoutes[routeIndex].transportLoad, false);
-            }
-
-            if (!existingRoutes.empty()) {
-                commuteStateChanged = true;
-            }
-            sourceLot.clearCommuteRoutes();
-        }
-    }
-
-    std::vector<int> filledJobsByLot(lots_.size(), 0);
-    for (lotIndex = 0; lotIndex < lots_.size(); ++lotIndex) {
-        const std::vector<CommuteRouteRecord>& routes = lots_[lotIndex].commuteRoutes();
-        std::size_t routeIndex = 0;
-        for (; routeIndex < routes.size(); ++routeIndex) {
-            const std::unordered_map<int, std::size_t>::const_iterator destinationIterator = lotIndexById.find(routes[routeIndex].destinationLotId);
-            if (destinationIterator != lotIndexById.end()) {
-                filledJobsByLot[destinationIterator->second] += routes[routeIndex].demand;
-            }
-        }
-    }
-
-    for (lotIndex = 0; lotIndex < lots_.size(); ++lotIndex) {
-        lots_[lotIndex].setLowWealthJobsFilled(filledJobsByLot[lotIndex]);
-    }
-
-    std::size_t destinationIndex = 0;
-    for (; destinationIndex < destinations.size(); ++destinationIndex) {
-        JobDestination& destination = destinations[destinationIndex];
-        destination.remainingCapacity = std::max(0, destination.remainingCapacity - filledJobsByLot[destination.lotIndex]);
-    }
-
-    const auto classifyPath = [](const TransportPathResult& pathResult) {
-        if (!pathResult.success) {
-            return CommuteCostClass::Invalid;
-        }
-
-        if (pathResult.totalCost > kMaximumCommuteCost) {
-            return CommuteCostClass::Long;
-        }
-
-        if (pathResult.totalCost >= kLongCommuteComplaintCost) {
-            return CommuteCostClass::Medium;
-        }
-
-        return CommuteCostClass::Short;
+    TransportRoutingStats stats;
+    const auto applyLoads = [this](const CommuteRouteRecord &route, bool add) {
+        transportNetwork_.applyTrafficPathLoad(CommuteTimeOfDay::Morning, route.morningPathResult, route.transportLoad,
+                                               add);
+        transportNetwork_.applyTrafficPathLoad(CommuteTimeOfDay::Evening, route.eveningPathResult, route.transportLoad,
+                                               add);
     };
-
-    const auto routeHasComplaint = [](const TransportPathResult& morningPathResult, const TransportPathResult& eveningPathResult) {
-        return morningPathResult.totalCost >= kLongCommuteComplaintCost ||
-            eveningPathResult.totalCost >= kLongCommuteComplaintCost;
-    };
-
-    const auto applyRouteLoads = [this](const CommuteRouteRecord& route, bool addLoad) {
-        transportNetwork_.applyTrafficPathLoad(CommuteTimeOfDay::Morning, route.morningPathResult, route.transportLoad, addLoad);
-        transportNetwork_.applyTrafficPathLoad(CommuteTimeOfDay::Evening, route.eveningPathResult, route.transportLoad, addLoad);
-    };
-
-    const auto buildPathRequest = [](CommuteTimeOfDay commuteTimeOfDay, const std::vector<std::uint32_t>& startNodeIds, const std::vector<std::uint32_t>& goalNodeIds, int lotId, int demand, std::uint64_t salt) {
-        TransportPathRequest request;
-        request.startNodeIds = startNodeIds;
-        request.goalNodeIds = goalNodeIds;
-        request.routeSeed = static_cast<std::uint32_t>((lotId * 73856093) ^ (demand * 19349663) ^ static_cast<int>(salt));
-        request.demand = static_cast<std::uint16_t>(std::min(demand, static_cast<int>(kTransportMaxLoad)));
-        request.maximumCost = kMaximumCommuteCost;
-        request.useCongestion = true;
-        request.commuteTimeOfDay = commuteTimeOfDay;
-        return request;
-    };
-
-    const auto findPathForDirection = [this, &costMap, &buildPathRequest](CommuteTimeOfDay commuteTimeOfDay, const std::vector<std::uint32_t>& startNodeIds, const std::vector<std::uint32_t>& goalNodeIds, int lotId, int demand, std::uint64_t salt, TransportPathResult& pathResult) {
-        TransportPathRequest request = buildPathRequest(commuteTimeOfDay, startNodeIds, goalNodeIds, lotId, demand, salt);
-        return costMap.findPath(request, commutePathScratch_, pathResult);
-    };
-
-    const auto rerouteDirectionToSameDestination = [
-        this,
-        &findPathForDirection,
-        &classifyPath,
-        &routeHasComplaint
-    ](CommuteTimeOfDay commuteTimeOfDay, const CommuteSource& source, const JobDestination& destination, CommuteRouteRecord& route, std::uint64_t salt) {
-        TransportPathResult pathResult;
-        const bool found = commuteTimeOfDay == CommuteTimeOfDay::Morning
-            ? findPathForDirection(commuteTimeOfDay, source.accessNodes, destination.accessNodes, source.lotId, route.demand, salt, pathResult)
-            : findPathForDirection(commuteTimeOfDay, destination.accessNodes, source.accessNodes, source.lotId, route.demand, salt, pathResult);
-        if (!found || classifyPath(pathResult) == CommuteCostClass::Invalid || classifyPath(pathResult) == CommuteCostClass::Long) {
-            return false;
-        }
-
-        if (commuteTimeOfDay == CommuteTimeOfDay::Morning) {
-            route.morningPathResult = pathResult;
-            route.morningSegments = this->buildCommuteRouteSegments(pathResult, route.transportLoad, CommuteTimeOfDay::Morning);
-            route.morningMediumRetry = classifyPath(pathResult) == CommuteCostClass::Medium;
-        } else {
-            route.eveningPathResult = pathResult;
-            route.eveningSegments = this->buildCommuteRouteSegments(pathResult, route.transportLoad, CommuteTimeOfDay::Evening);
-            route.eveningMediumRetry = classifyPath(pathResult) == CommuteCostClass::Medium;
-        }
-
-        route.longCommute = routeHasComplaint(route.morningPathResult, route.eveningPathResult);
-        return true;
-    };
-
-    const auto tryMaintainExistingRoute = [
-        &activeCommuteTime,
-        &classifyPath,
-        &rerouteDirectionToSameDestination,
-        &routeHasComplaint
-    ](const CommuteSource& source, const JobDestination& destination, const CommuteRouteRecord& existingRoute, CommuteRouteRecord& maintainedRoute, std::uint64_t salt) {
-        maintainedRoute = existingRoute;
-
-        CommuteCostClass morningClass = classifyPath(maintainedRoute.morningPathResult);
-        CommuteCostClass eveningClass = classifyPath(maintainedRoute.eveningPathResult);
-        if (morningClass == CommuteCostClass::Invalid || morningClass == CommuteCostClass::Long ||
-            eveningClass == CommuteCostClass::Invalid || eveningClass == CommuteCostClass::Long) {
-            return false;
-        }
-        if ((morningClass == CommuteCostClass::Medium && maintainedRoute.morningMediumRetry) ||
-            (eveningClass == CommuteCostClass::Medium && maintainedRoute.eveningMediumRetry)) {
-            return false;
-        }
-
-        if (morningClass == CommuteCostClass::Short) {
-            maintainedRoute.morningMediumRetry = false;
-        } else if (morningClass == CommuteCostClass::Medium && activeCommuteTime == CommuteTimeOfDay::Morning) {
-            if (maintainedRoute.morningMediumRetry) {
-                return false;
+    for (std::size_t job = 0; job < selected.size(); ++job) {
+        auto &lot = lots_[selected[job]];
+        auto &routes = lot.commuteRoutesForMutation();
+        const auto &sourceAccess = commuteAccess_[lot.id()].nodes;
+        const int previousSatisfied = lot.commuteSatisfied();
+        int remainingDemand = lot.commuteDemand();
+        bool sourceChanged = false;
+        std::size_t kept = 0;
+        for (std::size_t j = 0; j < routes.size(); ++j) {
+            auto &route = routes[j];
+            auto &keep = maintained[job][j];
+            stats.add(keep.stats);
+            const auto destination = destinationById.find(route.destinationLotId);
+            const bool accept = keep.valid && route.demand <= remainingDemand && destination != destinationById.end() &&
+                                commuteDestinations_.remaining(destination->second) >= route.demand;
+            if (!accept) {
+                applyLoads(route, false);
+                sourceChanged = true;
+                continue;
             }
-            if (!rerouteDirectionToSameDestination(CommuteTimeOfDay::Morning, source, destination, maintainedRoute, salt ^ 0xA501u)) {
-                return false;
+            if (keep.morningRepair.success) {
+                transportNetwork_.applyTrafficPathLoad(CommuteTimeOfDay::Morning, route.morningPathResult,
+                                                       route.transportLoad, false);
+                route.morningPathResult = std::move(keep.morningRepair);
+                route.morningSegments =
+                    buildCommuteRouteSegments(route.morningPathResult, route.transportLoad, CommuteTimeOfDay::Morning);
+                transportNetwork_.applyTrafficPathLoad(CommuteTimeOfDay::Morning, route.morningPathResult,
+                                                       route.transportLoad, true);
+                sourceChanged = true;
             }
-            morningClass = classifyPath(maintainedRoute.morningPathResult);
-            if (morningClass == CommuteCostClass::Medium && maintainedRoute.morningMediumRetry) {
-                return false;
+            if (keep.eveningRepair.success) {
+                transportNetwork_.applyTrafficPathLoad(CommuteTimeOfDay::Evening, route.eveningPathResult,
+                                                       route.transportLoad, false);
+                route.eveningPathResult = std::move(keep.eveningRepair);
+                route.eveningSegments =
+                    buildCommuteRouteSegments(route.eveningPathResult, route.transportLoad, CommuteTimeOfDay::Evening);
+                transportNetwork_.applyTrafficPathLoad(CommuteTimeOfDay::Evening, route.eveningPathResult,
+                                                       route.transportLoad, true);
+                sourceChanged = true;
             }
+            const bool complaint =
+                keep.morningCost >= kLongCommuteComplaintCost || keep.eveningCost >= kLongCommuteComplaintCost;
+            if (route.morningPathResult.totalCost != keep.morningCost ||
+                route.eveningPathResult.totalCost != keep.eveningCost || route.longCommute != complaint ||
+                route.morningMediumRetry != keep.morningRetry || route.eveningMediumRetry != keep.eveningRetry)
+                changed = true;
+            route.costSnapshot = commuteRouter_.snapshot();
+            route.morningPathResult.totalCost = keep.morningCost;
+            route.eveningPathResult.totalCost = keep.eveningCost;
+            route.longCommute = complaint;
+            route.morningMediumRetry = keep.morningRetry;
+            route.eveningMediumRetry = keep.eveningRetry;
+            remainingDemand -= route.demand;
+            commuteDestinations_.consume(destination->second, route.demand);
+            commuteFilledJobs_[route.destinationLotId] += route.demand;
+            if (kept != j)
+                routes[kept] = std::move(route);
+            ++kept;
         }
-
-        if (eveningClass == CommuteCostClass::Short) {
-            maintainedRoute.eveningMediumRetry = false;
-        } else if (eveningClass == CommuteCostClass::Medium && activeCommuteTime == CommuteTimeOfDay::Evening) {
-            if (maintainedRoute.eveningMediumRetry) {
-                return false;
-            }
-            if (!rerouteDirectionToSameDestination(CommuteTimeOfDay::Evening, source, destination, maintainedRoute, salt ^ 0xE701u)) {
-                return false;
-            }
-            eveningClass = classifyPath(maintainedRoute.eveningPathResult);
-            if (eveningClass == CommuteCostClass::Medium && maintainedRoute.eveningMediumRetry) {
-                return false;
-            }
-        }
-
-        if (morningClass == CommuteCostClass::Invalid || morningClass == CommuteCostClass::Long ||
-            eveningClass == CommuteCostClass::Invalid || eveningClass == CommuteCostClass::Long) {
-            return false;
-        }
-
-        maintainedRoute.longCommute = routeHasComplaint(maintainedRoute.morningPathResult, maintainedRoute.eveningPathResult);
-        return true;
-    };
-
-    std::size_t selectedIndex = 0;
-    for (; selectedIndex < selectedSourceIndices.size(); ++selectedIndex) {
-        CommuteSource& source = sources[selectedSourceIndices[selectedIndex]];
-        if (source.accessNodes.empty()) {
-            continue;
-        }
-
-        int remainingDemand = source.demand;
-        const std::unordered_map<int, std::vector<CommuteRouteRecord> >::const_iterator existingRouteIterator = selectedExistingRoutesByLotId.find(source.lotId);
-        if (existingRouteIterator != selectedExistingRoutesByLotId.end()) {
-            const std::vector<CommuteRouteRecord>& existingRoutes = existingRouteIterator->second;
-            std::size_t routeIndex = 0;
-            for (; routeIndex < existingRoutes.size() && remainingDemand > 0; ++routeIndex) {
-                const CommuteRouteRecord& existingRoute = existingRoutes[routeIndex];
-                if (existingRoute.demand > remainingDemand) {
-                    continue;
-                }
-
-                const std::unordered_map<int, std::size_t>::const_iterator destinationIterator = destinationIndexByLotId.find(existingRoute.destinationLotId);
-                if (destinationIterator == destinationIndexByLotId.end()) {
-                    continue;
-                }
-
-                JobDestination& destination = destinations[destinationIterator->second];
-                if (destination.remainingCapacity < existingRoute.demand ||
-                    destination.accessNodes.empty() ||
-                    destination.lotIndex == source.lotIndex) {
-                    continue;
-                }
-
-                CommuteRouteRecord maintainedRoute;
-                if (!commuteRouteIsStillValid(existingRoute) ||
-                    !tryMaintainExistingRoute(source, destination, existingRoute, maintainedRoute, simulationTick_ + commuteRevision_ + routeIndex)) {
-                    continue;
-                }
-
-                lots_[source.lotIndex].addCommuteRoute(
-                    maintainedRoute.destinationLotId,
-                    maintainedRoute.demand,
-                    maintainedRoute.transportLoad,
-                    maintainedRoute.longCommute,
-                    maintainedRoute.morningMediumRetry,
-                    maintainedRoute.eveningMediumRetry,
-                    maintainedRoute.morningPathResult,
-                    maintainedRoute.eveningPathResult,
-                    maintainedRoute.morningSegments,
-                    maintainedRoute.eveningSegments);
-                applyRouteLoads(maintainedRoute, true);
-                destination.remainingCapacity -= maintainedRoute.demand;
-                remainingDemand -= maintainedRoute.demand;
-                lots_[destination.lotIndex].addLowWealthJobsFilled(maintainedRoute.demand);
-                commuteStateChanged = true;
-            }
-        }
-
-        while (remainingDemand > 0) {
-            std::vector<bool> excludedDestinations(destinations.size(), false);
-            bool acceptedRoute = false;
-
-            for (;;) {
-                TransportPathRequest morningRequest;
-                morningRequest.startNodeIds = source.accessNodes;
-                morningRequest.routeSeed = static_cast<std::uint32_t>((source.lotId * 73856093) ^ (remainingDemand * 19349663) ^ static_cast<int>(commuteRevision_ + simulationTick_ + 1u));
-                morningRequest.demand = static_cast<std::uint16_t>(std::min(remainingDemand, static_cast<int>(kTransportMaxLoad)));
-                morningRequest.maximumCost = kMaximumCommuteCost;
-                morningRequest.useCongestion = true;
-                morningRequest.commuteTimeOfDay = CommuteTimeOfDay::Morning;
-
-                std::vector<int> goalDestinationIndices;
-                destinationIndex = 0;
-                for (; destinationIndex < destinations.size(); ++destinationIndex) {
-                    const JobDestination& destination = destinations[destinationIndex];
-                    if (excludedDestinations[destinationIndex] ||
-                        destination.remainingCapacity <= 0 ||
-                        destination.accessNodes.empty() ||
-                        destination.lotIndex == source.lotIndex) {
-                        continue;
-                    }
-
-                    std::size_t nodeIndex = 0;
-                    for (; nodeIndex < destination.accessNodes.size(); ++nodeIndex) {
-                        morningRequest.goalNodeIds.push_back(destination.accessNodes[nodeIndex]);
-                        goalDestinationIndices.push_back(static_cast<int>(destinationIndex));
-                    }
-                }
-
-                if (morningRequest.goalNodeIds.empty()) {
-                    break;
-                }
-
-                TransportPathResult morningPathResult;
-                if (!costMap.findPath(morningRequest, commutePathScratch_, morningPathResult)) {
-                    break;
-                }
-
-                int reachedDestinationIndex = -1;
-                std::size_t goalIndex = 0;
-                for (; goalIndex < morningRequest.goalNodeIds.size(); ++goalIndex) {
-                    if (morningRequest.goalNodeIds[goalIndex] == morningPathResult.reachedNodeId) {
-                        reachedDestinationIndex = goalDestinationIndices[goalIndex];
+        routes.resize(kept);
+        const auto failure = commuteFailures_.find(lot.id());
+        const bool knownFailure = routes.empty() && failure != commuteFailures_.end() &&
+                                  failure->second.snapshot == commuteRouter_.snapshot() &&
+                                  failure->second.availability == commuteAvailabilityRevision_;
+        if (remainingDemand > 0 && !sourceAccess.empty() && !knownFailure &&
+            commuteDestinations_.hasCapacityFor(commuteRouter_, sourceAccess)) {
+            commuteRouter_.beginNearest(makeRequest(sourceAccess, {}, CommuteTimeOfDay::Morning), commuteDestinations_,
+                                        commuteNearestScratch_);
+            struct Candidate {
+                std::size_t destination = 0;
+                TransportPathResult morning, evening;
+                TransportRoutingStats stats;
+                bool reachable = false;
+            };
+            while (remainingDemand > 0) {
+                std::vector<Candidate> candidates;
+                std::int64_t candidateCapacity = 0;
+                // Bound speculative work; resume the SAME outward frontier after rejects.
+                while (candidates.size() < 8 && candidateCapacity < remainingDemand) {
+                    Candidate candidate;
+                    if (!commuteRouter_.nextNearest(commuteDestinations_, lot.id(), commuteNearestScratch_,
+                                                    candidate.destination, candidate.morning))
                         break;
-                    }
+                    candidateCapacity += commuteDestinations_.remaining(candidate.destination);
+                    candidates.push_back(std::move(candidate));
                 }
-
-                if (reachedDestinationIndex < 0 || reachedDestinationIndex >= static_cast<int>(destinations.size())) {
+                if (candidates.empty())
                     break;
+                commuteRoutingPool_->run(candidates.size(), [&](std::size_t i, TransportRoutingScratch &scratch) {
+                    auto &candidate = candidates[i];
+                    const int id = destinations[candidate.destination].lotId;
+                    candidate.reachable = commuteRouter_.findPath(
+                        makeRequest(commuteAccess_.at(id).nodes, sourceAccess, CommuteTimeOfDay::Evening), scratch,
+                        candidate.evening);
+                    candidate.stats = scratch.stats;
+                });
+                for (auto &candidate : candidates) {
+                    stats.add(candidate.stats);
+                    if (!candidate.reachable || remainingDemand <= 0)
+                        continue;
+                    const auto destination = candidate.destination;
+                    const int destinationId = destinations[destination].lotId;
+                    const int demand = std::min(remainingDemand, commuteDestinations_.remaining(destination));
+                    if (!demand)
+                        continue;
+                    CommuteRouteRecord route;
+                    route.costSnapshot = commuteRouter_.snapshot();
+                    route.destinationLotId = destinationId;
+                    route.demand = demand;
+                    route.transportLoad =
+                        static_cast<std::uint16_t>(std::min(demand, static_cast<int>(kTransportMaxLoad)));
+                    route.morningPathResult = std::move(candidate.morning);
+                    route.eveningPathResult = std::move(candidate.evening);
+                    route.longCommute = route.morningPathResult.totalCost >= kLongCommuteComplaintCost ||
+                                        route.eveningPathResult.totalCost >= kLongCommuteComplaintCost;
+                    route.morningSegments = buildCommuteRouteSegments(route.morningPathResult, route.transportLoad,
+                                                                      CommuteTimeOfDay::Morning);
+                    route.eveningSegments = buildCommuteRouteSegments(route.eveningPathResult, route.transportLoad,
+                                                                      CommuteTimeOfDay::Evening);
+                    applyLoads(route, true);
+                    routes.push_back(std::move(route));
+                    sourceChanged = true;
+                    commuteDestinations_.consume(destination, demand);
+                    commuteFilledJobs_[destinationId] += demand;
+                    changedDestinations.insert(destinationId);
+                    remainingDemand -= demand;
                 }
-
-                JobDestination& reachedDestination = destinations[static_cast<std::size_t>(reachedDestinationIndex)];
-                TransportPathResult eveningPathResult;
-                if (!findPathForDirection(
-                        CommuteTimeOfDay::Evening,
-                        reachedDestination.accessNodes,
-                        source.accessNodes,
-                        source.lotId,
-                        remainingDemand,
-                        simulationTick_ + commuteRevision_ + 0xE001u,
-                        eveningPathResult)) {
-                    excludedDestinations[static_cast<std::size_t>(reachedDestinationIndex)] = true;
-                    continue;
-                }
-
-                if (classifyPath(morningPathResult) == CommuteCostClass::Invalid ||
-                    classifyPath(morningPathResult) == CommuteCostClass::Long ||
-                    classifyPath(eveningPathResult) == CommuteCostClass::Invalid ||
-                    classifyPath(eveningPathResult) == CommuteCostClass::Long) {
-                    excludedDestinations[static_cast<std::size_t>(reachedDestinationIndex)] = true;
-                    continue;
-                }
-
-                const int acceptedDemand = std::min(remainingDemand, reachedDestination.remainingCapacity);
-                if (acceptedDemand <= 0) {
-                    break;
-                }
-
-                reachedDestination.remainingCapacity -= acceptedDemand;
-                remainingDemand -= acceptedDemand;
-
-                const std::uint16_t clampedDemand = static_cast<std::uint16_t>(std::min(acceptedDemand, static_cast<int>(kTransportMaxLoad)));
-                const bool longCommute = routeHasComplaint(morningPathResult, eveningPathResult);
-                lots_[source.lotIndex].addCommuteRoute(
-                    reachedDestination.lotId,
-                    acceptedDemand,
-                    clampedDemand,
-                    longCommute,
-                    false,
-                    false,
-                    morningPathResult,
-                    eveningPathResult,
-                    buildCommuteRouteSegments(morningPathResult, clampedDemand, CommuteTimeOfDay::Morning),
-                    buildCommuteRouteSegments(eveningPathResult, clampedDemand, CommuteTimeOfDay::Evening));
-                lots_[reachedDestination.lotIndex].addLowWealthJobsFilled(acceptedDemand);
-                transportNetwork_.applyTrafficPathLoad(CommuteTimeOfDay::Morning, morningPathResult, clampedDemand, true);
-                transportNetwork_.applyTrafficPathLoad(CommuteTimeOfDay::Evening, eveningPathResult, clampedDemand, true);
-                commuteStateChanged = true;
-                acceptedRoute = true;
-                break;
             }
-
-            if (!acceptedRoute) {
-                break;
-            }
+            stats.add(commuteNearestScratch_.stats);
         }
+        if (remainingDemand > 0 && routes.empty())
+            commuteFailures_[lot.id()] = {commuteRouter_.snapshot(), commuteAvailabilityRevision_};
+        else
+            commuteFailures_.erase(lot.id());
+        if (sourceChanged) {
+            indexCommuteDependencies(lot);
+            changed = true;
+        }
+        // Small segment summaries are rebuilt only for selected lots, without copying paths.
+        lot.refreshCommuteSummary();
+        commuteSatisfiedTotal_ += lot.commuteSatisfied() - previousSatisfied;
     }
-
+    const auto searchEnd = std::chrono::steady_clock::now();
     transportNetwork_.commitTrafficAssignment(CommuteTimeOfDay::Morning);
     transportNetwork_.commitTrafficAssignment(CommuteTimeOfDay::Evening);
-
-    updateCommuteSatisfactionParameters();
-
+    for (int id : changedDestinations) {
+        const auto it = lotById.find(id);
+        if (it != lotById.end())
+            lots_[it->second].setLowWealthJobsFilled(commuteFilledJobs_[id]);
+    }
+    const int totalSatisfied = commuteSatisfiedTotal_;
+    for (int id : {cityParameterRegistry_.satisfactionLowWealthCommuteId(),
+                   cityParameterRegistry_.satisfactionDirtyIndustryStaffingId()})
+        if (id >= 0 && id < static_cast<int>(nextCityParameters_.size()))
+            nextCityParameters_[id] = static_cast<float>(totalSatisfied);
     oldCityParameters_ = nextCityParameters_;
     refreshCityPopulation();
-    if (commuteStateChanged || !forcedCommuteLotIds_.empty()) {
+    if (changed || !forcedCommuteLotIds_.empty())
         ++commuteRevision_;
-    }
     commutesDirty_ = false;
     forcedCommuteLotIds_.clear();
+    forcedCommuteLotSet_.clear();
+    const auto finished = std::chrono::steady_clock::now();
+    commuteMicros_ = DurationMicros(started, finished);
+    commuteSetupMicros_ = DurationMicros(started, setupEnd);
+    commuteSearchMicros_ = DurationMicros(setupEnd, searchEnd);
+    commuteCommitMicros_ = DurationMicros(searchEnd, finished);
+    commuteSearchCount_ = stats.searches;
+    commuteSettledCount_ = stats.settled;
+    commuteCandidateCount_ = stats.candidates;
+    commuteAccessRefreshCount_ = accessRefreshes;
 }
 
 // Runs the full-map local tile pass over all chunks.
@@ -2901,29 +2828,41 @@ void SimulationRuntime::refreshPublishedLotSnapshot(TileBuffer& completedBuffer)
         return;
     }
 
-    completedBuffer.publishedLots.clear();
-    completedBuffer.publishedLots.reserve(lots_.size() * 4u);
-    completedBuffer.publishedLotInfos.clear();
-    completedBuffer.publishedLotInfos.reserve(lots_.size());
+    bool rebuildLotGeometry = completedBuffer.lotRenderRevision != lotsRevision_ ||
+        completedBuffer.publishedLotInfos.size() != lots_.size();
+    completedBuffer.publishedLotInfos.resize(lots_.size());
     completedBuffer.publishedCommuteRouteSegments.clear();
-    completedBuffer.publishedLotOccupancy = lotOccupancy_;
 
     std::size_t lotIndex = 0;
     for (; lotIndex < lots_.size(); ++lotIndex) {
         PublishedLotInfo publishedLotInfo;
+        // Keep each write buffer's segment allocation across publications. Reset
+        // contents even when a removed lot has changed which lot occupies this row.
+        publishedLotInfo.commuteRouteSegments.swap(completedBuffer.publishedLotInfos[lotIndex].commuteRouteSegments);
+        publishedLotInfo.commuteRouteSegments.clear();
         publishedLotInfo.lotId = lots_[lotIndex].id();
         publishedLotInfo.assetId = lots_[lotIndex].assetId();
         const LotAsset* lotAsset = findLotAssetById(lots_[lotIndex].assetId());
         if (lotAsset != 0) {
             publishedLotInfo.zoningType = zoningTypeForLotInBuffer(lots_[lotIndex], completedBuffer, lotAsset->zoningType);
         }
+        if (completedBuffer.publishedLotInfos[lotIndex].lotId != publishedLotInfo.lotId ||
+            completedBuffer.publishedLotInfos[lotIndex].zoningType != publishedLotInfo.zoningType) {
+            rebuildLotGeometry = true;
+        }
         publishedLotInfo.minimumTileX = lots_[lotIndex].minimumTileX();
         publishedLotInfo.minimumTileY = lots_[lotIndex].minimumTileY();
         publishedLotInfo.footprintWidth = lots_[lotIndex].footprintWidth();
         publishedLotInfo.footprintHeight = lots_[lotIndex].footprintHeight();
         publishedLotInfo.isEmpty = lots_[lotIndex].modules().empty();
-        publishedLotInfo.moduleSummary = lots_[lotIndex].moduleSummary();
-        publishedLotInfo.parameterSummary = lots_[lotIndex].parameterSummary(cityParameterRegistry_);
+        if (completedBuffer.lotRenderRevision == lotsRevision_ &&
+            completedBuffer.publishedLotInfos[lotIndex].lotId == publishedLotInfo.lotId) {
+            publishedLotInfo.moduleSummary.swap(completedBuffer.publishedLotInfos[lotIndex].moduleSummary);
+            publishedLotInfo.parameterSummary.swap(completedBuffer.publishedLotInfos[lotIndex].parameterSummary);
+        } else {
+            publishedLotInfo.moduleSummary = lots_[lotIndex].moduleSummary();
+            publishedLotInfo.parameterSummary = lots_[lotIndex].parameterSummary(cityParameterRegistry_);
+        }
         publishedLotInfo.commuteDemand = lots_[lotIndex].commuteDemand();
         publishedLotInfo.commuteSatisfied = lots_[lotIndex].commuteSatisfied();
         publishedLotInfo.residentsLowWealthCurrent = lots_[lotIndex].commuteSatisfied();
@@ -2939,11 +2878,22 @@ void SimulationRuntime::refreshPublishedLotSnapshot(TileBuffer& completedBuffer)
             publishedLotInfo.rciCapacityCurrent = lotActualParameterAmount(lots_[lotIndex], lotAsset, capacityParameterId, completedBuffer);
         }
         publishedLotInfo.complaintSummary = lots_[lotIndex].complaintSummary();
-        completedBuffer.publishedLotInfos.push_back(publishedLotInfo);
-        const std::size_t firstRenderInstanceIndex = completedBuffer.publishedLots.size();
-        lots_[lotIndex].buildRenderInstances(completedBuffer.publishedLots);
-        for (std::size_t renderInstanceIndex = firstRenderInstanceIndex; renderInstanceIndex < completedBuffer.publishedLots.size(); ++renderInstanceIndex) {
-            completedBuffer.publishedLots[renderInstanceIndex].zoningType = publishedLotInfo.zoningType;
+        completedBuffer.publishedLotInfos[lotIndex] = std::move(publishedLotInfo);
+    }
+
+    // Commute costs and staffing do not change module geometry or access visuals.
+    // Each unpinned write buffer retains its own geometry until lot state (including
+    // construction progress), identity, or displayed zoning changes.
+    if (rebuildLotGeometry) {
+        completedBuffer.publishedLotOccupancy = lotOccupancy_;
+        completedBuffer.publishedLots.clear();
+        completedBuffer.publishedLots.reserve(lots_.size() * 4u);
+        for (lotIndex = 0; lotIndex < lots_.size(); ++lotIndex) {
+            const std::size_t firstRenderInstanceIndex = completedBuffer.publishedLots.size();
+            lots_[lotIndex].buildRenderInstances(completedBuffer.publishedLots);
+            for (std::size_t renderInstanceIndex = firstRenderInstanceIndex; renderInstanceIndex < completedBuffer.publishedLots.size(); ++renderInstanceIndex) {
+                completedBuffer.publishedLots[renderInstanceIndex].zoningType = completedBuffer.publishedLotInfos[lotIndex].zoningType;
+            }
         }
     }
 
@@ -5968,113 +5918,6 @@ std::vector<CommuteRouteSegment> SimulationRuntime::buildCommuteRouteSegments(co
     }
 
     return segments;
-}
-
-bool SimulationRuntime::commuteRouteIsStillValid(const CommuteRouteRecord& route) const {
-    if (!route.morningPathResult.success || !route.eveningPathResult.success || route.transportLoad == 0u) {
-        return false;
-    }
-
-    const TransportCostMap& costMap = transportNetwork_.costMap();
-    const TransportPathResult* pathResults[] = {
-        &route.morningPathResult,
-        &route.eveningPathResult
-    };
-
-    std::size_t pathIndex = 0;
-    for (; pathIndex < sizeof(pathResults) / sizeof(pathResults[0]); ++pathIndex) {
-        const TransportPathResult& pathResult = *pathResults[pathIndex];
-        std::size_t stepIndex = 0;
-        for (; stepIndex < pathResult.steps.size(); ++stepIndex) {
-            const TransportPathStep& step = pathResult.steps[stepIndex];
-            if (step.kind == TransportPathStepKind::Movement) {
-                const int directionIndex = RoadDirectionIndex(step.roadDirection);
-                if (directionIndex < 0 || step.fromNodeId >= costMap.totalNodeCount()) {
-                    return false;
-                }
-
-                const TransportCostCell& cell = costMap.cell(costMap.nodeLayer(step.fromNodeId), costMap.nodeMode(step.fromNodeId), costMap.nodeTileIndex(step.fromNodeId));
-                if (cell.costs[directionIndex] == kTransportNoCost || cell.capacities[directionIndex] == 0u) {
-                    return false;
-                }
-            } else if (step.transferEdgeIndex >= costMap.trafficLoadState(CommuteTimeOfDay::Morning).transferLoads.size()) {
-                return false;
-            }
-        }
-    }
-
-    return true;
-}
-
-bool SimulationRuntime::commuteRouteTouchesTiles(const CommuteRouteRecord& route, const std::vector<int>& sortedTileIndices) const {
-    return commutePathTouchesTiles(route.morningPathResult, sortedTileIndices) ||
-        commutePathTouchesTiles(route.eveningPathResult, sortedTileIndices);
-}
-
-bool SimulationRuntime::commutePathTouchesTiles(const TransportPathResult& pathResult, const std::vector<int>& sortedTileIndices) const {
-    if (!pathResult.success || sortedTileIndices.empty()) {
-        return false;
-    }
-
-    const TransportCostMap& costMap = transportNetwork_.costMap();
-    const std::size_t totalNodeCount = costMap.totalNodeCount();
-    std::size_t stepIndex = 0;
-    for (; stepIndex < pathResult.steps.size(); ++stepIndex) {
-        const TransportPathStep& step = pathResult.steps[stepIndex];
-        const std::uint32_t nodeIds[] = {
-            step.fromNodeId,
-            step.toNodeId
-        };
-
-        std::size_t nodeIndex = 0;
-        for (; nodeIndex < sizeof(nodeIds) / sizeof(nodeIds[0]); ++nodeIndex) {
-            if (nodeIds[nodeIndex] >= totalNodeCount) {
-                continue;
-            }
-
-            const int tileIndexValue = costMap.nodeTileIndex(nodeIds[nodeIndex]);
-            if (std::binary_search(sortedTileIndices.begin(), sortedTileIndices.end(), tileIndexValue)) {
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
-
-bool SimulationRuntime::lotAccessMayTouchTiles(const Lot& lot, const std::vector<int>& sortedTileIndices) const {
-    if (sortedTileIndices.empty()) {
-        return false;
-    }
-
-    const std::vector<int>& occupiedTileIndices = lot.occupiedTileIndices();
-    std::size_t occupiedIndex = 0;
-    for (; occupiedIndex < occupiedTileIndices.size(); ++occupiedIndex) {
-        const int occupiedTileIndex = occupiedTileIndices[occupiedIndex];
-        if (occupiedTileIndex < 0 || occupiedTileIndex >= static_cast<int>(transportNetwork_.totalTileCount())) {
-            continue;
-        }
-
-        const int tileY = occupiedTileIndex / mapWidth_;
-        const int tileX = occupiedTileIndex - (tileY * mapWidth_);
-        const int adjacentTileIndices[] = {
-            occupiedTileIndex,
-            isTileInsideMap(tileX, tileY - 1) ? tileIndex(tileX, tileY - 1) : -1,
-            isTileInsideMap(tileX, tileY + 1) ? tileIndex(tileX, tileY + 1) : -1,
-            isTileInsideMap(tileX - 1, tileY) ? tileIndex(tileX - 1, tileY) : -1,
-            isTileInsideMap(tileX + 1, tileY) ? tileIndex(tileX + 1, tileY) : -1
-        };
-
-        std::size_t adjacentIndex = 0;
-        for (; adjacentIndex < sizeof(adjacentTileIndices) / sizeof(adjacentTileIndices[0]); ++adjacentIndex) {
-            if (adjacentTileIndices[adjacentIndex] >= 0 &&
-                std::binary_search(sortedTileIndices.begin(), sortedTileIndices.end(), adjacentTileIndices[adjacentIndex])) {
-                return true;
-            }
-        }
-    }
-
-    return false;
 }
 
 // Validates a tile coordinate against the fixed map bounds.

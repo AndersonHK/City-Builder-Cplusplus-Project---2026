@@ -190,6 +190,7 @@ copy /Y "$(ProjectDir)..\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"</Command>
     <ClCompile Include="SimulationRuntime.cpp" />
     <ClCompile Include="Source.cpp" />
     <ClCompile Include="TransportCostMap.cpp" />
+    <ClCompile Include="TransportRouter.cpp" />
     <ClCompile Include="TransportTile.cpp" />
     <ClCompile Include="TransportNetwork.cpp" />
     <ClCompile Include="TransportTypes.cpp" />
@@ -912,6 +913,7 @@ copy /Y "$(ProjectDir)..\DLLs\glfw3.dll" "$(OutDir)glfw3.dll"</Command>
     <ClInclude Include="SimulationRuntime.h" />
     <ClInclude Include="Tile.h" />
     <ClInclude Include="TransportCostMap.h" />
+    <ClInclude Include="TransportRouter.h" />
     <ClInclude Include="TransportTile.h" />
     <ClInclude Include="TransportNetwork.h" />
     <ClInclude Include="TransportTypes.h" />

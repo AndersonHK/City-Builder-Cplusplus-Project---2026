@@ -31,6 +31,8 @@ struct CommuteRouteSegment {
 };
 
 struct CommuteRouteRecord {
+    // Derived runtime cache; routes are rebuilt on save import.
+    std::uint64_t costSnapshot = 0;
     int destinationLotId;
     int demand;
     std::uint16_t transportLoad;
