@@ -1,10 +1,13 @@
 # Transport Routing Scalability Plan
 
-Use this guide when changing commute routing scalability, traffic load storage, flat route-search behavior, route budgeting, or future hierarchical routing/topology caches.
+Archived September 9, 2026. This is historical design context, including pre-change audits and proposals; it is not the current implementation contract. See the [documentation index](../README.md), [transport guide](../design/transport-network.md), [routing implementation record](../design/transport-routing-implementation-plan.md), and [real-save benchmark](../design/transport-routing-real-city-benchmark.md).
+
+
+Original scope: commute routing scalability, traffic storage, flat search, budgeting, and hierarchy proposals.
 
 ## September 9, 2026 Implementation
 
-The compact shared routing engine, resumable destination discovery, A* repairs, incremental commute indexes, deterministic routing workers, and shared-field APIs are now implemented. See [implementation plan and measured results](transport-routing-implementation-plan.md) for the current state, policy changes, validation commands, and manual review limits. The exact region-overlay prototype was measured and remains experimental because it lost to compact A* on the dense-grid fixture. The older roadmap below is historical context, not the current implementation checklist.
+The compact shared routing engine, resumable destination discovery, A* repairs, incremental commute indexes, deterministic routing workers, and shared-field APIs are now implemented. See [implementation plan and measured results](../design/transport-routing-implementation-plan.md) for the current state, policy changes, validation commands, and manual review limits. The exact region-overlay prototype was measured and remains experimental because it lost to compact A* on the dense-grid fixture. The older roadmap below is historical context, not the current implementation checklist.
 
 ## September 2026 Architecture Review
 

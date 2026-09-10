@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "ChunkConfig.h"
+#include "CommuteTypes.h"
 #include "InGameWindow.h"
 #include "RendererPayload.h"
 #include "Tile.h"
@@ -58,3 +59,28 @@ void RendererAppendTextQuads(const std::string& text, float x, float y, float wi
 
 // Appends the shared startup/save-load loading screen UI batch.
 void RendererAppendLoadingScreenQuads(const std::string& label, float progress, int framebufferWidth, int framebufferHeight, std::vector<UiQuadInstanceData>& quads);
+
+// Joined ribbon span. Phase is elapsed travel time / seconds per arrow.
+constexpr float kRouteArrowSeconds = 10.0f;
+struct RouteArrowInstanceData {
+    float originX;
+    float originZ;
+    float sizeX;
+    float sizeZ;
+    float directionX;
+    float directionZ;
+    float lift;
+    float alpha;
+    float colorR;
+    float colorG;
+    float colorB;
+    float colorPadding;
+    float startPhase;
+    float endPhase;
+    float startNormalX;
+    float startNormalZ;
+    float endNormalX;
+    float endNormalZ;
+};
+std::vector<RouteArrowInstanceData> BuildRouteArrowInstances(const std::vector<CommuteRouteSegment>& segments,
+                                                           float secondsPerArrow = kRouteArrowSeconds);

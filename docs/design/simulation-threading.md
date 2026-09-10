@@ -13,7 +13,7 @@ Use this guide when changing tile update passes, buffer ownership, chunk schedul
 - Worker passes use an enum task type and an atomic chunk cursor.
 - The simulation thread participates in chunk work instead of only dispatching.
 - Chunk layout is derived from L2 cache budget, map divisibility, and minimum job count.
-- Published snapshots expose pointers to immutable tile, lot, road render/query, and tile-overlay data.
+- Published snapshots expose pointers to immutable tile, lot, road render/query, and tile-overlay data. Each buffer retains shared owners for its route clocks; a query and its controller view retain the clocks they reference so buffer reuse cannot invalidate displayed timing.
 
 ## Rules
 - Do not copy whole tile buffers between ticks; use role swaps and write into the chosen write buffer.
@@ -21,8 +21,8 @@ Use this guide when changing tile update passes, buffer ownership, chunk schedul
 - Keep render-topology revisions separate from scalar tile updates.
 - Mark render chunks dirty only when topology or render masks change.
 - Transport route recalculation should preserve valid existing round-trip routes and force recalculation only when a route, source, destination, or topology becomes invalid. Routine congestion rebalancing should use a deterministic rolling queue, currently about 1 percent of source lots per tick, so all source lots are visited over roughly 100 ticks without random repeats.
-- Commute traffic has two parallel load states, `Morning` and `Evening`, over one stable base transport graph. Each tick computes only the active commute time and writes sparse touched-edge load deltas for that time of day.
-- A future parallel route assignment pass should read committed loads and write new loads through worker-local deltas, then reduce after the batch. Path searches must not mutate shared load arrays directly.
+- Commute traffic has independent `Morning` and `Evening` load states over one base transport graph. Ticks alternate the active retry direction; retained round trips are repriced and new assignments validate both directions. The simulation thread commits sparse deltas to both load states.
+- `TransportRoutingPool` runs independent validation, repair and return-path jobs against a shared committed cost snapshot with worker-local scratch/results. The simulation thread reduces accepted results in source order and applies capacity/load changes. Workers must not mutate shared traffic or vacancy state.
 - City parameters use dense old/new vectors and per-worker-shaped delta buffers so future lot batches can aggregate drivers and satisfactions without hot shared writes.
 - The tick order is queued player commands, lot construction advancement, lot effects/city-parameter reduction, commute assignment, then RCI construction. This lets constructor demand use the latest completed buildings while newly placed construction does not affect parameters until a later tick after its timer finishes.
 - Queued RCI area zoning fits empty parcel records immediately during the command pass, and city-save import recovers legacy zoned-but-unparcelled tiles before publishing. The parcel fitter uses the smart RCI tool dimensions, prefers candidates facing existing ground roads, and skips live lots, existing parcel records, and roads.

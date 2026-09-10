@@ -306,6 +306,7 @@ void ClearQuerySelection(ViewState& viewState) {
     viewState.queriedCommuteRevision = 0;
     viewState.queriedGeneration = 0;
     viewState.queriedCommuteRouteSegments.clear();
+    viewState.queriedCommuteClocks.clear();
     viewState.queryWindowLines.clear();
 }
 
@@ -1863,6 +1864,7 @@ void AppController::applyCameraFromActiveCity() {
     viewState_.queriedLotRevision = 0;
     viewState_.queriedCommuteRevision = 0;
     viewState_.queriedCommuteRouteSegments.clear();
+    viewState_.queriedCommuteClocks.clear();
     viewState_.queryWindowLines.clear();
     ++viewState_.queryRouteRevision;
     clampCameraToMap();
@@ -2042,6 +2044,7 @@ void AppController::refreshQueryResultIfNeeded() {
         viewState_.queriedCommuteRevision = queryResult.commuteRevision;
         viewState_.queriedGeneration = queryResult.generation;
         viewState_.queriedCommuteRouteSegments = queryResult.commuteRouteSegments;
+        viewState_.queriedCommuteClocks = queryResult.commuteClocks;
         viewState_.queryWindowLines = BuildLotQueryWindowLines(queryResult);
         if (routeOverlayChanged) {
             ++viewState_.queryRouteRevision;
@@ -2063,7 +2066,8 @@ void AppController::refreshQueryResultIfNeeded() {
 
         viewState_.queriedLotRevision = queryResult.roadRevision;
         viewState_.queriedCommuteRevision = queryResult.commuteRevision;
-        viewState_.queriedCommuteRouteSegments = queryResult.roadCommuteSegments;
+        viewState_.queriedCommuteRouteSegments = queryResult.commuteRouteSegments;
+        viewState_.queriedCommuteClocks = queryResult.commuteClocks;
         viewState_.queryWindowLines = BuildRoadQueryWindowLines(queryResult);
         ++viewState_.queryRouteRevision;
         return;
@@ -2077,6 +2081,7 @@ void AppController::refreshQueryResultIfNeeded() {
             viewState_.queriedCommuteRevision = queryResult.commuteRevision;
             viewState_.queriedGeneration = queryResult.generation;
             viewState_.queriedCommuteRouteSegments = queryResult.commuteRouteSegments;
+            viewState_.queriedCommuteClocks = queryResult.commuteClocks;
             viewState_.queryWindowLines = BuildLotQueryWindowLines(queryResult);
             ++viewState_.queryRouteRevision;
             return;
@@ -2092,6 +2097,7 @@ void AppController::refreshQueryResultIfNeeded() {
         viewState_.queriedCommuteRevision = queryResult.commuteRevision;
         viewState_.queriedGeneration = queryResult.generation;
         viewState_.queriedCommuteRouteSegments.clear();
+        viewState_.queriedCommuteClocks.clear();
         viewState_.queryWindowLines = BuildRciQueryWindowLines(queryResult);
         ++viewState_.queryRouteRevision;
         return;
@@ -2159,6 +2165,7 @@ void AppController::printQueryResult() {
         viewState_.queriedCommuteRevision = queryResult.commuteRevision;
         viewState_.queriedGeneration = queryResult.generation;
         viewState_.queriedCommuteRouteSegments = queryResult.commuteRouteSegments;
+        viewState_.queriedCommuteClocks = queryResult.commuteClocks;
         viewState_.queryWindowLines = BuildLotQueryWindowLines(queryResult);
         ++viewState_.queryRouteRevision;
         if (printQueryDebug) {
@@ -2178,7 +2185,8 @@ void AppController::printQueryResult() {
         viewState_.queriedLotRevision = queryResult.lotRevision;
         viewState_.queriedCommuteRevision = queryResult.commuteRevision;
         viewState_.queriedGeneration = queryResult.generation;
-        viewState_.queriedCommuteRouteSegments = queryResult.roadCommuteSegments;
+        viewState_.queriedCommuteRouteSegments = queryResult.commuteRouteSegments;
+        viewState_.queriedCommuteClocks = queryResult.commuteClocks;
         viewState_.queryWindowLines = BuildRoadQueryWindowLines(queryResult);
         ++viewState_.queryRouteRevision;
         if (printQueryDebug) {
@@ -2193,6 +2201,7 @@ void AppController::printQueryResult() {
         viewState_.queriedCommuteRevision = queryResult.commuteRevision;
         viewState_.queriedGeneration = queryResult.generation;
         viewState_.queriedCommuteRouteSegments.clear();
+        viewState_.queriedCommuteClocks.clear();
         viewState_.queryWindowLines = BuildRciQueryWindowLines(queryResult);
         ++viewState_.queryRouteRevision;
         if (printQueryDebug) {

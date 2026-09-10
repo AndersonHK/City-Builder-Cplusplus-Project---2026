@@ -85,7 +85,8 @@ class TransportRouter {
     bool nextNearest(const TransportDestinationIndex &destinations, int excludedLotId, TransportRoutingScratch &scratch,
                      std::size_t &destination, TransportPathResult &result) const;
     bool reprice(TransportPathResult &path, CommuteTimeOfDay time) const;
-    float pathCost(const TransportPathResult &path, CommuteTimeOfDay time) const;
+    float pathCost(const TransportPathResult &path, CommuteTimeOfDay time,
+                   std::vector<float>* elapsedSeconds = nullptr) const;
     void buildField(const std::vector<std::uint32_t> &roots, CommuteTimeOfDay time, bool towardTargets,
                     TransportDistanceField &field) const;
     float fieldCost(const TransportDistanceField &field, std::uint32_t node) const;

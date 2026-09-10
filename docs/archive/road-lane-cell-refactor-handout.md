@@ -1,5 +1,8 @@
 # Road Lane Cell Refactor Handout
 
+Archived September 9, 2026. This is historical design context, including pre-change audits and proposals; it is not the current implementation contract. See the [documentation index](../README.md), [transport guide](../design/transport-network.md), [routing implementation record](../design/transport-routing-implementation-plan.md), and [real-save benchmark](../design/transport-routing-real-city-benchmark.md).
+
+
 Snapshot: 2026-05-17
 
 This handout captures the planned simplification for road construction, pathing, and graphics. It is historical design context now; use `docs/design/transport-network.md` and `docs/design/renderer.md` for the current implementation contract.

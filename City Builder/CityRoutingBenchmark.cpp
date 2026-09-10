@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <iostream>
 #include <numeric>
+#include <set>
 #include <stdexcept>
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -43,6 +44,104 @@ double percentile(const std::vector<double> &sorted, double fraction) {
 // Reuses the test-only friend access; this driver never starts a simulation thread.
 struct TransportCommuteTestAccess {
     static bool verifyPublication;
+    static std::string routeDisplayOutput;
+#ifdef CITY_ROUTING_NEW
+    static void verifyRouteQueries(const SimulationRuntime& runtime, const char* stage) {
+        const auto& buffer = runtime.tileBuffers_[runtime.publishedBufferIndex_];
+        const auto& segments = buffer.publishedCommuteRouteSegments;
+        const auto& ranges = buffer.publishedCommuteRouteRanges;
+        std::size_t next = 0, diagonalCount = 0, longest = 0, queryCount = 0;
+        std::set<std::pair<int, int>> sampleTiles;
+        for (std::size_t r = 0; r < ranges.size(); ++r) {
+            const auto& range = ranges[r];
+            if (range.first != next || range.second <= range.first || range.second > segments.size())
+                throw std::runtime_error("Invalid published route range");
+            next = range.second;
+            for (std::size_t i = range.first; i < range.second; ++i) {
+                const auto& segment = segments[i];
+                if (!segment.elapsedSeconds || segment.timingEnd >= segment.elapsedSeconds->size() ||
+                    segment.timingEnd <= segment.timingBegin ||
+                    !std::is_sorted(segment.elapsedSeconds->begin() + segment.timingBegin,
+                                    segment.elapsedSeconds->begin() + segment.timingEnd + 1))
+                    throw std::runtime_error("Published route has invalid travel times");
+                const int dx = std::abs(segment.endTileX - segment.startTileX);
+                const int dy = std::abs(segment.endTileY - segment.startTileY);
+                if (dx && dy && dx != dy)
+                    throw std::runtime_error("Published route does not follow grid edges");
+                diagonalCount += dx && dy;
+                longest = std::max(longest, static_cast<std::size_t>(std::max(dx, dy)));
+                if (i > range.first && (segments[i - 1].endTileX != segment.startTileX ||
+                    segments[i - 1].endTileY != segment.startTileY))
+                    throw std::runtime_error("Published route has disconnected segments");
+            }
+            if (r % std::max<std::size_t>(1, ranges.size() / 64) == 0)
+                sampleTiles.emplace(segments[range.first].startTileX, segments[range.first].startTileY);
+        }
+        if (next != segments.size())
+            throw std::runtime_error("Published segments missing route membership");
+        for (const auto& tile : sampleTiles) {
+            const auto query = runtime.queryTile(tile.first, tile.second);
+            if (query.hasLot || query.roads.empty()) continue;
+            std::set<const std::vector<float>*> retainedClocks;
+            for (const auto& clock : query.commuteClocks) retainedClocks.insert(clock.get());
+            for (const auto* spans : {&query.commuteRouteSegments, &query.roadCommuteSegments})
+                for (const auto& segment : *spans)
+                    if (!retainedClocks.count(segment.elapsedSeconds))
+                        throw std::runtime_error("Query did not retain its travel-time snapshot");
+            std::vector<CommuteRouteSegment> local, complete;
+            for (const auto& range : ranges) {
+                bool touches = false;
+                for (std::size_t i = range.first; i < range.second; ++i) {
+                    const auto& segment = segments[i];
+                    const int dx = segment.endTileX - segment.startTileX;
+                    const int dy = segment.endTileY - segment.startTileY;
+                    const int length = std::max(std::abs(dx), std::abs(dy));
+                    // Expand the saved grid walk independently of queryTile's geometry test.
+                    for (int step = 0; step <= length; ++step) {
+                        if (segment.startTileX + step * ((dx > 0) - (dx < 0)) == tile.first &&
+                            segment.startTileY + step * ((dy > 0) - (dy < 0)) == tile.second) {
+                            local.push_back(segment);
+                            touches = true;
+                            break;
+                        }
+                    }
+                }
+                if (touches) complete.insert(complete.end(), segments.begin() + range.first, segments.begin() + range.second);
+            }
+            PublicationFingerprint expected, actual;
+            expected.fields(local, complete);
+            actual.fields(query.roadCommuteSegments, query.commuteRouteSegments);
+            if (expected.value != actual.value)
+                throw std::runtime_error("Road query lost or added saved-city route segments");
+            ++queryCount;
+        }
+        std::cout << "ROUTE_DISPLAY stage=" << stage << " legs=" << ranges.size()
+                  << " segments=" << segments.size() << " diagonal_segments=" << diagonalCount
+                  << " longest_segment_tiles=" << longest << " road_queries=" << queryCount << std::endl;
+        if (!routeDisplayOutput.empty() && std::string(stage) == "measured_end") {
+            for (const auto& range : ranges) {
+                if (range.second - range.first < 8 || range.second - range.first > 16) continue;
+                const auto& last = segments[range.second - 1];
+                const float seconds = (*last.elapsedSeconds)[last.timingEnd];
+                if (seconds < 120 || seconds > 600) continue;
+                std::ofstream output(routeDisplayOutput);
+                if (!output) throw std::runtime_error("Cannot write route display sample");
+                output << std::setprecision(9);
+                for (auto i = range.first; i < range.second; ++i) {
+                    const auto& s = segments[i];
+                    const auto steps = s.timingEnd - s.timingBegin;
+                    for (std::size_t j = i == range.first ? 0 : 1; j <= steps; ++j) {
+                        output << s.startTileX + (s.endTileX - s.startTileX) * static_cast<float>(j) / steps << ' '
+                               << s.startTileY + (s.endTileY - s.startTileY) * static_cast<float>(j) / steps << ' '
+                               << (*s.elapsedSeconds)[s.timingBegin + j] << '\n';
+                    }
+                }
+                std::cout << "ROUTE_SAMPLE seconds=" << seconds << " file=" << routeDisplayOutput << std::endl;
+                break;
+            }
+        }
+    }
+#endif
     static void outcome(const SimulationRuntime &runtime, const char *stage) {
         std::int64_t residents = 0, jobs = 0, satisfied = 0, filled = 0, routes = 0, steps = 0, complaints = 0;
         for (const auto &lot : runtime.lots_) {
@@ -67,6 +166,9 @@ struct TransportCommuteTestAccess {
             fingerprint.fields(buffer.publishedLots, buffer.publishedLotInfos, buffer.publishedCommuteRouteSegments,
                                buffer.publishedLotOccupancy, buffer.lotRenderRevision, buffer.commuteRenderRevision);
             std::cout << "SNAPSHOT stage=" << stage << " hash=" << fingerprint.value << std::endl;
+#ifdef CITY_ROUTING_NEW
+            verifyRouteQueries(runtime, stage);
+#endif
         }
     }
 
@@ -177,13 +279,17 @@ struct TransportCommuteTestAccess {
     }
 };
 bool TransportCommuteTestAccess::verifyPublication = false;
+std::string TransportCommuteTestAccess::routeDisplayOutput;
 
 int main(int argc, char **argv) {
     try {
         if (argc < 9)
-            throw std::runtime_error("Usage: CityRoutingBenchmark save_directory asset_directory region_x region_y routing|full warmup samples output.csv [--verify-publication] [--main-cpu N]");
+            throw std::runtime_error("Usage: CityRoutingBenchmark save_directory asset_directory region_x region_y routing|full warmup samples output.csv [--verify-publication] [--main-cpu N] [--route-display-output route.txt]");
         for (int i = 9; i < argc; ++i) {
             if (std::string(argv[i]) == "--verify-publication") {
+                TransportCommuteTestAccess::verifyPublication = true;
+            } else if (std::string(argv[i]) == "--route-display-output" && i + 1 < argc) {
+                TransportCommuteTestAccess::routeDisplayOutput = argv[++i];
                 TransportCommuteTestAccess::verifyPublication = true;
             } else if (std::string(argv[i]) == "--main-cpu" && i + 1 < argc) {
                 const int cpu = std::stoi(argv[++i]);

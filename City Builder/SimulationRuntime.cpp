@@ -281,8 +281,11 @@ bool CommuteRouteSegmentTouchesTile(const CommuteRouteSegment& segment, int tile
     const int maxTileX = std::max(segment.startTileX, segment.endTileX);
     const int minTileY = std::min(segment.startTileY, segment.endTileY);
     const int maxTileY = std::max(segment.startTileY, segment.endTileY);
+    const std::int64_t dx = segment.endTileX - segment.startTileX;
+    const std::int64_t dy = segment.endTileY - segment.startTileY;
     return tileX >= minTileX && tileX <= maxTileX &&
-        tileY >= minTileY && tileY <= maxTileY;
+        tileY >= minTileY && tileY <= maxTileY &&
+        dx * (tileY - segment.startTileY) == dy * (tileX - segment.startTileX);
 }
 
 bool RciRectContainsRect(const RciRect& outer, const RciRect& inner) {
@@ -518,6 +521,8 @@ SimulationRuntime::SimulationRuntime(const RuntimeOptions& runtimeOptions)
         tileBuffers_[bufferIndex].publishedLotInfos.clear();
         tileBuffers_[bufferIndex].publishedZoningLots.clear();
         tileBuffers_[bufferIndex].publishedCommuteRouteSegments.clear();
+        tileBuffers_[bufferIndex].publishedCommuteRouteRanges.clear();
+        tileBuffers_[bufferIndex].publishedCommuteClocks.clear();
         tileBuffers_[bufferIndex].publishedLotOccupancy.assign(totalTileCount, kInvalidLotId);
         tileBuffers_[bufferIndex].publishedRoads.assign(totalTileCount * TransportNetwork::layerCount(), ResolvedRoadCell());
         tileBuffers_[bufferIndex].publishedGroundRoadRenderState.assign(totalTileCount * kGroundRoadRenderChannelsPerTile, 0);
@@ -1019,15 +1024,29 @@ TileQueryResult SimulationRuntime::queryTile(int tileX, int tileY) const {
     }
 
     if (!queryResult.roads.empty()) {
-        std::size_t segmentIndex = 0;
-        for (; segmentIndex < publishedBuffer.publishedCommuteRouteSegments.size(); ++segmentIndex) {
-            const CommuteRouteSegment& segment = publishedBuffer.publishedCommuteRouteSegments[segmentIndex];
-            if (CommuteRouteSegmentTouchesTile(segment, tileX, tileY)) {
-                queryResult.roadCommuteSegments.push_back(segment);
+        for (const auto& range : publishedBuffer.publishedCommuteRouteRanges) {
+            bool touchesRoad = false;
+            for (std::size_t i = range.first; i < range.second; ++i) {
+                const auto& segment = publishedBuffer.publishedCommuteRouteSegments[i];
+                if (CommuteRouteSegmentTouchesTile(segment, tileX, tileY)) {
+                    queryResult.roadCommuteSegments.push_back(segment);
+                    touchesRoad = true;
+                }
+            }
+            if (touchesRoad && !queryResult.hasLot) {
+                queryResult.commuteRouteSegments.insert(queryResult.commuteRouteSegments.end(),
+                    publishedBuffer.publishedCommuteRouteSegments.begin() + range.first,
+                    publishedBuffer.publishedCommuteRouteSegments.begin() + range.second);
             }
         }
     }
 
+    // Retain only the clocks referenced by this query, independent of buffer reuse.
+    std::unordered_set<const std::vector<float>*> clocks;
+    for (const auto& segment : queryResult.commuteRouteSegments) clocks.insert(segment.elapsedSeconds);
+    for (const auto& segment : queryResult.roadCommuteSegments) clocks.insert(segment.elapsedSeconds);
+    for (const auto& owner : publishedBuffer.publishedCommuteClocks)
+        if (owner && clocks.erase(owner.get())) queryResult.commuteClocks.push_back(owner);
     return queryResult;
 }
 
@@ -1254,6 +1273,8 @@ void SimulationRuntime::importCitySaveState(const CitySaveState& saveState, bool
         tileBuffers_[bufferIndex].publishedLotInfos.clear();
         tileBuffers_[bufferIndex].publishedZoningLots.clear();
         tileBuffers_[bufferIndex].publishedCommuteRouteSegments.clear();
+        tileBuffers_[bufferIndex].publishedCommuteRouteRanges.clear();
+        tileBuffers_[bufferIndex].publishedCommuteClocks.clear();
         tileBuffers_[bufferIndex].publishedLotOccupancy.assign(totalTileCount, kInvalidLotId);
         tileBuffers_[bufferIndex].publishedRoads.assign(totalTileCount * TransportNetwork::layerCount(), ResolvedRoadCell());
         tileBuffers_[bufferIndex].publishedGroundRoadRenderState.assign(totalTileCount * kGroundRoadRenderChannelsPerTile, 0);
@@ -1562,6 +1583,8 @@ void SimulationRuntime::initializeWorld() {
         tileBuffers_[bufferIndex].publishedLotInfos.clear();
         tileBuffers_[bufferIndex].publishedZoningLots.clear();
         tileBuffers_[bufferIndex].publishedCommuteRouteSegments.clear();
+        tileBuffers_[bufferIndex].publishedCommuteRouteRanges.clear();
+        tileBuffers_[bufferIndex].publishedCommuteClocks.clear();
         tileBuffers_[bufferIndex].publishedLotOccupancy.assign(static_cast<std::size_t>(mapWidth_) * static_cast<std::size_t>(mapHeight_), kInvalidLotId);
         tileBuffers_[bufferIndex].publishedRoads.assign(static_cast<std::size_t>(mapWidth_) * static_cast<std::size_t>(mapHeight_) * TransportNetwork::layerCount(), ResolvedRoadCell());
         tileBuffers_[bufferIndex].publishedGroundRoadRenderState.assign(static_cast<std::size_t>(mapWidth_) * static_cast<std::size_t>(mapHeight_) * kGroundRoadRenderChannelsPerTile, 0);
@@ -2499,6 +2522,7 @@ void SimulationRuntime::runCommuteAssignment(const TileBuffer &writeBuffer) {
     struct Maintained {
         bool valid = false;
         float morningCost = 0, eveningCost = 0;
+        std::shared_ptr<std::vector<float>> morningSeconds, eveningSeconds;
         bool morningRetry = false, eveningRetry = false;
         TransportPathResult morningRepair, eveningRepair;
         TransportRoutingStats stats;
@@ -2538,12 +2562,17 @@ void SimulationRuntime::runCommuteAssignment(const TileBuffer &writeBuffer) {
             if (!endpointMatches(route.morningPathResult, sourceAccess, targetAccess) ||
                 !endpointMatches(route.eveningPathResult, targetAccess, sourceAccess))
                 continue;
-            keep.morningCost = route.costSnapshot == commuteRouter_.snapshot()
-                                   ? route.morningPathResult.totalCost
-                                   : commuteRouter_.pathCost(route.morningPathResult, CommuteTimeOfDay::Morning);
-            keep.eveningCost = route.costSnapshot == commuteRouter_.snapshot()
-                                   ? route.eveningPathResult.totalCost
-                                   : commuteRouter_.pathCost(route.eveningPathResult, CommuteTimeOfDay::Evening);
+            if (route.costSnapshot == commuteRouter_.snapshot()) {
+                keep.morningCost = route.morningPathResult.totalCost;
+                keep.eveningCost = route.eveningPathResult.totalCost;
+            } else {
+                keep.morningSeconds = std::make_shared<std::vector<float>>();
+                keep.eveningSeconds = std::make_shared<std::vector<float>>();
+                keep.morningCost = commuteRouter_.pathCost(route.morningPathResult, CommuteTimeOfDay::Morning,
+                                                          keep.morningSeconds.get());
+                keep.eveningCost = commuteRouter_.pathCost(route.eveningPathResult, CommuteTimeOfDay::Evening,
+                                                          keep.eveningSeconds.get());
+            }
             if (keep.morningCost > kMaximumCommuteCost || keep.eveningCost > kMaximumCommuteCost)
                 continue;
             const bool morningMedium = keep.morningCost >= kLongCommuteComplaintCost,
@@ -2606,7 +2635,7 @@ void SimulationRuntime::runCommuteAssignment(const TileBuffer &writeBuffer) {
                                                        route.transportLoad, false);
                 route.morningPathResult = std::move(keep.morningRepair);
                 route.morningSegments =
-                    buildCommuteRouteSegments(route.morningPathResult, route.transportLoad, CommuteTimeOfDay::Morning);
+                    buildCommuteRouteSegments(route.morningPathResult, route.transportLoad, CommuteTimeOfDay::Morning, route.morningSeconds);
                 transportNetwork_.applyTrafficPathLoad(CommuteTimeOfDay::Morning, route.morningPathResult,
                                                        route.transportLoad, true);
                 sourceChanged = true;
@@ -2616,11 +2645,23 @@ void SimulationRuntime::runCommuteAssignment(const TileBuffer &writeBuffer) {
                                                        route.transportLoad, false);
                 route.eveningPathResult = std::move(keep.eveningRepair);
                 route.eveningSegments =
-                    buildCommuteRouteSegments(route.eveningPathResult, route.transportLoad, CommuteTimeOfDay::Evening);
+                    buildCommuteRouteSegments(route.eveningPathResult, route.transportLoad, CommuteTimeOfDay::Evening, route.eveningSeconds);
                 transportNetwork_.applyTrafficPathLoad(CommuteTimeOfDay::Evening, route.eveningPathResult,
                                                        route.transportLoad, true);
                 sourceChanged = true;
             }
+            // Reuse immutable timing on unchanged metrics. Updating it here also
+            // refreshes the query overlay when speeds change without a reroute.
+            const auto updateTiming = [&](std::vector<CommuteRouteSegment>& segments,
+                                          const std::shared_ptr<std::vector<float>>& seconds, CommuteRouteClock& owner, bool repaired) {
+                if (repaired || !seconds || segments.empty()) return;
+                if (segments.front().elapsedSeconds && *segments.front().elapsedSeconds == *seconds) return;
+                owner = seconds;
+                for (auto& segment : segments) segment.elapsedSeconds = owner.get();
+                changed = true;
+            };
+            updateTiming(route.morningSegments, keep.morningSeconds, route.morningSeconds, keep.morningRepair.success);
+            updateTiming(route.eveningSegments, keep.eveningSeconds, route.eveningSeconds, keep.eveningRepair.success);
             const bool complaint =
                 keep.morningCost >= kLongCommuteComplaintCost || keep.eveningCost >= kLongCommuteComplaintCost;
             if (route.morningPathResult.totalCost != keep.morningCost ||
@@ -2697,9 +2738,9 @@ void SimulationRuntime::runCommuteAssignment(const TileBuffer &writeBuffer) {
                     route.longCommute = route.morningPathResult.totalCost >= kLongCommuteComplaintCost ||
                                         route.eveningPathResult.totalCost >= kLongCommuteComplaintCost;
                     route.morningSegments = buildCommuteRouteSegments(route.morningPathResult, route.transportLoad,
-                                                                      CommuteTimeOfDay::Morning);
+                                                                      CommuteTimeOfDay::Morning, route.morningSeconds);
                     route.eveningSegments = buildCommuteRouteSegments(route.eveningPathResult, route.transportLoad,
-                                                                      CommuteTimeOfDay::Evening);
+                                                                      CommuteTimeOfDay::Evening, route.eveningSeconds);
                     applyLoads(route, true);
                     routes.push_back(std::move(route));
                     sourceChanged = true;
@@ -2832,6 +2873,8 @@ void SimulationRuntime::refreshPublishedLotSnapshot(TileBuffer& completedBuffer)
         completedBuffer.publishedLotInfos.size() != lots_.size();
     completedBuffer.publishedLotInfos.resize(lots_.size());
     completedBuffer.publishedCommuteRouteSegments.clear();
+    completedBuffer.publishedCommuteRouteRanges.clear();
+    completedBuffer.publishedCommuteClocks.clear();
 
     std::size_t lotIndex = 0;
     for (; lotIndex < lots_.size(); ++lotIndex) {
@@ -2912,8 +2955,14 @@ void SimulationRuntime::refreshPublishedLotSnapshot(TileBuffer& completedBuffer)
             for (; routeIndex < routes.size(); ++routeIndex) {
                 AccumulatePublishedCommuteCategory(sourceInfo, routes[routeIndex]);
                 sourceInfo.commuteRouteSegments.insert(sourceInfo.commuteRouteSegments.end(), routes[routeIndex].morningSegments.begin(), routes[routeIndex].morningSegments.end());
-                completedBuffer.publishedCommuteRouteSegments.insert(completedBuffer.publishedCommuteRouteSegments.end(), routes[routeIndex].morningSegments.begin(), routes[routeIndex].morningSegments.end());
-                completedBuffer.publishedCommuteRouteSegments.insert(completedBuffer.publishedCommuteRouteSegments.end(), routes[routeIndex].eveningSegments.begin(), routes[routeIndex].eveningSegments.end());
+                completedBuffer.publishedCommuteClocks.push_back(routes[routeIndex].morningSeconds);
+                completedBuffer.publishedCommuteClocks.push_back(routes[routeIndex].eveningSeconds);
+                for (const auto* segments : {&routes[routeIndex].morningSegments, &routes[routeIndex].eveningSegments}) {
+                    const auto begin = completedBuffer.publishedCommuteRouteSegments.size();
+                    completedBuffer.publishedCommuteRouteSegments.insert(completedBuffer.publishedCommuteRouteSegments.end(), segments->begin(), segments->end());
+                    if (!segments->empty())
+                        completedBuffer.publishedCommuteRouteRanges.emplace_back(begin, completedBuffer.publishedCommuteRouteSegments.size());
+                }
             }
         }
 
@@ -5869,13 +5918,17 @@ void SimulationRuntime::collectLotAccessNodes(const Lot& lot, const LotAsset& lo
     accessNodes.erase(std::unique(accessNodes.begin(), accessNodes.end()), accessNodes.end());
 }
 
-std::vector<CommuteRouteSegment> SimulationRuntime::buildCommuteRouteSegments(const TransportPathResult& pathResult, std::uint16_t demand, CommuteTimeOfDay timeOfDay) const {
+std::vector<CommuteRouteSegment> SimulationRuntime::buildCommuteRouteSegments(const TransportPathResult& pathResult, std::uint16_t demand, CommuteTimeOfDay timeOfDay, CommuteRouteClock& clock) const {
+    clock.reset();
     std::vector<CommuteRouteSegment> segments;
     if (!pathResult.success || demand == 0u) {
         return segments;
     }
 
     const TransportCostMap& costMap = transportNetwork_.costMap();
+    auto seconds = std::make_shared<std::vector<float>>();
+    commuteRouter_.pathCost(pathResult, timeOfDay, seconds.get());
+    clock = seconds;
     std::size_t stepIndex = 0;
     for (; stepIndex < pathResult.steps.size(); ++stepIndex) {
         const TransportPathStep& step = pathResult.steps[stepIndex];
@@ -5895,10 +5948,12 @@ std::vector<CommuteRouteSegment> SimulationRuntime::buildCommuteRouteSegments(co
             if (previous.direction == step.roadDirection &&
                 previous.layer == costMap.nodeLayer(step.fromNodeId) &&
                 previous.mode == costMap.nodeMode(step.fromNodeId) &&
+                previous.timingEnd == stepIndex &&
                 previous.endTileX == fromTileX &&
                 previous.endTileY == fromTileY) {
                 previous.endTileX = toTileX;
                 previous.endTileY = toTileY;
+                previous.timingEnd = stepIndex + 1;
                 previous.demand = std::max(previous.demand, demand);
                 continue;
             }
@@ -5914,6 +5969,9 @@ std::vector<CommuteRouteSegment> SimulationRuntime::buildCommuteRouteSegments(co
         segment.timeOfDay = timeOfDay;
         segment.direction = step.roadDirection;
         segment.demand = demand;
+        segment.elapsedSeconds = clock.get();
+        segment.timingBegin = stepIndex;
+        segment.timingEnd = stepIndex + 1;
         segments.push_back(segment);
     }
 

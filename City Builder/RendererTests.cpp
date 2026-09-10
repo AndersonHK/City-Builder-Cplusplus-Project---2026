@@ -880,6 +880,65 @@ void TestRciToolXmlLoading(TestRunner& runner) {
 
 int main() {
     TestRunner runner;
+    for (int dx = -1; dx <= 1; ++dx) {
+        for (int dy = -1; dy <= 1; ++dy) {
+            if (!dx && !dy) continue;
+            for (int distance : {1, 37, 512}) {
+                CommuteRouteSegment segment;
+                segment.startTileX = segment.startTileY = 520;
+                segment.endTileX = 520 + dx * distance;
+                segment.endTileY = 520 + dy * distance;
+                const auto arrows = BuildRouteArrowInstances({segment});
+                runner.expect(arrows.size() == 1, "Every nonzero cardinal/diagonal route gets an arrow strip");
+                const auto& arrow = arrows.front();
+                runner.expect(AlmostEqual(arrow.originX, 520.5f) && AlmostEqual(arrow.originZ, 520.5f),
+                    "Arrow starts at the routing node center in every direction");
+                runner.expect(AlmostEqual(arrow.originX + arrow.directionX * arrow.sizeX, segment.endTileX + 0.5f) &&
+                    AlmostEqual(arrow.originZ + arrow.directionZ * arrow.sizeX, segment.endTileY + 0.5f),
+                    "Long and diagonal arrow ends meet the next segment's start exactly");
+                runner.expect(AlmostEqual(arrow.directionX * arrow.directionX + arrow.directionZ * arrow.directionZ, 1.0f),
+                    "Arrow orientation is normalized rather than axis-snapped");
+            }
+        }
+    }
+    runner.expect(BuildRouteArrowInstances({CommuteRouteSegment()}).empty(), "Zero-length route has no invalid arrow geometry");
+    {
+        auto clock = std::make_shared<const std::vector<float>>(std::vector<float>{0, 10, 30});
+        CommuteRouteSegment first, second;
+        first.endTileX = 10;
+        first.elapsedSeconds = clock.get();
+        first.timingEnd = 1;
+        second.startTileX = 10;
+        second.endTileX = 20;
+        second.elapsedSeconds = clock.get();
+        second.timingBegin = 1;
+        second.timingEnd = 2;
+        const auto speed = BuildRouteArrowInstances({first, second});
+        runner.expect(speed.size() == 2 && AlmostEqual(speed[0].endPhase, 1) &&
+            AlmostEqual(speed[1].startPhase, 1) && AlmostEqual(speed[1].endPhase, 3),
+            "Slower tiles carry twice as many ten-second arrows without restarting phase");
+        second.endTileX = 10;
+        second.endTileY = 10;
+        const auto bend = BuildRouteArrowInstances({first, second});
+        runner.expect(bend.size() == 10, "Right-angle route uses eight smooth corner spans and two straights");
+        for (std::size_t i = 1; i < bend.size(); ++i) {
+            const auto& a = bend[i - 1];
+            const auto& b = bend[i];
+            runner.expect(AlmostEqual(a.originX + a.directionX * a.sizeX, b.originX) &&
+                AlmostEqual(a.originZ + a.directionZ * a.sizeX, b.originZ) &&
+                AlmostEqual(a.endPhase, b.startPhase) && AlmostEqual(a.endNormalX, b.startNormalX) &&
+                AlmostEqual(a.endNormalZ, b.startNormalZ), "Rounded ribbon joins share geometry, width and clock exactly");
+        }
+        auto fiveMinuteClock = std::make_shared<const std::vector<float>>(std::vector<float>{0, 300});
+        first.elapsedSeconds = fiveMinuteClock.get();
+        first.endTileX = 500;
+        const auto fiveMinutes = BuildRouteArrowInstances({first});
+        runner.expect(fiveMinutes.size() == 1 && AlmostEqual(fiveMinutes[0].endPhase, 30),
+            "Five minutes of travel produces thirty arrow blocks without per-tile geometry");
+        runner.expect(AlmostEqual(BuildRouteArrowInstances({first}, 20)[0].endPhase, 15),
+            "Arrow duration can be tuned independently of routing data");
+        runner.expect(BuildRouteArrowInstances({first}, 0).empty(), "Invalid arrow interval cannot produce invalid GPU values");
+    }
     TestTileStatePacking(runner);
     TestTileStateChunkPacking(runner);
     TestTileLiftChunkPacking(runner);

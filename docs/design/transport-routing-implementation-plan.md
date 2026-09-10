@@ -1,8 +1,8 @@
-# Routing implementation plan
+# Routing implementation record
 
 Started September 9, 2026. Target: 300 TPS on the current i9-13900K, within an initial 20 GB whole-process memory budget. Changes were initially left uncommitted for manual regression review. The user subsequently reported no new regressions and authorized a commit if a real saved-city comparison demonstrated improved performance.
 
-**Performance acceptance uses real saves.** Synthetic fixtures are design tools and correctness checks, not evidence that the implementation succeeded in the game. The follow-up harness goal is to improve the user's saved city further without reducing functionality, accuracy, or revalidation coverage. See [the saved-city benchmark report](transport-routing-real-city-benchmark.md) for the acceptance measurements.
+**Performance acceptance uses real saves.** Synthetic fixtures are design tools and correctness checks, not evidence that the implementation succeeded in the game. The implementation and publication follow-up goals were completed in commit `79e0319`; the 300 TPS target remains unmet. Further performance work must preserve functionality, accuracy, and revalidation coverage. See [the saved-city benchmark report](transport-routing-real-city-benchmark.md) for the acceptance measurements.
 
 ## Contract
 
@@ -112,3 +112,7 @@ The initial harness implementation goal is complete. The user performed the manu
 The saved-city profile identified publication as the dominant cost. The retained iteration reuses each write buffer's lot geometry and occupancy until lot revision, lot identity, or displayed zoning changes; construction already advances the lot revision. It also retains per-lot route-segment allocations and reuses module/parameter summaries when their lot state is unchanged. Dynamic staffing, commute costs/categories, complaints, current capacity, and route-display data continue to refresh normally. No shared mutable renderer storage or reduced simulation work was introduced.
 
 `CityRoutingBenchmark` reads an immutable copy of a real save through the existing loader and supports routing-only and full headless tick modes. The full mode executes the normal simulation pass order, including construction and publication. `tools/prepare_city_routing_benchmark.py` creates isolated baseline/current sources, input copies, and hashes; `tools/run_city_routing_benchmark.py` runs them sequentially in alternating order. Optional publication fingerprints compare the complete affected payloads field by field without hashing struct padding. Those verification runs are separate from performance samples.
+
+## Route display follow-up
+
+The subsequent query/preview fixes add complete road-route selection, smooth time-scaled arrow ribbons, immutable route clocks refreshed on repricing, and correct opaque/ghost depth ordering. They preserve route allocation and save data. The user visually tested this build and reported that it looks and works well. Current renderer behavior, test counts, and the separate real-save overhead measurements are in [renderer notes](renderer.md); the earlier validation table above records the routing commit, not the later display revision.

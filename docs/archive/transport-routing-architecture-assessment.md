@@ -1,5 +1,8 @@
 # Routing architecture assessment — September 2026
 
+Archived September 9, 2026. This is historical design context, including pre-change audits and proposals; it is not the current implementation contract. See the [documentation index](../README.md), [transport guide](../design/transport-network.md), [routing implementation record](../design/transport-routing-implementation-plan.md), and [real-save benchmark](../design/transport-routing-real-city-benchmark.md).
+
+
 ## Recommendation and target
 
 Target: **300 simulation ticks/second on the user's current i9-13900K, with an initial 20 GB RAM budget**. The CPU name was read from the local Windows processor registry; 32 logical processors are visible to the process. Treat 20 GB as the whole-process planning budget, including snapshots and rebuild peaks, rather than spending it all on routing.

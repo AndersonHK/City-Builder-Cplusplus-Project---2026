@@ -12,6 +12,7 @@
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "AssetLoader.h"
@@ -136,6 +137,7 @@ struct TileQueryResult {
     std::string complaintSummary;
     std::vector<CommuteRouteSegment> commuteRouteSegments;
     std::vector<CommuteRouteSegment> roadCommuteSegments;
+    std::vector<CommuteRouteClock> commuteClocks;
     std::vector<TransportLayerId> roadLayers;
     std::vector<ResolvedRoadCell> roads;
 
@@ -355,6 +357,9 @@ private:
         std::vector<PublishedLotInfo> publishedLotInfos;
         std::vector<RciLot> publishedZoningLots;
         std::vector<CommuteRouteSegment> publishedCommuteRouteSegments;
+        // Half-open ranges preserve each one-way route for complete road queries.
+        std::vector<std::pair<std::size_t, std::size_t>> publishedCommuteRouteRanges;
+        std::vector<CommuteRouteClock> publishedCommuteClocks;
         std::vector<std::uint64_t> chunkRevisions;
         std::vector<int> publishedLotOccupancy;
         std::vector<ResolvedRoadCell> publishedRoads;
@@ -580,7 +585,8 @@ private:
     int lotActualParameterAmount(const Lot& lot, const LotAsset* lotAsset, int parameterId, const TileBuffer& writeBuffer) const;
     int lotActualDerivedParameterAmount(const Lot& lot, const LotAsset* lotAsset, int parameterId, const TileBuffer& writeBuffer) const;
     void collectLotAccessNodes(const Lot& lot, const LotAsset& lotAsset, std::uint8_t allowedModeMask, std::vector<std::uint32_t>& accessNodes) const;
-    std::vector<CommuteRouteSegment> buildCommuteRouteSegments(const TransportPathResult& pathResult, std::uint16_t demand, CommuteTimeOfDay timeOfDay) const;
+    std::vector<CommuteRouteSegment> buildCommuteRouteSegments(const TransportPathResult& pathResult, std::uint16_t demand,
+                                                            CommuteTimeOfDay timeOfDay, CommuteRouteClock& clock) const;
     bool isTileInsideMap(int tileX, int tileY) const;
     int tileIndex(int tileX, int tileY) const;
 

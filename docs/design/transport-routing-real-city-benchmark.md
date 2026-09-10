@@ -1,6 +1,8 @@
 # Real-city routing and publication benchmark
 
-September 9, 2026. **Acceptance is based on the user's real city (1, 1), not the synthetic fixtures.** The final implementation improves full headless simulation throughput from **16.6 to 56.6 TPS** in the controlled comparison. It does not reach the 300 TPS target.
+September 9, 2026, routing/publication commit `79e0319`. These are historical acceptance measurements for that commit; later time-scaled route-display validation and overhead are recorded in [renderer notes](renderer.md).
+
+**Acceptance is based on the user's real city (1, 1), not the synthetic fixtures.** The final implementation improves full headless simulation throughput from **16.6 to 56.6 TPS** in the controlled comparison. It does not reach the 300 TPS target.
 
 ## Input and method
 

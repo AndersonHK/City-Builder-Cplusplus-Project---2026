@@ -8,6 +8,8 @@ layout(location = 3) in vec4 aInstanceData2;
 layout(location = 4) in vec3 aMeshColor;
 layout(location = 5) in vec3 aMeshNormal;
 layout(location = 6) in vec4 aMeshSurface;
+layout(location = 7) in vec4 aRouteTimingNormal;
+layout(location = 8) in vec2 aRouteEndNormal;
 
 uniform mat4 uViewProjection;
 uniform int uRenderMode;
@@ -22,6 +24,7 @@ out vec2 vRoadMasks;
 out vec3 vRouteColor;
 out vec4 vUiColor;
 out float vSurfaceLift;
+flat out float vRoutePhasePerTile;
 out vec3 vMeshNormal;
 out vec4 vMeshSurface;
 flat out int vRenderMode;
@@ -29,6 +32,7 @@ flat out int vRenderMode;
 void main()
 {
     vec3 worldPosition;
+    vRoutePhasePerTile = 0.0;
 
     if (uRenderMode == 0) {
         float tileLift = texture(uTileLiftTexture, aInstanceData0.zw).r * 0.04;
@@ -94,12 +98,15 @@ void main()
         vUiColor = vec4(0.0);
         vSurfaceLift = 0.0;
     } else if (uRenderMode == 4) {
-        worldPosition = vec3(
-            aLocalPosition.x * aInstanceData0.z + aInstanceData0.x,
-            aInstanceData1.z,
-            aLocalPosition.z * aInstanceData0.w + aInstanceData0.y);
+        vec2 direction = aInstanceData1.xy;
+        vec2 perpendicular = mix(aRouteTimingNormal.zw, aRouteEndNormal, aLocalPosition.x);
+        float along = aLocalPosition.x * aInstanceData0.z;
+        vec2 position = aInstanceData0.xy + direction * along
+            + perpendicular * ((aLocalPosition.z - 0.5) * aInstanceData0.w);
+        worldPosition = vec3(position.x, aInstanceData1.z, position.y);
         vTileUv = vec2(0.0);
-        vLocalUv = aLocalPosition.xz;
+        vLocalUv = vec2(mix(aRouteTimingNormal.x, aRouteTimingNormal.y, aLocalPosition.x), aLocalPosition.z);
+        vRoutePhasePerTile = (aRouteTimingNormal.y - aRouteTimingNormal.x) / aInstanceData0.z;
         vLotColor = vec3(0.0);
         vRoadGlyphs = aInstanceData1.xy;
         vRoadMasks = vec2(aInstanceData1.w, 0.0);
@@ -198,6 +205,7 @@ in vec2 vRoadMasks;
 in vec3 vRouteColor;
 in vec4 vUiColor;
 in float vSurfaceLift;
+flat in float vRoutePhasePerTile;
 flat in int vRenderMode;
 
 vec4 sampleRoadAtlas(sampler2D atlasTexture, float glyphIndex, vec2 localUv)
@@ -413,16 +421,17 @@ void main()
     }
 
     if (vRenderMode == 4) {
-        vec2 direction = vRoadGlyphs;
-        float horizontal = step(abs(direction.y), abs(direction.x));
-        float alongHorizontal = direction.x >= 0.0 ? vLocalUv.x : 1.0 - vLocalUv.x;
-        float alongVertical = direction.y >= 0.0 ? vLocalUv.y : 1.0 - vLocalUv.y;
-        float along = mix(alongVertical, alongHorizontal, horizontal);
-        float across = mix(abs(vLocalUv.x - 0.5), abs(vLocalUv.y - 0.5), horizontal);
-        float shaft = smoothstep(0.085, 0.055, across) * step(0.08, along) * step(along, 0.78);
-        float headWidth = mix(0.18, 0.045, clamp((along - 0.78) / 0.18, 0.0, 1.0));
-        float head = smoothstep(headWidth + 0.025, headWidth, across) * step(0.76, along) * step(along, 0.96);
-        float alpha = max(shaft, head) * clamp(vRoadMasks.x, 0.0, 1.0);
+        // Phase follows the route clock through speed changes and rounded bends.
+        // Each broad arrow block represents the configured travel-time interval.
+        float along = fract(vLocalUv.x);
+        float across = abs(vLocalUv.y - 0.5);
+        float edgeWidth = max(fwidth(vLocalUv.y), 0.01);
+        // Cap the head in world units so fast roads produce longer shafts,
+        // not needle-shaped heads stretched across several tiles.
+        float headPhase = clamp(vRoutePhasePerTile * 0.8, 0.001, 0.25);
+        float width = along < 1.0 - headPhase ? 0.28 : 0.48 * (1.0 - along) / headPhase;
+        float coverage = 1.0 - smoothstep(width, width + edgeWidth, across);
+        float alpha = coverage * step(0.025, along) * clamp(vRoadMasks.x, 0.0, 1.0);
         if (alpha <= 0.001) {
             discard;
         }

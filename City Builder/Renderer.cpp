@@ -286,21 +286,6 @@ struct RoadInstanceData {
     float dividerMask;
 };
 
-struct RouteArrowInstanceData {
-    float originX;
-    float originZ;
-    float sizeX;
-    float sizeZ;
-    float directionX;
-    float directionZ;
-    float lift;
-    float alpha;
-    float colorR;
-    float colorG;
-    float colorB;
-    float colorPadding;
-};
-
 struct RegionPreviewInstanceData {
     float originX;
     float originZ;
@@ -1630,7 +1615,7 @@ void ConfigureRoadChunkVertexArray(GLuint vertexArrayId, GLuint tileVertexBuffer
     glBindVertexArray(0);
 }
 
-// Wires stretched route-arrow quads for queried commute paths.
+// Wires joined route ribbons carrying travel-time phase and shared corner normals.
 void ConfigureRouteArrowVertexArray(GLuint vertexArrayId, GLuint tileVertexBufferId, GLuint instanceBufferId) {
     glBindVertexArray(vertexArrayId);
 
@@ -1642,6 +1627,8 @@ void ConfigureRouteArrowVertexArray(GLuint vertexArrayId, GLuint tileVertexBuffe
     SetupInstanceAttribute(1, 4, sizeof(RouteArrowInstanceData), 0);
     SetupInstanceAttribute(2, 4, sizeof(RouteArrowInstanceData), sizeof(float) * 4);
     SetupInstanceAttribute(3, 4, sizeof(RouteArrowInstanceData), sizeof(float) * 8);
+    SetupInstanceAttribute(7, 4, sizeof(RouteArrowInstanceData), sizeof(float) * 12);
+    SetupInstanceAttribute(8, 2, sizeof(RouteArrowInstanceData), sizeof(float) * 16);
 
     glBindVertexArray(0);
 }
@@ -2041,57 +2028,6 @@ float RoadLayerLift(TransportLayerId layer) {
         default:
             return 0.035f;
     }
-}
-
-std::vector<RouteArrowInstanceData> BuildRouteArrowInstances(const std::vector<CommuteRouteSegment>& segments) {
-    std::vector<RouteArrowInstanceData> instances;
-    instances.reserve(segments.size());
-
-    std::size_t segmentIndex = 0;
-    for (; segmentIndex < segments.size(); ++segmentIndex) {
-        const CommuteRouteSegment& segment = segments[segmentIndex];
-        const int directionX = RoadDirectionDeltaX(segment.direction);
-        const int directionY = RoadDirectionDeltaY(segment.direction);
-        if (directionX == 0 && directionY == 0) {
-            continue;
-        }
-
-        RouteArrowInstanceData instance;
-        instance.directionX = static_cast<float>(directionX);
-        instance.directionZ = static_cast<float>(directionY);
-        instance.lift = RoadLayerLift(segment.layer) + 0.09f;
-        instance.alpha = 0.88f;
-        if (segment.mode == TransportMode::Pedestrian) {
-            instance.colorR = 1.0f;
-            instance.colorG = 0.22f;
-            instance.colorB = 0.66f;
-        } else {
-            instance.colorR = 0.08f;
-            instance.colorG = 0.95f;
-            instance.colorB = 0.26f;
-        }
-        instance.colorPadding = 0.0f;
-
-        const int minX = std::min(segment.startTileX, segment.endTileX);
-        const int minY = std::min(segment.startTileY, segment.endTileY);
-        const int maxX = std::max(segment.startTileX, segment.endTileX);
-        const int maxY = std::max(segment.startTileY, segment.endTileY);
-        if (directionX != 0) {
-            instance.originX = static_cast<float>(minX);
-            instance.originZ = static_cast<float>(segment.startTileY) + 0.22f;
-            instance.sizeX = static_cast<float>(maxX - minX + 1);
-            instance.sizeZ = 0.56f;
-        } else {
-            instance.originX = static_cast<float>(segment.startTileX) + 0.22f;
-            instance.originZ = static_cast<float>(minY);
-            instance.sizeX = 0.56f;
-            instance.sizeZ = static_cast<float>(maxY - minY + 1);
-        }
-
-        instances.push_back(instance);
-    }
-
-    return instances;
 }
 
 bool RoadPreviewAxisKeyLess(const RoadPreviewAxisKey& left, const RoadPreviewAxisKey& right) {
@@ -4569,6 +4505,23 @@ int Renderer::run() {
                 glUniform1f(roadTintStrengthLocation, 0.0f);
             }
 
+            // Opaque geometry establishes depth before translucent placement previews.
+            if (!lotInstances.empty()) {
+                glUniform1i(renderModeLocation, lotMeshBatches.empty() ? 1 : 9);
+                glUniform1f(lotAlphaScaleLocation, 1.0f);
+                glUniform3f(lotTintColorLocation, 1.0f, 1.0f, 1.0f);
+                glUniform1f(lotTintStrengthLocation, 0.0f);
+                const std::chrono::steady_clock::time_point lotDrawStart = std::chrono::steady_clock::now();
+                if (lotMeshBatches.empty()) {
+                    glBindVertexArray(lotVertexArrayId);
+                    glDrawArraysInstanced(GL_TRIANGLES, 0, 36, static_cast<GLsizei>(lotInstances.size()));
+                } else {
+                    glBindVertexArray(generatedLotVertexArrayId);
+                    DrawGeneratedLotBatches(lotMeshBatches);
+                }
+                frameMetrics.lotDrawMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - lotDrawStart).count();
+            }
+
             if (!lotGhostInstances.empty()) {
                 glUniform1i(renderModeLocation, lotGhostMeshBatches.empty() ? 1 : 9);
                 glUniform1f(lotAlphaScaleLocation, lotGhostPlacementValid ? kLotGhostAlpha : 0.55f);
@@ -4593,22 +4546,6 @@ int Renderer::run() {
                 glUniform1f(lotAlphaScaleLocation, 1.0f);
                 glUniform3f(lotTintColorLocation, 1.0f, 1.0f, 1.0f);
                 glUniform1f(lotTintStrengthLocation, 0.0f);
-            }
-
-            if (!lotInstances.empty()) {
-                glUniform1i(renderModeLocation, lotMeshBatches.empty() ? 1 : 9);
-                glUniform1f(lotAlphaScaleLocation, 1.0f);
-                glUniform3f(lotTintColorLocation, 1.0f, 1.0f, 1.0f);
-                glUniform1f(lotTintStrengthLocation, 0.0f);
-                const std::chrono::steady_clock::time_point lotDrawStart = std::chrono::steady_clock::now();
-                if (lotMeshBatches.empty()) {
-                    glBindVertexArray(lotVertexArrayId);
-                    glDrawArraysInstanced(GL_TRIANGLES, 0, 36, static_cast<GLsizei>(lotInstances.size()));
-                } else {
-                    glBindVertexArray(generatedLotVertexArrayId);
-                    DrawGeneratedLotBatches(lotMeshBatches);
-                }
-                frameMetrics.lotDrawMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - lotDrawStart).count();
             }
 
             if (!bulldozeLotInstances.empty()) {

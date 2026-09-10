@@ -2,7 +2,142 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cmath>
 #include <limits>
+
+namespace {
+struct RoutePoint {
+    float x, z, seconds;
+};
+float RouteDistance(const RoutePoint& a, const RoutePoint& b) {
+    const float x = b.x - a.x, z = b.z - a.z;
+    return std::sqrt(x * x + z * z);
+}
+RoutePoint RouteLerp(const RoutePoint& a, const RoutePoint& b, float t) {
+    return {a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t,
+            a.seconds + (b.seconds - a.seconds) * t};
+}
+// Preserve every speed change, but avoid emitting one quad per tile at constant speed.
+void AppendRoutePoint(std::vector<RoutePoint>& points, const RoutePoint& point) {
+    if (points.size() >= 2) {
+        const auto& a = points[points.size() - 2];
+        const auto& b = points.back();
+        const float ab = RouteDistance(a, b), bc = RouteDistance(b, point);
+        if (ab > 0 && bc > 0 &&
+            std::abs((b.x - a.x) * (point.z - b.z) - (b.z - a.z) * (point.x - b.x)) < 0.00001f &&
+            (b.x - a.x) * (point.x - b.x) + (b.z - a.z) * (point.z - b.z) > 0 &&
+            std::abs((b.seconds - a.seconds) / ab - (point.seconds - b.seconds) / bc) < 0.00001f) {
+            points.back() = point;
+            return;
+        }
+    }
+    points.push_back(point);
+}
+void AppendRouteRibbon(const std::vector<RoutePoint>& points, const CommuteRouteSegment& style,
+                       float secondsPerArrow, std::vector<RouteArrowInstanceData>& instances) {
+    if (points.size() < 2) return;
+    std::vector<RoutePoint> curve;
+    curve.push_back(points.front());
+    for (std::size_t i = 1; i + 1 < points.size(); ++i) {
+        const auto& a = points[i - 1];
+        const auto& b = points[i];
+        const auto& c = points[i + 1];
+        const float ab = RouteDistance(a, b), bc = RouteDistance(b, c);
+        const float dot = ((b.x - a.x) * (c.x - b.x) + (b.z - a.z) * (c.z - b.z)) / (ab * bc);
+        if (dot > 0.999f || dot < -0.999f) {
+            curve.push_back(b);
+            continue;
+        }
+        const float radius = std::min(0.6f, 0.45f * std::min(ab, bc));
+        const auto entry = RouteLerp(b, a, radius / ab);
+        const auto exit = RouteLerp(b, c, radius / bc);
+        curve.push_back(entry);
+        // Round inside the road corner; preserve the clock on both sides of the turn.
+        for (int j = 1; j <= 8; ++j) {
+            const float t = j / 8.0f;
+            auto point = RouteLerp(RouteLerp(entry, b, t), RouteLerp(b, exit, t), t);
+            point.seconds = t <= 0.5f ? RouteLerp(entry, b, t * 2).seconds : RouteLerp(b, exit, t * 2 - 1).seconds;
+            curve.push_back(point);
+        }
+    }
+    curve.push_back(points.back());
+    std::vector<RoutePoint> normals(curve.size());
+    for (std::size_t i = 0; i < curve.size(); ++i) {
+        const auto& a = curve[i == 0 ? 0 : i - 1];
+        const auto& b = curve[i];
+        const auto& c = curve[i + 1 == curve.size() ? i : i + 1];
+        const float ab = RouteDistance(a, b), bc = RouteDistance(b, c);
+        float nx = bc > 0 ? -(c.z - b.z) / bc : -(b.z - a.z) / ab;
+        float nz = bc > 0 ? (c.x - b.x) / bc : (b.x - a.x) / ab;
+        if (ab > 0 && bc > 0) {
+            const float mx = nx - (b.z - a.z) / ab, mz = nz + (b.x - a.x) / ab;
+            const float denominator = mx * nx + mz * nz;
+            if (denominator > 0.5f) { nx = mx / denominator; nz = mz / denominator; }
+        }
+        normals[i] = {nx, nz, 0};
+    }
+    for (std::size_t i = 1; i < curve.size(); ++i) {
+        const auto& a = curve[i - 1];
+        const auto& b = curve[i];
+        const float length = RouteDistance(a, b);
+        if (length == 0) continue;
+        RouteArrowInstanceData instance{};
+        instance.originX = a.x;
+        instance.originZ = a.z;
+        instance.sizeX = length;
+        instance.sizeZ = 0.56f;
+        instance.directionX = (b.x - a.x) / length;
+        instance.directionZ = (b.z - a.z) / length;
+        const float layerLift = style.layer == TransportLayerId::Elevated ? 0.60f :
+            style.layer == TransportLayerId::Underground ? -0.25f : 0.035f;
+        instance.lift = layerLift + 0.09f;
+        instance.alpha = 0.88f;
+        const bool pedestrian = style.mode == TransportMode::Pedestrian;
+        instance.colorR = pedestrian ? 1.0f : 0.08f;
+        instance.colorG = pedestrian ? 0.22f : 0.95f;
+        instance.colorB = pedestrian ? 0.66f : 0.26f;
+        instance.startPhase = a.seconds / secondsPerArrow;
+        instance.endPhase = b.seconds / secondsPerArrow;
+        instance.startNormalX = normals[i - 1].x;
+        instance.startNormalZ = normals[i - 1].z;
+        instance.endNormalX = normals[i].x;
+        instance.endNormalZ = normals[i].z;
+        instances.push_back(instance);
+    }
+}
+}
+
+std::vector<RouteArrowInstanceData> BuildRouteArrowInstances(const std::vector<CommuteRouteSegment>& segments,
+                                                           float secondsPerArrow) {
+    std::vector<RouteArrowInstanceData> instances;
+    if (!std::isfinite(secondsPerArrow) || secondsPerArrow <= 0) return instances;
+    std::vector<RoutePoint> points;
+    const CommuteRouteSegment* previous = nullptr;
+    for (const auto& segment : segments) {
+        const float dx = static_cast<float>(segment.endTileX - segment.startTileX);
+        const float dz = static_cast<float>(segment.endTileY - segment.startTileY);
+        if (dx == 0 && dz == 0) continue;
+        const bool timed = segment.elapsedSeconds && segment.timingEnd > segment.timingBegin &&
+                           segment.timingEnd < segment.elapsedSeconds->size();
+        const bool joins = previous && timed && previous->elapsedSeconds == segment.elapsedSeconds &&
+            previous->timingEnd == segment.timingBegin && previous->endTileX == segment.startTileX &&
+            previous->endTileY == segment.startTileY && previous->mode == segment.mode && previous->layer == segment.layer;
+        if (!joins && !points.empty()) {
+            AppendRouteRibbon(points, *previous, secondsPerArrow, instances);
+            points.clear();
+        }
+        const std::size_t steps = timed ? segment.timingEnd - segment.timingBegin : 1;
+        for (std::size_t i = joins ? 1 : 0; i <= steps; ++i) {
+            // Untimed debug fixtures retain a ribbon without pretending to encode speed.
+            const float seconds = timed ? (*segment.elapsedSeconds)[segment.timingBegin + i] : 0.5f * secondsPerArrow;
+            AppendRoutePoint(points, {segment.startTileX + 0.5f + (dx / steps) * i,
+                                     segment.startTileY + 0.5f + (dz / steps) * i, seconds});
+        }
+        previous = &segment;
+    }
+    if (!points.empty()) AppendRouteRibbon(points, *previous, secondsPerArrow, instances);
+    return instances;
+}
 
 namespace {
 // Keep occupied terrain below shallow lot surfaces; a full mask is close enough

@@ -138,6 +138,25 @@ struct TransportCommuteTestAccess {
                "unrelated graph rebuild does not resurrect occupied vacancies");
         for (const auto &lot : runtime.lots_)
             expect(lot.lowWealthJobsFilled() <= lot.lowWealthJobsTotal(), "no destination oversubscribed");
+        // A speed edit changes timing on the same path, including published copies,
+        // without mutating snapshots already handed to the renderer.
+        const auto oldTiming = runtime.lots_[0].commuteRoutes()[0].morningSeconds;
+        const auto oldTimes = *oldTiming;
+        map.clearCostsForTile(TransportLayerId::Ground, 3);
+        map.addDirectionalCost(TransportLayerId::Ground, TransportMode::Pedestrian, 3, kRoadDirectionEast, 400, 100);
+        map.addDirectionalCost(TransportLayerId::Ground, TransportMode::Pedestrian, 3, kRoadDirectionWest, 100, 100);
+        map.addBuildingAccess(TransportLayerId::Ground, TransportMode::Pedestrian, 3, kRoadDirectionSouth);
+        runtime.queueCommuteRecalculationForRoadTopologyChange({3});
+        tick();
+        const auto& timedRoute = runtime.lots_[0].commuteRoutes()[0];
+        const auto newTiming = timedRoute.morningSegments[0].elapsedSeconds;
+        expect(newTiming && newTiming->size() == timedRoute.morningPathResult.steps.size() + 1,
+               "route timing includes every movement boundary");
+        expect(newTiming->back() > oldTimes.back() && *oldTiming == oldTimes,
+               "repricing updates displayed speed while old snapshots remain immutable");
+        expect(std::abs(newTiming->back() * 1000 - timedRoute.morningPathResult.totalCost) < 0.1f,
+               "walking arrow clock agrees with the routing cost");
+        verifyPublication(runtime, buffer);
         // Remove an employer; only its indexed source dependents are forced.
         runtime.queueCommuteSourcesForDestination(4);
         expect(runtime.forcedCommuteLotIds_.size() == 1 && runtime.forcedCommuteLotIds_[0] == 1,
@@ -235,6 +254,25 @@ struct TransportCommuteTestAccess {
         buffer.tiles[zoningTile].zoningType = TileZoningResidentialHigh;
         ++runtime.commuteRevision_;
         verifyPublication(runtime, buffer);
+        // Road queries retain local statistics but display complete matching legs.
+        runtime.publishedBufferIndex_ = runtime.simulationReadBufferIndex_;
+        std::fill(buffer.publishedLotOccupancy.begin(), buffer.publishedLotOccupancy.end(), -1);
+        for (auto& road : buffer.publishedRoads)
+            road.family = static_cast<std::uint8_t>(RoadFamily::LocalStreet);
+        const auto segment = [](int x0, int y0, int x1, int y1) {
+            CommuteRouteSegment s;
+            s.startTileX = x0; s.startTileY = y0; s.endTileX = x1; s.endTileY = y1; s.demand = 5;
+            return s;
+        };
+        buffer.publishedCommuteRouteSegments = {
+            segment(1, 0, 5, 0), segment(5, 0, 5, 5), segment(5, 5, 9, 5), segment(0, 0, 8, 8)};
+        buffer.publishedCommuteRouteRanges = {{0, 3}, {3, 4}};
+        const auto bent = runtime.queryTile(3, 0);
+        expect(bent.roadCommuteSegments.size() == 1, "road traffic counts only the segment through the queried tile");
+        expect(bent.commuteRouteSegments.size() == 3 && bent.commuteRouteSegments.back().endTileX == 9,
+               "road query displays the entire bent route beyond the clicked straight section");
+        expect(runtime.queryTile(3, 3).roadCommuteSegments.size() == 1, "diagonal road route matches its actual tiles");
+        expect(runtime.queryTile(2, 4).roadCommuteSegments.empty(), "diagonal bounding box does not select unrelated routes");
     }
     void benchmark(int width, bool full) {
         RuntimeOptions options;

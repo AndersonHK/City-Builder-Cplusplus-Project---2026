@@ -36,6 +36,26 @@ void connect(TransportCostMap &map, int x, int y, std::uint8_t dir, int cost = 1
     map.addDirectionalCost(TransportLayerId::Ground, mode, y * map.width() + x, dir, static_cast<std::uint16_t>(cost),
                            100);
 }
+void testRouteClock() {
+    TransportCostMap map;
+    map.initialize(4, 1);
+    connect(map, 0, 0, kRoadDirectionEast, 1000, TransportMode::Car);
+    connect(map, 1, 0, kRoadDirectionEast, 2000, TransportMode::Car);
+    connect(map, 2, 0, kRoadDirectionEast, 4000, TransportMode::Car);
+    map.finalizeTransferEdges();
+    TransportRouter router;
+    router.prepare(map);
+    TransportRoutingScratch scratch;
+    TransportPathResult path;
+    expect(router.findPath(request(map.nodeId(TransportLayerId::Ground, TransportMode::Car, 0),
+                                   map.nodeId(TransportLayerId::Ground, TransportMode::Car, 3)), scratch, path),
+           "timed car route is reachable");
+    std::vector<float> seconds;
+    const float cost = router.pathCost(path, CommuteTimeOfDay::Morning, &seconds);
+    expect(cost == path.totalCost && cost == 67000, "timing extraction preserves the exact route cost");
+    expect(seconds == std::vector<float>({0, 1, 3, 7}),
+           "route clock follows local speed and excludes the stationary sixty-second car-start cost");
+}
 void testDifferential() {
     std::mt19937 random(71823);
     for (int fixture = 0; fixture < 12; ++fixture) {
@@ -328,6 +348,7 @@ void benchmark(int width) {
 }
 } // namespace
 int main(int argc, char **argv) {
+    testRouteClock();
     testDifferential();
     testNearestAndUpdates();
     testFieldsAndPool();

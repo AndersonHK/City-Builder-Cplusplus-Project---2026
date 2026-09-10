@@ -16,7 +16,7 @@ and [metric art standard](docs/design/metric-art-standard.md).
 - `SimulationRuntime` owns authoritative world state, chunked simulation passes, triple buffering, published render snapshots, timing instrumentation, and a multi-layer transport network for roads.
 - `GameSession` owns the boot mode, the default 3x3 `Region`, the reusable active `SimulationRuntime`, and alpha autoslot save/load.
 - `Region` owns coordinate-addressed `City` records and 4096x4096 top-down preview pixels rendered from saved city state through the normal city draw passes.
-- `Renderer` owns the presentation path. The render contract is now Vulkan-native HDR oriented, with the remaining OpenGL path treated as legacy compatibility code until the Vulkan backend is buildable on the machine:
+- `Renderer` currently draws through OpenGL/GLFW and `Basic.shader`. Vulkan/HDR is the planned backend; format-selection and color helpers are implemented, while Vulkan presentation remains future work:
   - startup and blocking foreground save/load screens with a shared loading bar
   - region preview grid rendering and double-click city entry
   - constrained pitched perspective camera
@@ -27,7 +27,8 @@ and [metric art standard](docs/design/metric-art-standard.md).
   - packed ground-road state uploads in the tile pass
   - lazy visible-chunk elevated-road rendering for stacked highways
   - alpha-tinted ghost road preview while a road stroke is being dragged
-  - alpha-tinted ghost lot preview while a lot placement tool is active
+  - depth-tested, alpha-tinted lot previews that intersect existing 3D buildings correctly
+  - rounded query route ribbons with one arrow block per 10 seconds of travel, carrying timing through bends and speed changes
   - red bulldoze area overlay and selected-building tint while dragging
   - persistent low-density residential, high-density residential, and industrial zoning semantic overlays plus matching drag previews
   - instanced textured metric lot meshes with near/distant detail levels
@@ -164,7 +165,8 @@ msbuild 'City Builder/RciLotConstructionTests.vcxproj' /p:Configuration=Release 
 
 ## Design guides
 - `docs/design/transport-network.md` - template-owned road placement, lane cells, directional cost maps, pathfinding, crosswalk graphic rules, packed road state, and layer revisions. Main code anchors: `TransportTypes.h`, `TransportCostMap.h`, `RoadLane.h`, `RoadLaneCell.h`, `RoadGraphic.h`, `RoadTemplateDefinition.h`, `Road.h`, `TransportTile.h`, `RoadRenderState.h`, and `TransportNetwork.h`.
-- `docs/design/transport-routing-scalability-plan.md` - plan for flat route-search cleanup, single-pass nearest-destination Dijkstra, point-to-point bidirectional A* repair, later route splitting, and future hierarchical routing research.
+- [Documentation index](docs/README.md) - current guides, open plans, benchmark records, and archived proposals.
+- [Routing implementation record](docs/design/transport-routing-implementation-plan.md) - compact routing, deterministic workers, current validation, and deferred experiments.
 - `docs/design/app-config.md` - INI-backed startup preferences, hotkeys, date display settings, and debug console gates.
 - `docs/design/city-morphology-art-direction.md` - low-poly art direction for SC4-like controlled chaos, narrow/deep parcel grain, frontage rhythm, block composition, and freecam-safe isometric readability. Main code anchors: `RciTool.cpp`, `Lot.h`, `Lot.cpp`, and `Data/RCI/rci_tools.xml`.
 - `docs/design/lot-density-progression.md` - RCI density progression, SC4-inspired stage lessons, half-scale tile balancing, local density-cap scoring, rowhouse/apartment density bands, and redevelopment mix targets. Main code anchors: `rci_tools.xml`, `SimulationRuntime::rciMaxDensityPerTile`, `SimulationRuntime::rciDesirabilityForCandidate`, and `findRciConstructorLotAsset`.

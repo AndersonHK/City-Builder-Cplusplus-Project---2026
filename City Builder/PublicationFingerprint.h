@@ -20,6 +20,12 @@ struct PublicationFingerprint {
     }
     void add(const CommuteRouteSegment &s) {
         fields(s.startTileX, s.startTileY, s.endTileX, s.endTileY, s.layer, s.mode, s.timeOfDay, s.direction, s.demand);
+#ifdef CITY_COMMUTE_ROUTE_TIMING
+        fields(s.timingBegin, s.timingEnd);
+        if (s.elapsedSeconds) {
+            for (auto i = s.timingBegin; i <= s.timingEnd; ++i) add((*s.elapsedSeconds)[i]);
+        }
+#endif
     }
     template <typename T> void add(const std::vector<T> &input) {
         add(input.size());

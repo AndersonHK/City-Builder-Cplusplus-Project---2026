@@ -410,13 +410,20 @@ bool TransportRouter::nextNearest(const TransportDestinationIndex &destinations,
     }
     return false;
 }
-float TransportRouter::pathCost(const TransportPathResult &path, CommuteTimeOfDay time) const {
+float TransportRouter::pathCost(const TransportPathResult &path, CommuteTimeOfDay time,
+                                std::vector<float>* elapsedSeconds) const {
+    if (elapsedSeconds) elapsedSeconds->clear();
     if (!path.success)
         return infinity;
     const auto first = compact(path.steps.empty() ? path.reachedNodeId : path.steps.front().fromNodeId);
     if (first == invalid)
         return infinity;
     float cost = startCost(nodes_[first].mode);
+    const float departureCost = cost;
+    if (elapsedSeconds) {
+        elapsedSeconds->reserve(path.steps.size() + 1);
+        elapsedSeconds->push_back(0.0f);
+    }
     auto node = first;
     for (const auto &step : path.steps) {
         if (nodes_[node].dense != step.fromNodeId)
@@ -429,6 +436,7 @@ float TransportRouter::pathCost(const TransportPathResult &path, CommuteTimeOfDa
                      ? edge.step.roadDirection == step.roadDirection
                      : edge.step.transferEdgeIndex == step.transferEdgeIndex)) {
                 cost += edge.costs[timeIndex(time)];
+                if (elapsedSeconds) elapsedSeconds->push_back((cost - departureCost) / 1000.0f);
                 node = edge.to;
                 found = true;
                 break;

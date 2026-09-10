@@ -96,6 +96,7 @@ struct ViewState {
     std::uint64_t queriedGeneration;
     std::uint64_t queryRouteRevision;
     std::vector<CommuteRouteSegment> queriedCommuteRouteSegments;
+    std::vector<CommuteRouteClock> queriedCommuteClocks;
     std::vector<std::string> queryWindowLines;
     int hoveredRegionX;
     int hoveredRegionY;

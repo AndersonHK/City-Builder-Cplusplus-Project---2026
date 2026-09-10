@@ -2,7 +2,10 @@
 
 This repository treats "Vulcan" as Vulkan. The target renderer is Vulkan-only, scene-linear HDR internally, and GPU-resident by default. OpenGL/GLEW are legacy implementation debt and should be removed once the Vulkan backend is buildable with the local SDK/toolchain.
 
-## Current Contract
+
+Status checked September 9, 2026: migration remains open. The game and GPU regression tests currently use OpenGL/GLFW, `ShaderProgram`, and `Basic.shader`. Vulkan support helpers and SDK build dependencies are implemented; the backend, HDR composition, and removal checklist below are future work. A successful Release build does not establish Vulkan rendering or HDR output.
+
+## Target Contract
 
 - Simulation remains authoritative and publishes immutable snapshots.
 - Renderer-facing color is `LinearColor` / `HdrColor` float RGBA in scene-linear space.
@@ -38,7 +41,7 @@ This repository treats "Vulcan" as Vulkan. The target renderer is Vulkan-only, s
 - `RendererTests` covers Vulkan swapchain format selection so FP16 scRGB wins first, HDR10 wins second, and SDR is rejected unless explicitly allowed. It also covers cap-calibrated land value, desirability, and traffic payload endpoints.
 - The Visual Studio projects now consume the local Vulkan SDK include/lib paths for x64 builds.
 
-## HDR Composition
+## Planned HDR Composition
 
 - World, roads, overlays, lots, region previews, loading screens, and UI render into an internal `VK_FORMAT_R16G16B16A16_SFLOAT` scene target.
 - Final presentation is the only place where exposure, tone mapping, gamut/output encoding, and clamp happen.
@@ -76,7 +79,7 @@ This repository treats "Vulcan" as Vulkan. The target renderer is Vulkan-only, s
 - Local `vulkaninfo` reports FP16 scRGB and HDR10 10-bit surface-format candidates.
 - `VULKAN_SDK`, `glslc`, and `glslangValidator` should come from the installed Vulkan SDK environment; project files must use `$(VULKAN_SDK)` or `PATH` rather than a machine-specific install folder.
 
-## Validation
+## Migration Acceptance Checks
 
 - Build:
   - `msbuild 'City Builder/City Builder.vcxproj' /p:Configuration=Release /p:Platform=x64 /m`
